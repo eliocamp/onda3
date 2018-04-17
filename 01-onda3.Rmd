@@ -63,99 +63,48 @@ coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
 ```{r read-ncep}
 ncep.f <- memoise::memoise(function(lat = -90:0, 
                                     lon = 0:360,
-                                    time = lubridate::as_datetime(c("1979-12-01", "2016-02-01")),
-                                    level = 10:1000){
+                                    time = lubridate::as_datetime(c("1979-12-01", "2015-12-01")),
+                                    level = 0:1000,
+                                    vars = "gh"){
    subset <- list(lat = lat, lon = lon, level = level,
                   time = time)
-   ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
-              subset = subset) %>% 
-      setnames(., c("level", "time"), c("lev", "date")) %>% 
-      return(.)
+   n <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+                   subset = subset) %>% 
+      setnames(., c("level", "time"), c("lev", "date"))
+   if ("u" %in% vars) {
+      n[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]] 
+   }
+   if ("v" %in% vars) {
+      n[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]]
+   }
+   n[, date := as.Date(date[1]), by = date]
+   return(n)
 }, cache = memoise::cache_filesystem(".rcache"))
 
-file <- ".rcache/ncep.mean.season.Rds"
-ncep.mean.season <- cache.file(file, {
-   file.ncep <- ".rcache/ncep.vars.Rds"
-   subset <- list(lat = -90:0, 
-                  time = lubridate::as_datetime(c("1979-12-01", "2016-02-01")))
-   ncep <- cache.file(file.ncep, {
-      ncep <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
-                         subset = subset)
-      setnames(ncep, c("level", "time"), c("lev", "date")) 
-      ncep <- 
-         ncep[, t := ReadNetCDF("DATA/air.mon.mean.nc", out = "vector", 
-                                subset = subset)[[1]]] %>% 
-         .[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
-                             subset = subset)[[1]]] %>% 
-         .[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
-                             subset = subset)[[1]]]
-      vars <- c("gh", "t", "u", "v")
-      vars.z <- paste0(vars, ".z")
-      ncep[, c(vars.z) := lapply(.SD, Anomaly), by = .(lat, lev, date), .SDcols = -"lon"]
-      ncep[, date := as.Date(date[1]), by = date]
-      ncep
-   })
-   
-   ncep.mean.season <- ncep[, lapply(.SD, mean), 
-                            by = .(lon, lat, lev, season(month(date)))]
-   remove(ncep)
-   ncep.mean.season[, zeta := Vorticity(u + v ~ lon + lat, cyclical = TRUE,
-                                        sphere = TRUE), 
-                    by = .(lev, season)] %>% 
-      .[, zeta.dy := Derivate(zeta ~ lon + lat, 
-                              cyclical = c(FALSE, FALSE),
-                              sphere = TRUE)[[2]],
-        by = .(lev, season)] %>% 
-      .[, eta.dy := zeta.dy + f.dy(lat)]
-   
-   ncep.mean.season[, k := sqrt(eta.dy/u)*dx(180/pi, lat)]
-   ncep.mean.season[, k.full := ifelse(is.na(k) | k > 10, -1, k)]
-})
+ncep <- ncep.f()
 
 file <- ".rcache/ncep.mean.qsseason.Rds"
 ncep.mean.qsseason <- cache.file(file, {
-   file.ncep <- ".rcache/ncep.vars.Rds"
-   subset <- list(lat = -90:0, 
-                  time = lubridate::as_datetime(c("1979-12-01", "2016-02-01")))
-   ncep <- cache.file(file.ncep, {
-      ncep <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
-                         subset = subset)
-      setnames(ncep, c("level", "time"), c("lev", "date")) 
-      ncep <- 
-         ncep[, t := ReadNetCDF("DATA/air.mon.mean.nc", out = "vector", 
-                                subset = subset)[[1]]] %>% 
-         .[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
-                             subset = subset)[[1]]] %>% 
-         .[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
-                             subset = subset)[[1]]]
-      vars <- c("gh", "t", "u", "v")
-      vars.z <- paste0(vars, ".z")
-      ncep[, c(vars.z) := lapply(.SD, Anomaly), by = .(lat, lev, date), .SDcols = -"lon"]
-      ncep[, date := as.Date(date[1]), by = date]
-      ncep
-   })
+   ncep <- ncep.f(vars = c("gh", "u", "v"))
    
-   ncep.mean.season <- ncep[, lapply(.SD, mean), 
+   ncep.mean.season <- ncep[, lapply(.SD, mean),
                             by = .(lon, lat, lev, season = qs.season(month(date)))]
    remove(ncep)
    ncep.mean.season[, zeta := Vorticity(u + v ~ lon + lat, cyclical = TRUE,
-                                        sphere = TRUE), 
-                    by = .(lev, season)] %>% 
-      .[, zeta.dy := Derivate(zeta ~ lon + lat, 
+                                        sphere = TRUE),
+                    by = .(lev, season)] %>%
+      .[, zeta.dy := Derivate(zeta ~ lon + lat,
                               cyclical = c(FALSE, FALSE),
                               sphere = TRUE)[[2]],
-        by = .(lev, season)] %>% 
+        by = .(lev, season)] %>%
       .[, eta.dy := zeta.dy + f.dy(lat)]
    
    ncep.mean.season[, k := sqrt(eta.dy/u)*dx(180/pi, lat)]
    ncep.mean.season[, k.full := ifelse(is.na(k) | k > 10, -1, k)]
 })
 ```
-
-## Algunas decisiones
-
-- Concentrame en 200hPa
-
 
 # Estaciones
 
@@ -165,28 +114,34 @@ Cálculo de las estaciones mediante componentes principales. PERO. En vez de usa
 
 Las series temporales de la PC1 y la PC2 con estos campos son muy parecidos a los obtenidos obteniendo los campos idealizados (correlaciones > 0.8).
 
----
-
+## Componentes principales
 
 ```{r}
-ncep.f(level = 200)[, gh.minus := gh - BuildField(lon*pi/180, 
-                                                  wave = FitWave(gh, k = 0:1)),
-                    by = .(lat, date)] %>% 
-   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>% 
+ncep[, gh.minus := gh - BuildField(lon*pi/180, 
+                                   wave = FitWave(gh, k = 0:1)),
+     by = .(lat, date, lev)]
+
+region <- expand.grid(lat = c(-65, -40),
+                      lev = c(100, 700))
+copy(ncep[lev == 200])[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>% 
    EOF(data = ., gh ~ lon + lat | date, n = 1:4) -> qs.eof
 ```
 
 ```{r}
 ggplot(qs.eof$left, aes(lon, lat)) +
-   geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, 0.01, 0)) +
+   geom_contour_fill(aes(z = gh), 
+                  breaks = AnchorBreaks(0, 0.01, 0)) +
+   geom_contour3(aes(z = gh), 
+                  breaks = AnchorBreaks(0, 0.01, 0)) +
    map.SH +
    geom_label(x = 30, y = -10, aes(label = paste0(round(r2*100), "%")), 
-             data = qs.eof$sdev, size = 3) +
+              data = qs.eof$sdev, size = 3) +
    scale_s_map() +
    scale_fill_divergent(breaks = AnchorBreaks(0, 0.01, 0),
                         guide = guide_colorstrip_bottom()) +
+   scale_linetype(guide = "none") +
    coord_quickmap() +
-   facet_wrap(~PC, labeller = labeller(PC = AddPreffix("PC"))) 
+   facet_wrap(~PC)
 ```
 
 <div class = "notes"> 
@@ -196,21 +151,17 @@ Los PC1 y PC2 representan la QS3 y su corrimiento de fase. El PC3 tiene una onda
 ---
 
 ```{r}
-ncep.f(level = 200)[, gh.minus := gh - BuildField(lon*pi/180, 
-                                                  wave = FitWave(gh, k = 0:1)),
-                    by = .(lat, date)] %>% 
-   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>% 
+copy(ncep[lev == 200])[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>% 
    EOF(data = ., gh ~ lon + lat | date, n = 1:2) -> qs.eof
 ```
 
-
 ```{r}
 qs.eof$right[, .(value = mean(gh)), by = .(PC, month(date))] %>% 
-   dcast(... ~ paste0("PC", PC)) %>% 
+   dcast(... ~ PC) %>% 
    # .[, .(dif = mean(PC2 - PC1), mag = mean(sqrt(PC2^2 + PC2^2))),
    # by = .(month(date))] %>% 
    ggplot(aes(PC1, PC2)) +
-   xlab("PC 1") + ylab("PC 2") +
+   # xlab("PC 1") + ylab("PC 2") +
    geom_cross(color = "gray50") +
    ggforce::geom_link2(aes(color = qs.season(month), 
                            group = 1),
@@ -228,25 +179,33 @@ qs.eof$right[, .(value = mean(gh)), by = .(PC, month(date))] %>%
 Usando el campo real hay ligeras diferencias en cuanto a las medidas mensuales. Diciembre queda más agrupado con EFM. 
 </div> 
 
----
+## Correlación de GH con cada PC
 
 ```{r}
-eof.cor <- dcast(qs.eof$right[as.numeric(PC) < 3], date ~ PC, value.var = "gh") %>% 
-   setnames(c("1", "2"), c("PC1", "PC2")) %>% 
-   .[, date := lubridate::as_datetime(date[1]), by = date] %>% 
-   .[ncep.f(level = 200), on = "date"] %>% 
+eof.cor <- dcast(qs.eof$right, date ~ PC, value.var = "gh") %>% 
+   # .[, date := lubridate::as_datetime(date[1]), by = date] %>% 
+   .[ncep[lev == 200], on = "date"] %>% 
    .[, .(PC1 = cor(PC1, gh), PC2 = cor(PC2, gh),
          PCsum = cor(Mag(PC1, PC2), gh)), 
      by = .(lon, lat, lev, month(date))] %>% 
    melt(id.vars = c("lon", "lat", "lev", "month"), variable.name = "PC")
+```
 
+
+```{r}
 plot.fun <- function(plot.PC) {
-   ggplot(eof.cor[PC == plot.PC], aes(lon, lat)) +
-      geom_contour_fill(aes(z = -value), breaks = AnchorBreaks(0, 0.15, 0)) +
+   ggplot(eof.cor[PC == plot.P], aes(lon, lat)) +
+      # geom_contour2(aes(z = -value, linetype = factor(-sign(..level..))),
+      # breaks = AnchorBreaks(0, 0.15, 0), color = "black") +
+      geom_contour_fill(aes(z = value, linetype = factor(-sign(..level..))),
+                        breaks = AnchorBreaks(0, 0.15, 0)) +
+      geom_contour3(aes(z = value),
+                    breaks = AnchorBreaks(0, 0.15, 0)) +
       map.SH +
       scale_fill_divergent(breaks = AnchorBreaks(0, 0.15, 0),
                            guide = guide_colorstrip_bottom()) +
       scale_s_map() +
+      scale_linetype(guide = "none") +
       coord_quickmap() +
       facet_wrap(~month, ncol = 4, labeller = labeller(month = month.abb)) +
       labs(title = plot.PC)
@@ -259,10 +218,9 @@ plot.fun("PC1")
 Es interesante que al hacer la correlación de PC1 con el campo de geopotencial, los meses son más parecidos entre sí. NDEF son muy parecidos, con el tren de ondas desde Australia. MA y ASO tienen una onda 3 relativamente zonal pero con un poco de propagación meridional. MJJ nuevamente son parecidos a NDEF. 
 </div> 
 
----
+## Correlación de GH con cada PC
 
 ```{r}
-
 plot.fun("PC2")
 ```
 
@@ -270,10 +228,9 @@ plot.fun("PC2")
 Algo parecido para con la correlación con el PC2
 </div> 
 
----
+## Correlación de GH con cada PC
 
 ```{r}
-
 plot.fun("PCsum")
 ```
 
@@ -290,25 +247,24 @@ sam <- fread("DATA/sam.monthly.txt") %>%
    .[, date := ymd(paste0(year, " ", month, " ", 01))] %>% 
    .[, `:=`(year = NULL, month = NULL)]
 
-sam[qs.eof$right[as.numeric(PC) < 3], on = "date"] %>% 
+sam[qs.eof$right, on = "date"] %>% 
    .[, .(cor = cor(sam, gh, use = "complete.obs")), by = .(month(date), PC)] %>% 
    ggplot(aes(month, cor)) +
-   geom_col(aes(fill = paste0("PC", PC)), position = "dodge") +
+   geom_col(aes(fill = PC), position = "dodge") +
    scale_x_continuous(breaks = 1:12, labels = month.abb) +
    labs(title = "Correlación con SAM")
 ```
 
+
 <div class = "notes"> 
-Es notable que las correlaciones de cada PC individual no predicen la correlación con la "magnitud" del PC
+Es notable que las correlaciones de cada PC individual no predicen la correlación con la "magnitud" del PC. 
 </div> 
 
-## Corte en 55°S
+## Valor medio entre 60°S y 45°S
+
 ```{r}
 eof.cut <- dcast(qs.eof$right, date ~ PC, value.var = "gh") %>% 
-   setnames(c("1", "2"), c("PC1", "PC2")) %>% 
-   .[, date := lubridate::as_datetime(date[1]), by = date] %>% 
-   .[ncep.f(lat = -60:-45), on = "date"] %>% 
-   .[, gh.z := Anomaly(gh), by = .(lat, date)] %>% 
+   .[ncep[lat %between% c(-60, -45)], on = "date"] %>% 
    .[, .(PC1 = cor(PC1, gh), PC2 = cor(PC2, gh), 
          PCsum = cor(Mag(PC1, PC2), gh)), 
      by = .(lon, lat, lev, month(date))] %>% 
@@ -317,12 +273,18 @@ eof.cut <- dcast(qs.eof$right, date ~ PC, value.var = "gh") %>%
 
 ```{r}
 plot.fun <- function(plot.PC) {
-   ggplot(eof.cut[lat %~% -55 & PC == plot.PC], aes(lon, lev)) +
+   eof.cut[PC == plot.PC, .(value = mean(value)), 
+           by = .(lon, lev, month, PC)] %>% 
+      ggplot(aes(lon, lev)) +
       geom_contour_fill(aes(z = value), breaks = AnchorBreaks(0, 0.2, 0)) +
+      geom_contour3(aes(z = value),
+                        breaks = AnchorBreaks(0, 0.2, 0)) +
       scale_y_level() +
       scale_x_longitude() +
+      scale_linetype(guide = "none") +
       scale_fill_divergent(breaks = AnchorBreaks(0, 0.2, 0),
-                           guide = guide_colorstrip_bottom()) +
+                           guide = guide_colorstrip_bottom(),
+                           limits = c(-1, 1)) +
       coord_lonlev() +
       facet_wrap(~month, ncol = 4) +
       labs(title = plot.PC)
@@ -331,25 +293,23 @@ plot.fun <- function(plot.PC) {
 plot.fun("PC1")
 ```
 
-## Corte en 55°S
+## Valor medio entre 60°S y 45°S
 
 ```{r}
 plot.fun("PC2")
-
 ```
 
-## Corte en 55°S
+## Valor medio entre 60°S y 45°S
 
 ```{r}
 plot.fun("PCsum")
-
 ```
 
-## Fourier
+# Fourier
+
+## Amplitud
 
 ```{r r2-ncep}
-region <- expand.grid(lat = c(-65, -40),
-                      lev = c(100, 700))
 rect.annotation <- data.frame(latmin = -65, latmax = -40,
                               levmin = 100, levmax = 700)
 ncep.qs <- ncep.mean.qsseason[, FitWave(gh, k = 3), 
@@ -374,38 +334,48 @@ ggplot(ncep.qs, aes(lat, lev)) +
 ```
 
 ```{r}
-ncep.qs <- ncep.f() %>% 
+stationarity <- ncep %>% 
    .[, FitWave(gh, k = 3), 
      by = .(lat, lev, date)] %>% 
    .[, .(MA = mean(amplitude)), by = .(lat, lev, season = qs.season(date))] %>% 
    .[ncep.qs, on = c("lat", "lev", "season")]
 
-ncep.qs[, stationarity := amplitude/MA]
+stationarity[, stationarity := amplitude/MA]
 ```
 
 
 ```{r}
-knitr::kable(ncep.qs[lat %inrange% region$lat & lev %inrange% region$lev, 
-                     .(estacionariedad = mean(stationarity)), by = season])
+knitr::kable(stationarity[lat %inrange% range(region$lat) & 
+                             lev %inrange% range(region$lev), 
+                          .(estacionariedad = mean(stationarity),
+                            MA = mean(MA),
+                            AM = mean(amplitude)), by = season][order(season)],
+             digits = 2)
 ```
 
 
+# Campos
 
 ## Z\*
 
 ```{r gh-ncep, fig.class = "fullpage", fig.cap = "Z (mgp). Contornos cada 250 mgp (NCEP)."}
 plot.levs <- c(200)
 binwidth <- 30
+ncep.mean.qsseason[, gh.z := Anomaly(gh), by = .(lat,lev, season)]
 ggplot(ncep.mean.qsseason[lev %in% plot.levs], aes(lon, lat)) +
-   geom_contour2(aes(z = gh.z, linetype = factor(-sign(..level..))), 
+   geom_contour_fill(aes(z = gh.z),
                  breaks = AnchorBreaks(0, binwidth, 0),
-                 binwidth = binwidth, color = "black", circular = "x") +
+                 binwidth = binwidth, circular = "x") +
+   geom_contour3(aes(z = gh.z),
+                 breaks = AnchorBreaks(0, binwidth, 0),
+                 binwidth = binwidth, circular = "x") +
    map.SH +
    geom_label_contour2(aes(z = gh.z), binwidth = binwidth,
                        size = 3) +
    scale_s_map() +
    scale_linetype(guide = "none") +
-   facet_wrap( ~ season, ncol = 2, labeller = labeller(lev = lev.lab)) +
+   scale_fill_divergent() +
+   facet_wrap( ~ season, ncol = 2) +
    coord_quickmap() 
 ```
 
@@ -421,8 +391,8 @@ ncep.mean.qsseason[lev == 200] %>%
    ggplot(aes(lon, lat)) +
    stat_subset(aes(subset = k.full < 3 | !is.finite(k)), color = "gray50",
                fill = "gray50", alpha = 1, geom = "tile") +
-   geom_contour2(aes(z = gh.minus, linetype = factor(-sign(..level..))), 
-                 color = "black", breaks = AnchorBreaks(0, 10, 0), circular = "x") +
+   geom_contour3(aes(z = gh.minus),
+                 breaks = AnchorBreaks(0, 10, 0), circular = "x") +
    # geom_label_contour2(aes(z = gh.minus), breaks = AnchorBreaks(0, 10, 0)) +
    geom_contour(aes(z = k.full), breaks = 3, color = "gray50") +
    

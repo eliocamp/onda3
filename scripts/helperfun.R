@@ -407,3 +407,48 @@ no.zero_ <- function(x) {
 no.zero <- function(x) {
    sapply(seq_along(x), function(i) no.zero_(x[i]))
 }
+
+
+StatContour3 <- ggplot2::ggproto("StatContour3", metR:::StatContour2,
+  default_aes = aes(order = calc(level), linetype = factor(-sign(calc(level))),
+                    color = "black")
+)
+
+GeomContour3 <- ggproto("GeomContour", GeomPath,
+  default_aes = aes(weight = 1, colour = "black", size = 0.3, linetype = 1,
+                    alpha = NA)
+)
+
+
+geom_contour3 <- function(mapping = NULL, data = NULL,
+                          stat = "contour3", position = "identity",
+                          ...,
+                          lineend = "butt",
+                          linejoin = "round",
+                          linemitre = 1,
+                          breaks = scales::fullseq,
+                          bins = NULL,
+                          binwidth = NULL,
+                          na.rm = FALSE,
+                          show.legend = NA,
+                          inherit.aes = TRUE) {
+   layer(
+      data = data,
+      mapping = mapping,
+      stat = stat,
+      geom = GeomContour3,
+      position = position,
+      show.legend = show.legend,
+      inherit.aes = inherit.aes,
+      params = list(
+         lineend = lineend,
+         linejoin = linejoin,
+         linemitre = linemitre,
+         breaks = breaks,
+         bins = bins,
+         binwidth = binwidth,
+         na.rm = na.rm,
+         ...
+      )
+   )
+}
