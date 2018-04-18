@@ -310,7 +310,9 @@ ggplot(stream.mean.season, aes(lon, lat)) +
 ```{r}
 binwidth <- 0.002
 copy(stream.mean.season) %>% 
-   .[, psi.z := psi - BuildField(lon*pi/180, wave = FitWave(psi, k = 0:1)), by = .(lat, season)] %>%
+   .[, psi.z := Anomaly(psi), by = .(lat, season)] %>% 
+   .[, psi.z := psi.z - BuildField(lon*pi/180, wave = FitWave(psi, k = 1)), 
+     by = .(lat, season)] %>%
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season] %>% 
    ggplot(aes(lon, lat)) +
    stat_contour2(aes(z = psi.z*10^-9, linetype = factor(-sign(..level..))), 
