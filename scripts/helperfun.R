@@ -355,6 +355,18 @@ mode.circular <- function(x, limits = c(0, 2/3*pi)) {
    }
 }
 
+season <- function(month) {
+   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
+   
+   sum <- "DJF"
+   win <- "MAM"
+   aut <- "JJA"
+   spr <- "SON"
+   seasons <- c(sum, sum, rep(c(aut, win, spr), each = 3), sum)
+   return(factor(seasons[month], levels = c(sum, aut, win, spr)))
+}
+
+
 # "Estaciones" en base a la amplitud y fase de la onda 3.
 qs.season <- function(month) {
    if (metR:::.is.somedate(month)) month <- lubridate::month(month)
@@ -367,6 +379,34 @@ qs.season <- function(month) {
    
    return(factor(qs.seasons[month], levels = c("JFM", "AM", "JJ",
                                                "ASO", "ND")))
+}
+
+qs.season <- function(month) {
+   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
+   
+   qs.seasons <- factor(c(rep("JFM", 3),
+                          rep("AM", 2),
+                          rep("JJ", 2),
+                          rep("ASO", 3),
+                          rep("ND", 2)))
+   
+   return(factor(qs.seasons[month], levels = c("JFM", "AM", "JJ",
+                                               "ASO", "ND")))
+}
+
+# "Estaciones" en base a la amplitud y fase de la onda 3.
+qs.trim <- function(month) {
+   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
+   
+   qs.seasons <- factor(c(rep("DJFM", 3),
+                          rep("A", 1),
+                          rep("MJJ", 3),
+                          rep("ASO", 3),
+                          rep("N", 1),
+                          rep("DJFM", 1)))
+   
+   return(factor(qs.seasons[month], levels = c("DJFM", "A", "MJJ",
+                                               "ASO", "N")))
 }
 
 
@@ -410,19 +450,14 @@ no.zero <- function(x) {
 
 
 StatContour3 <- ggplot2::ggproto("StatContour3", metR:::StatContour2,
-  default_aes = aes(order = calc(level), linetype = factor(-sign(calc(level))),
-                    color = "black")
+                                 default_aes = aes(order = calc(level), linetype = factor(-sign(calc(level))))
 )
-
-GeomContour3 <- ggproto("GeomContour", GeomPath,
-  default_aes = aes(weight = 1, colour = "black", size = 0.3, linetype = 1,
-                    alpha = NA)
-)
-
 
 geom_contour3 <- function(mapping = NULL, data = NULL,
                           stat = "contour3", position = "identity",
                           ...,
+                          color = "black",
+                          size = 0.3,
                           lineend = "butt",
                           linejoin = "round",
                           linemitre = 1,
@@ -436,7 +471,7 @@ geom_contour3 <- function(mapping = NULL, data = NULL,
       data = data,
       mapping = mapping,
       stat = stat,
-      geom = GeomContour3,
+      geom = GeomContour,
       position = position,
       show.legend = show.legend,
       inherit.aes = inherit.aes,
@@ -448,6 +483,8 @@ geom_contour3 <- function(mapping = NULL, data = NULL,
          bins = bins,
          binwidth = binwidth,
          na.rm = na.rm,
+         color = color,
+         size = size,
          ...
       )
    )

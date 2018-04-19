@@ -216,9 +216,13 @@ ggplot(ncep.mean.season[lev %in% plot.levs], aes(lon, lat)) +
 ## Figura para el doctorado.
 ncep.mean.season[lev == 200] %>% 
    copy(.) %>% 
-   .[, gh.minus := gh.z - BuildField(lon*pi/180, wave = FitWave(gh.z, k = 1)), 
+   .[, gh.minus := gh - BuildField(lon*pi/180, wave = FitWave(gh, k = 0:1)), 
      by = .(lat, season)] %>% 
    ggplot(aes(lon, lat)) +
+   stat_subset(aes(subset = k.full < 3 | !is.finite(k)), color = "gray50",
+               fill = "gray50", alpha = 1, geom = "tile") +
+   geom_contour_fill(aes(z = gh.minus),
+                 breaks = AnchorBreaks(0, 10, 0), circular = "x") +
    stat_subset(aes(subset = k.full < 3 | !is.finite(k)), color = "gray50",
                fill = "gray50", alpha = 1, geom = "tile") +
    geom_contour3(aes(z = gh.minus),
@@ -245,13 +249,15 @@ Esta figura muestar la anomalía zonal de altura geopotencial con la señal de l
 ## Figura para el doctorado.
 ncep.mean.season[lev == 200] %>% 
    copy(.) %>% 
-   .[, gh.minus := gh.z - BuildField(lon*pi/180, wave = FitWave(gh.z, k = 1:2)), 
+   .[, gh.minus := gh - BuildField(lon*pi/180, wave = FitWave(gh, k = 0:2)), 
      by = .(lat, season)] %>% 
    ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = gh.minus),
+                 breaks = AnchorBreaks(0, 10, 0), circular = "x") +
    stat_subset(aes(subset = k.full < 3 | !is.finite(k)), color = "gray50",
                fill = "gray50", alpha = 1, geom = "tile") +
-   geom_contour2(aes(z = gh.minus, linetype = factor(-sign(..level..))), 
-                 color = "black", breaks = AnchorBreaks(0, 10, 0), circular = "x") +
+   geom_contour3(aes(z = gh.minus),
+                 breaks = AnchorBreaks(0, 10, 0), circular = "x") +
    # geom_label_contour2(aes(z = gh.minus), breaks = AnchorBreaks(0, 10, 0)) +
    geom_contour(aes(z = k.full), breaks = 3, color = "gray50") +
    
@@ -284,8 +290,11 @@ stream.mean.season[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season]
 ```{r}
 binwidth <- 0.0025
 ggplot(stream.mean.season, aes(lon, lat)) +
-   stat_contour2(aes(z = psi.z*10^-9, linetype = factor(-sign(..level..))), 
-                 color = "black", breaks = AnchorBreaks(0, binwidth, 0),
+   geom_contour_fill(aes(z = psi.z*10^-9), 
+                 breaks = AnchorBreaks(0, binwidth, 0),
+                 circular = "x") +
+   geom_contour3(aes(z = psi.z*10^-9), 
+                 breaks = AnchorBreaks(0, binwidth, 0),
                  circular = "x") +
    # geom_streamline(aes(dx = f.lon, dy = f.lat, size = ..step..^2, 
    #                     alpha = ..step..), skip = 3, circular = "x", L = 10,
@@ -315,8 +324,11 @@ copy(stream.mean.season) %>%
      by = .(lat, season)] %>%
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season] %>% 
    ggplot(aes(lon, lat)) +
-   stat_contour2(aes(z = psi.z*10^-9, linetype = factor(-sign(..level..))), 
-                 color = "black", breaks = AnchorBreaks(0, binwidth, 0),
+   geom_contour_fill(aes(z = psi.z*10^-9), 
+                 breaks = AnchorBreaks(0, binwidth, 0),
+                 circular = "x") +
+   geom_contour3(aes(z = psi.z*10^-9), 
+                 breaks = AnchorBreaks(0, binwidth, 0),
                  circular = "x") +
    geom_vector(aes(dx = f.lon, dy = f.lat), skip = 4, min.mag = 0.05,
                scale = 70, size = 0.5, arrow.angle = 8) +
@@ -345,16 +357,17 @@ ncep.qs <- ncep.mean.season[, FitWave(gh, k = 3),
 lev.breaks <- c(10, 30, 100, 200, 500, 1000)
 binwidth <- 5
 ggplot(ncep.qs, aes(lat, lev)) +
-   # geom_contour_fill(aes(z = amplitude)) +
-   geom_contour2(aes(z = amplitude), binwidth = binwidth, 
-                 color = "black") +
+   geom_contour_fill(aes(z = amplitude), binwidth = binwidth) +
+   geom_contour3(aes(z = amplitude), binwidth = binwidth) +
    geom_label_contour2(aes(z = amplitude), binwidth = binwidth,
                        size = 3) +
    surface +
    geom_index.region(rect.annotation) +
-   # scale_fill_viridis_c(guide = guide_colorstrip_bottom(10),
-   #                      option = "D") +
+   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
+                        option = "D", limits = c(0, 50),
+                        breaks = MakeBreaks(binwidth)) +
    scale_y_level(breaks = lev.breaks) +
+   scale_linetype(guide = "none") +
    scale_x_latitude(name = "latitud", trans = "reverse", 
                     ticks = 15) +
    coord_latlev() +
@@ -643,7 +656,7 @@ ice[!is.na(concentration),
 ```{r}
 ggplot(ice.regr[value != 0], aes(x, y)) +
    geom_raster(aes(fill = value)) +
-   geom_raster(data = ice.mask, fill = "#9ECFF0") +
+   geom_raster(data = ice.mask, fill = "gray80") +
    scale_fill_divergent() +
    facet_grid(variable~season) +
    coord_equal()
@@ -676,7 +689,7 @@ En el contexto del paper, esto debería ir más bien a lo último.
 ```{r}
 ncep.mean.season[lev == 200] %>% 
    copy(.) %>% 
-   .[, gh.minus := gh.z - BuildField(lon*pi/180, wave = FitWave(gh.z, k = 1)), 
+   .[, gh.minus := gh - BuildField(lon*pi/180, wave = FitWave(gh, k = 0:1)), 
      by = .(lat, season)] %>%  
    .[k.full > 0] %>% 
    ggplot(aes(k.full, abs(gh.minus))) +
