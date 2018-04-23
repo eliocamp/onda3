@@ -234,6 +234,9 @@ scale_s_map <- function(limits.lat = c(-90, 0),
                         limits.lon = c(0, 360)) list(scale_y_latitude(limits = limits.lat),
                                                      scale_x_longitude(limits = limits.lon))
 
+ggplot <- function(...) {
+   ggplot2::ggplot(...) + scale_linetype(guide = "none")
+}
 
 AddSuffix <- function(suffix = "") {
    function(string) {
@@ -489,3 +492,14 @@ geom_contour3 <- function(mapping = NULL, data = NULL,
       )
    )
 }
+
+
+FilterWave <- function(x, k) {
+   f <- fft(x)
+   # Need to remove the k+1 spots (because index 1 is k = 0) 
+   # and the N - k + 1 because of symmetry.
+   k <- c(k + 1, length(x) - k[k != 0] + 1) 
+   f[k] <- 0 + 0i
+   Re(fft(f, inverse = T))/length(x)
+}
+
