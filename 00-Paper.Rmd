@@ -26,7 +26,7 @@ source("scripts/helperfun.R")
 
 data.world <- BuildMap(res = 1, smooth = 1)
 map.world <- geom_map2(data.world)
-map.SH <- geom_map2(data.world[lat %b% c(-90, 0)], color = "gray20")
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
 
 # options(OutDec = ",")
 
@@ -59,7 +59,7 @@ theme_elio <- theme_minimal(base_size = 11) +
          panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
          panel.ontop = TRUE)
 theme_set(theme_elio)
-# update_geom_font_defaults(family = "Roboto Condensed")
+update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
 
 update_geom_defaults("contour", list(color = "black"))
 update_stat_defaults("contour", aes(linetype = factor(-sign(..level..))))
@@ -112,7 +112,11 @@ ncep.qs <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(date))] %>%
 ```{r ampl-ncep, fig.cap = "Fourier amplitude of geopotential height"}
 breaks <- 2^seq(0, log2(650), by = 1)
 ggplot(ncep.qs, aes(lat, lev)) +
-   stat_contour_fill(aes(z = amplitude), 
+   geom_contour_fill(aes(z = amplitude), 
+                     breaks = breaks) +
+   geom_contour3(aes(z = amplitude), 
+                     breaks = breaks) +
+    geom_label_contour2(aes(z = amplitude), 
                      breaks = breaks) +
    surface +
    geom_index.region(rect.annotation) +
@@ -154,7 +158,7 @@ ggplot(qs3[lat %between% cutlats, .(gh = mean(gh)), by = .(lon, lev, season)],
        aes(lon, lev)) +
    geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, binwidth, 0)) +
    geom_contour3(aes(z = gh), breaks = AnchorBreaks(0, binwidth, 0)) +
-   scale_y_level() +
+   scale_y_level(breaks = lev.breaks) +
    scale_x_longitude(name = "lon") +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
                         name = "QS3",
@@ -229,10 +233,10 @@ qs.eof$right[, .(value = mean(gh)), by = .(PC, month(date))] %>%
    ggplot(aes(PC1, PC2)) +
    # xlab("PC 1") + ylab("PC 2") +
    geom_cross(color = "gray50") +
-   ggforce::geom_link2(aes(color = qs.trim(month),
+   ggforce::geom_link2(aes(color = qs.season(month),
                            group = 1),
                        alpha = 0.5) +
-   geom_point(aes(color = qs.trim(month), shape = qs.trim(month)),
+   geom_point(aes(color = qs.season(month), shape = qs.season(month)),
               size = 3)+
    ggrepel::geom_text_repel(aes(label = month.abb[month])) +
    scale_color_brewer(palette = "Set1", na.translate = F) +
@@ -270,18 +274,7 @@ qs.eof$right %>%
    geom_line() +
    geom_hline(yintercept = 0) +
    scale_y_continuous("Correlation") +
-   scale_x_continuous("Lag (PC1 leads PC2)", 0:12)
-```
-
-
-```{r PCs-anual, fig.cap = "Anual cicle of PC1 and PC2... boxplot represents.... "}
-qs.eof$right %>% 
-   ggplot(aes(factor(month(date)), gh, group = interaction( PC, month(date)))) +
-   geom_boxplot(aes(fill = PC), outlier.alpha = 0) +
-   geom_point(position = position_dodge(width = 0.75), size = 0.5) +
-   scale_x_discrete(name = "month", 
-                    labels = month.abb) +
-   scale_y_continuous(name = "value")
+   scale_x_continuous("Lag (PC1 leads PC2)", -12:12)
 ```
 
 
@@ -300,8 +293,12 @@ ncep.mean.season <- cache.file(file, {
    ncep <- ncep.f(vars = c("gh", "u", "v"), lat= -90:20)
    
    ncep.mean.season <- ncep[, lapply(.SD, mean),
-                            by = .(lon, lat, lev, season = qs.trim(month(date)))]
+                            by = .(lon, lat, lev, 
+                                   season = qs.trim(month(date)))] %>% 
+      .[!is.na(season)]
+      
    # remove(ncep)
+   
    ncep.mean.season[, zeta := Vorticity(u + v ~ lon + lat, cyclical = TRUE,
                                         sphere = TRUE),
                     by = .(lev, season)] %>%
@@ -313,7 +310,7 @@ ncep.mean.season <- cache.file(file, {
    
    ncep.mean.season[, k := sqrt(eta.dy/u)*dx(180/pi, lat)]
    ncep.mean.season[, k.full := ifelse(is.na(k) | k > 10, -1, k)]
-   ncep.mean.season[lat <= 0]
+   # ncep.mean.season[lat <= 0]
 })
 ```
 
@@ -343,9 +340,9 @@ Lo anterior justifica el agrupamiento de los meses que viene.
 <!-- ``` -->
 
 ```{r ghminus1-ncep, fig.cap = "Zonal anomaly of 200hPa geopotential field with zonal wavenumber 1 filtered out. Areas with zonal wind greater than 30 m/s are hatched."}
-ncep.mean.season[, gh.z := Anomaly(gh), by = .(lat, lev, season)]
-ncep.mean.season[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, season)] 
-ncep.mean.season[, gh.12 := FilterWave(gh, 0:2), by = .(lat, lev, season)] 
+ncep.mean.season[, gh.z := Anomaly(gh), by = .(lat, lev, season)] %>% 
+   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, season)] %>% 
+   .[, gh.12 := FilterWave(gh, 0:2), by = .(lat, lev, season)] 
 ncep.mean.season <- ncep.mean.season 
 
 ggplot(ncep.mean.season[lev == 200], aes(lon, lat)) +
@@ -354,15 +351,17 @@ ggplot(ncep.mean.season[lev == 200], aes(lon, lat)) +
    geom_contour3(aes(z = gh.1),
                  breaks = AnchorBreaks(0, 10, 0), circular = "x") +
    geom_contour3(aes(z = u), breaks = 30) +
-   stat_subset(aes(subset = u >= 30),
-               geom = "point", alpha = 0.5, size = 0.05) +
+   # stat_subset(aes(subset = u >= 30),
+               # geom = "point", alpha = 0.5, size = 0.05) +
+   stat_subset(aes(subset = u >= 30), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05) +
    map.SH +
    scale_fill_divergent(guide = guide_colorstrip_bottom(),
                         breaks = MakeBreaks(10)) +
    scale_s_map() +
    
    coord_quickmap() +
-   facet_wrap(~season, ncol= 3)
+   facet_wrap(~season, ncol= 2)
 
 ```
 
@@ -397,14 +396,14 @@ ncep.mean.season[lev == 200] %>%
                fill = "gray50", alpha = 0.3, geom = "tile") +
    geom_contour3(aes(z = gh.minus),
                  breaks = AnchorBreaks(0, 10, 0), circular = "x") +
-   geom_contour(aes(z = k.full), breaks = 3, color = "gray50") +
+   geom_contour(aes(z = k.full), breaks = 3, color = "gray50", size = 0.3) +
    map.SH +
    scale_fill_divergent(guide = guide_colorstrip_bottom(),
                         breaks = MakeBreaks(10)) +
    scale_s_map() +
    
    coord_quickmap() +
-   facet_wrap(~season, ncol= 3)
+   facet_wrap(~season, ncol= 2)
 ```
 
 ```{r gh.12-cut, fig.cap = "Mean geopotential zonal anomaly with zonal wave 1 and 2 filtered out between 65°S and 35°S"}
@@ -419,7 +418,7 @@ ggplot(ncep.mean.season[lat %between% cutlats, mean(gh.12), by =.(lon, lev, seas
                         guide = guide_colorstrip_bottom()) +
    
    coord_lonlev() +
-   facet_wrap(~season, ncol = 3)
+   facet_wrap(~season, ncol = 2)
 ```
 
 # Streamfunction
@@ -434,69 +433,66 @@ stream <- ReadNetCDF("DATA/stream.mon.mean.nc",
    .[, date := as.Date(date), by = date]
 stream.mean.season <- stream[, .(psi = mean(psi),
                                  psi.z = mean(psi.z)),
-                             by = .(lon, lat, lev, season = qs.season(date))]
-
+                             by = .(lon, lat, lev, season = qs.trim(date))] %>% 
+   .[!is.na(season)]
 stream.mean.season[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season]
 ```
 
 ```{r psi, fig.cap = "Mean streamfunction. "}
 binwidth <- 0.002
-ggplot(stream.mean.season[lat <= -30], aes(lon, lat)) +
+breaks <- AnchorBreaks(0, binwidth, 0)(c(-0.015, 0.015))
+ggplot(stream.mean.season, aes(lon, lat)) +
    geom_contour_fill(aes(z = psi.z*10^-9),
-                     breaks = AnchorBreaks(0, binwidth, 0),
+                     # breaks = AnchorBreaks(0, binwidth, 0),
+                     breaks = breaks,
                      circular = "x") +
    geom_contour3(aes(z = psi.z*10^-9),
-                 breaks = AnchorBreaks(0, binwidth, 0),
+                 # breaks = AnchorBreaks(0, binwidth, 0),
+                 breaks = breaks,
                  circular = "x") +
-   # geom_streamline(aes(dx = f.lon, dy = f.lat, size = ..step..^2,
-   #                     alpha = ..step..), skip = 3, circular = "x", L = 15,
-   #                 arrow = NULL) +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.3, 
+                   skip = 3, circular = "x", L = 20, size = 0.4, 
                    min.dist = 10, arrow.length = 0.2) +
-   # geom_vector(aes(dx = f.lon, dy = f.lat), skip = 4, min.mag = 0.02,
-   # scale = 150, size = 0.5, arrow.angle = 8, arrow.length = 0.3) +
-   geom_map2(data.world[lat < 30], color = "gray20") +
-   scale_x_longitude() +
-   scale_y_latitude(limits = c(-90, -30)) +
+   map.SH +
+   scale_s_map() +
    scale_size(range = c(0, 1)) +
-   metR:::scale_mag(1, 0.1) +
    scale_fill_divergent(breaks = MakeBreaks(binwidth, 0),
+                        oob = scales::squish,
+                        limits = c(-1, 1)*0.015,
                         guide = guide_colorstrip_bottom()) +
-   facet_wrap(~season, ncol = 3) +
-   coord_quickmap()
+   facet_wrap(~season, ncol = 2) +
+   coord_quickmap(ylim = c(-90, 20))
 ```
 
 
 ```{r psi.1, fig.cap = "Mean streamfunction with zonal wave 1 filtered out."}
 binwidth <- 0.0015
+breaks <- AnchorBreaks(0, binwidth, 0)(c(-0.015, 0.015))
 copy(stream.mean.season) %>%
-   # .[, psi.z := Anomaly(psi), by = .(lat, season)] %>%
    .[, psi.z := FilterWave(psi, 0:1),
      by = .(lat, season)] %>%
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season] %>%
-   .[lat < -25] %>%
    ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = psi.z*10^-9),
-                     breaks = AnchorBreaks(0, binwidth, 0),
+      geom_contour_fill(aes(z = psi.z*10^-9),
+                     # breaks = AnchorBreaks(0, binwidth, 0),
+                     breaks = breaks,
                      circular = "x") +
    geom_contour3(aes(z = psi.z*10^-9),
-                 breaks = AnchorBreaks(0, binwidth, 0),
+                 # breaks = AnchorBreaks(0, binwidth, 0),
+                 breaks = breaks,
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.3, 
-                   min.dist = 10, arrow.length = 0.2) +
-   # geom_vector(aes(dx = f.lon, dy = f.lat), skip = 4, min.mag = 0.02,
-   # scale = 150, size = 0.5, arrow.angle = 8, arrow.length = 0.3) +
-   geom_map2(data.world[lat < 30], color = "gray20") +
-   scale_x_longitude() +
-   scale_y_latitude() +
+                   skip = 3, circular = "x", L = 20, size = 0.4, 
+                   min.dist = 5, arrow.length = 0.2) +
+   map.SH +
+   scale_s_map() +
    scale_size(range = c(0, 1)) +
-   metR:::scale_mag(1, 0.1) +
    scale_fill_divergent(breaks = MakeBreaks(binwidth, 0),
+                        oob = scales::squish,
+                        limits = c(-1, 1)*0.015,
                         guide = guide_colorstrip_bottom()) +
-   facet_wrap(~season, ncol = 3) +
-   coord_quickmap(ylim = c(-90, -30))
+   facet_wrap(~season, ncol = 2) +
+   coord_quickmap(ylim = c(-90, 20))
 ```
 
 ```{r psi12, fig.cap = "Mean streamfunction with waves 1 and 2 filtered out."}
@@ -505,26 +501,27 @@ copy(stream.mean.season) %>%
    .[, psi.z := FilterWave(psi, 0:2),
      by = .(lat, season)] %>%
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season] %>%
-   .[lat < -25] %>%
    ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = psi.z*10^-9),
-                     breaks = AnchorBreaks(0, binwidth, 0),
+      geom_contour_fill(aes(z = psi.z*10^-9),
+                     # breaks = AnchorBreaks(0, binwidth, 0),
+                     breaks = breaks,
                      circular = "x") +
    geom_contour3(aes(z = psi.z*10^-9),
-                 breaks = AnchorBreaks(0, binwidth, 0),
+                 # breaks = AnchorBreaks(0, binwidth, 0),
+                 breaks = breaks,
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.3, 
-                   min.dist = 10, arrow.length = 0.2) +
-   geom_map2(data.world[lat < 30], color = "gray20") +
-   scale_x_longitude() +
-   scale_y_latitude() +
+                   skip = 3, circular = "x", L = 20, size = 0.4, 
+                   min.dist = 5, arrow.length = 0.2) +
+   map.SH +
+   scale_s_map() +
    scale_size(range = c(0, 1)) +
-   metR:::scale_mag(1, 0.1) +
    scale_fill_divergent(breaks = MakeBreaks(binwidth, 0),
+                        oob = scales::squish,
+                        limits = c(-1, 1)*0.015,
                         guide = guide_colorstrip_bottom()) +
-   facet_wrap(~season, ncol = 3) +
-   coord_quickmap(ylim = c(-90, -30))
+   facet_wrap(~season, ncol = 2) +
+   coord_quickmap(ylim = c(-90, 20))
 ```
 
 # Fourier
@@ -553,14 +550,14 @@ ggplot(ncep.qs, aes(lat, lev)) +
    scale_x_latitude(name = "latitude", trans = "reverse",
                     ticks = 15) +
    coord_latlev() +
-   facet_wrap(~ season)
+   facet_wrap(~ season, ncol = 2)
 ```
 
 ```{r clac-stationarity}
 stationarity <- ncep %>%
    .[, FitWave(gh, k = 3),
      by = .(lat, lev, date)] %>%
-   .[, .(MA = mean(amplitude)), by = .(lat, lev, season = qs.trim(date))] %>%
+   .[, .(MA = mean(amplitude)), by = .(lat, lev, season = qs.season(date))] %>%
    .[ncep.qs, on = c("lat", "lev", "season")]
 
 stationarity[, stationarity := amplitude/MA]
@@ -669,15 +666,17 @@ qs.eof$right %>%
    dcast(date ~ PC, value.var = "gh") %>%
    .[sst, on = "date"] %>%
    .[!is.na(PC1)] -> sst
+
+sst <- sst[, sst.a := Anomaly(sst), by = .(lon, lat, month(date))]
 ```
 
 ```{r calc-sst.regr}
-sst[!is.na(sst) & lat <= 30, 
+sst[!is.na(sst), 
     setNames(ExtractLm(
             RcppArmadillo::fastLm(cbind(mean = 1,
                                         PC1 = PC1, 
                                         PC2 = PC2),
-                                  sst)),
+                                  sst.a)),
             c("regressor", "estimate", "se")),
     by = .(lon, lat, season = qs.trim(date))] %>% 
    .[regressor != "mean"] -> sst.regr
@@ -696,7 +695,7 @@ ggplot(sst.regr, aes(lon, lat)) +
    map.SH +
    scale_fill_divergent(guide = guide_colorstrip_bottom(),
                         breaks = AnchorBreaks(0, 0.1)) +
-   scale_s_map() +
+   # scale_s_map() +
    coord_quickmap() +
    facet_grid(season ~ regressor)
 ```

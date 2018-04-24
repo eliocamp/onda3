@@ -230,7 +230,7 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 scale_x_longitude <- function(ticks = 60, ...) {
    metR::scale_x_longitude(ticks = ticks, breaks = seq(-180, 360, by = ticks), ...)
 }
-scale_s_map <- function(limits.lat = c(-90, 0),
+scale_s_map <- function(limits.lat = c(-90, 40),
                         limits.lon = c(0, 360)) list(scale_y_latitude(limits = limits.lat),
                                                      scale_x_longitude(limits = limits.lon))
 
@@ -358,47 +358,8 @@ mode.circular <- function(x, limits = c(0, 2/3*pi)) {
    }
 }
 
-season <- function(month) {
-   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
-   
-   sum <- "DJF"
-   win <- "MAM"
-   aut <- "JJA"
-   spr <- "SON"
-   seasons <- c(sum, sum, rep(c(aut, win, spr), each = 3), sum)
-   return(factor(seasons[month], levels = c(sum, aut, win, spr)))
-}
-
-
 # "Estaciones" en base a la amplitud y fase de la onda 3.
 qs.season <- function(month) {
-   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
-   
-   qs.seasons <- factor(c(rep("JFM", 3),
-                          rep("AM", 2),
-                          rep("JJ", 2),
-                          rep("ASO", 3),
-                          rep("ND", 2)))
-   
-   return(factor(qs.seasons[month], levels = c("JFM", "AM", "JJ",
-                                               "ASO", "ND")))
-}
-
-qs.season <- function(month) {
-   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
-   
-   qs.seasons <- factor(c(rep("JFM", 3),
-                          rep("AM", 2),
-                          rep("JJ", 2),
-                          rep("ASO", 3),
-                          rep("ND", 2)))
-   
-   return(factor(qs.seasons[month], levels = c("JFM", "AM", "JJ",
-                                               "ASO", "ND")))
-}
-
-# "Estaciones" en base a la amplitud y fase de la onda 3.
-qs.trim <- function(month) {
    if (metR:::.is.somedate(month)) month <- lubridate::month(month)
    
    qs.seasons <- factor(c(rep("DJFM", 3),
@@ -411,6 +372,22 @@ qs.trim <- function(month) {
    return(factor(qs.seasons[month], levels = c("DJFM", "A", "MJJ",
                                                "ASO", "N")))
 }
+
+
+# Trimestres
+qs.trim <- function(month) {
+   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
+   
+   qs.seasons <- factor(c(rep("JFM", 3),
+                          rep(NA, 1),
+                          rep("MJJ", 3),
+                          rep("ASO", 3),
+                          rep(NA, 2)))
+   
+   return(factor(qs.seasons[month], levels = c("JFM", "MJJ",
+                                               "ASO")))
+}
+
 
 
 geom_contour_back <- function(..., color = "black", size = 0.2, alpha = 0.5) {
