@@ -174,6 +174,7 @@ Now this has some problems... yada yada yada, alternative analysis.
 
 # New seasons
 
+
 ```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out."}
 region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
@@ -186,7 +187,7 @@ copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
 qs.eof$left[PC == "PC2", gh := -gh]
 qs.eof$right[PC == "PC2", gh := -gh]
 
-pc.lab <- with(qs.eof$sdev, setNames( paste0(PC, " - ", round(r2*100), "%"), PC))
+pc.lab <- with(qs.eof$sdev, setNames(paste0(PC, " - ", round(r2*100), "%"), PC))
 
 ggplot(qs.eof$left, aes(lon, lat)) +
    geom_contour_fill(aes(z = gh),
@@ -451,12 +452,12 @@ ggplot(stream.mean.season, aes(lon, lat)) +
                  breaks = breaks,
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 20, size = 0.4, 
-                   min.dist = 10, arrow.length = 0.2) +
+                   skip = 3, circular = "x", L = 20, size = 0.3, 
+                   min.dist = 10, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
    scale_s_map() +
    scale_size(range = c(0, 1)) +
-   scale_fill_divergent(breaks = MakeBreaks(binwidth, 0),
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                         oob = scales::squish,
                         limits = c(-1, 1)*0.015,
                         guide = guide_colorstrip_bottom()) +
@@ -483,12 +484,12 @@ copy(stream.mean.season) %>%
                  breaks = breaks,
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 20, size = 0.4, 
-                   min.dist = 5, arrow.length = 0.2) +
+                   skip = 3, circular = "x", L = 20, size = 0.3, 
+                   min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
    scale_s_map() +
    scale_size(range = c(0, 1)) +
-   scale_fill_divergent(breaks = MakeBreaks(binwidth, 0),
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                         oob = scales::squish,
                         limits = limits,
                         guide = guide_colorstrip_bottom()) +
@@ -514,12 +515,12 @@ copy(stream.mean.season) %>%
                  breaks = breaks,
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 20, size = 0.4, 
-                   min.dist = 5, arrow.length = 0.2) +
+                   skip = 3, circular = "x", L = 20, size = 0.3, 
+                   min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
    scale_s_map() +
    scale_size(range = c(0, 1)) +
-   scale_fill_divergent(breaks = MakeBreaks(binwidth, 0),
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                         oob = scales::squish,
                         limits = limits,
                         guide = guide_colorstrip_bottom()) +
@@ -642,15 +643,25 @@ psi.regr %>%
 ```
 
 ```{r psi,regr, fig.cap = "Regression between PCs and Psi. "}
-# ggplot(psi.regr, aes(lon, lat)) + 
-#    geom_contour_fill(aes(z = psi.z), breaks = AnchorBreaks(0, 0.1, 0)) +
-#    geom_streamline(aes(dx = f.lon, dy = f.lat), skip = 3, circular = "x",
-#                    L = 10, min.dist = 5, arrow.length = 0.2, size = 0.4) +
-#    scale_fill_divergent() +
-#    map.SH +
-#    scale_s_map() +
-#    coord_quickmap() +
-#    facet_grid(season ~ regressor) 
+binwidth <- 0.0015
+ggplot(psi.regr, aes(lon, lat)) +
+   geom_contour_fill(aes(z = psi.z*10^-9),
+                     breaks = AnchorBreaks(0, binwidth, 0),
+                     # breaks = breaks,
+                     circular = "x") +
+   geom_contour3(aes(z = psi.z*10^-9),
+                 breaks = AnchorBreaks(0, binwidth, 0),
+                 # breaks = breaks,
+                 circular = "x") +
+   geom_streamline(aes(dx = f.lon, dy = f.lat), 
+                   skip = 3, circular = "x", L = 10, size = 0.3, 
+                   min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
+   map.SH +
+   scale_s_map() +
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+                        guide = guide_colorstrip_bottom()) +
+   facet_grid(season~regressor) +
+   coord_quickmap(ylim = c(-90, 20))
 ```
 
 
@@ -689,7 +700,7 @@ ice.regr %>%
                         guide = guide_colorstrip_bottom()) +
    scale_x_continuous("", NULL, expand = c(0, 0)) +
    scale_y_continuous("", NULL, expand = c(0, 0)) +
-   facet_grid(variable ~ season) +
+   facet_grid(season ~ variable) +
    coord_equal()
 ```
 
@@ -758,11 +769,99 @@ oni[, broom::tidy(cor.test(gh, ONI)), by = .(PC)] %>%
    knitr::kable(digits = c(1, 2, 9), caption = "Correlation between ONI and each principal component")
 ```
 
+\newpage
 
 
+```{r read-olr}
+olr <- ReadNetCDF("DATA/olr.mon.mean_sub.nc")
+setnames(olr, "time", "date")
+olr[, date := as.Date(date[1]), by = date]
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(date ~ PC, value.var = "gh") %>%
+   .[olr, on = "date"] %>%
+   .[!is.na(PC1)] -> olr
+
+olr <- olr[, olr.a := Anomaly(olr), by = .(lon, lat, month(date))]
+```
+
+```{r calc-olr.regr}
+olr[!is.na(qs.trim(date)), 
+    setNames(ExtractLm(
+            RcppArmadillo::fastLm(cbind(mean = 1,
+                                        PC1 = PC1, 
+                                        PC2 = PC2),
+                                  olr.a)),
+            c("regressor", "estimate", "se")),
+    by = .(lon, lat, season = qs.trim(date))] %>% 
+   .[regressor != "mean"] -> olr.regr
+```
+
+```{r olr-regr, fig.cap = "Regression between OLR and PCs"}
+binwidth <- 1
+ggplot(olr.regr, aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6),
+                     linetype = factor(sign(..level..))),
+                 breaks = c(-0.5, 0.5), circular = "x") +
+   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05,
+               data = olr.regr[lon %in% JumpBy(unique(lon), 2) &
+                                  lat %in% JumpBy(unique(lat), 2)]) +
+   map.SH +
+   scale_s_map() +
+   scale_fill_gradient2(breaks = AnchorBreaks(0, binwidth, 0),
+                        guide = guide_colorstrip_bottom()) +
+   coord_quickmap() +
+   facet_grid(season~regressor)
+```
+
+```{r read-pp}
+pp <- ReadNetCDF("DATA/precip.mon.mean.nc")
+setnames(pp, "time", "date")
+pp[, date := as.Date(date[1]), by = date]
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(date ~ PC, value.var = "gh") %>%
+   .[pp, on = "date"] %>%
+   .[!is.na(PC1) & !is.na(qs.trim(date))] -> pp
+
+pp <- pp[, pp.a := Anomaly(precip), by = .(lon, lat, month(date))]
+ # pp[, pp.p := precip/mean(precip), by = .(lon, lat, month(date))]
+```
+
+```{r calc-pp.regr}
+pp[!is.na(qs.trim(date)), 
+    setNames(ExtractLm(
+            RcppArmadillo::fastLm(cbind(mean = 1,
+                                        PC1 = PC1, 
+                                        PC2 = PC2),
+                                  pp.a)),
+            c("regressor", "estimate", "se")),
+    by = .(lon, lat, season = qs.trim(date))] %>% 
+   .[regressor != "mean"] -> pp.regr
+```
+
+```{r pp-regr, fig.cap = "Regression between precipitation and PCs"}
+binwidth <- 0.15
+ggplot(pp.regr, aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
+                 breaks = c(-0.5, 0.5), circular = "x") +
+   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05,
+               data = pp.regr[lon %in% JumpBy(unique(lon), 2) &
+                                  lat %in% JumpBy(unique(lat), 2)]) +
+   map.SH +
+   scale_s_map() +
+   scale_fill_divergent(guide = guide_colorstrip_bottom(),
+                        breaks = AnchorBreaks(0, binwidth, 0)) +
+   coord_quickmap() +
+   facet_grid(season~regressor)
+```
 # Cosas para hacer
-
----
 
 - Usar datos de ERA
 - Período más largo (1980-20017?)
