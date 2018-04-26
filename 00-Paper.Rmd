@@ -62,12 +62,22 @@ theme_elio <- theme_minimal(base_size = 11) +
 theme_set(theme_elio)
 update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
 
-update_geom_defaults("contour", list(color = "black"))
-update_stat_defaults("contour", aes(linetype = factor(-sign(..level..))))
+update_geom_defaults("contour2", list(color = "black"))
+update_stat_defaults("contour2", aes(linetype = factor(-sign(..level..))))
 
 coord_quickmap <- function(..., ylim = c(-90, 20)) {
   ggplot2::coord_quickmap(ylim = ylim, ...) 
 } 
+
+geom_contour_ <- function(..., gap = 0, rotate = FALSE) {
+   if (gap != 0) {
+      list(geom_contour2(..., gap = gap),
+           geom_text_contour(..., rotate = rotate))
+   } else {
+      geom_contour2(...)
+   }
+}
+
 # For vertical cross-sections
 coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
 coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
@@ -102,7 +112,6 @@ ncep <- ncep.f()
 
 # "Tradicional" analysis.
 
-
 ```{r calc-fourier1}
 rect.annotation <- data.frame(latmin = -65, latmax = -40,
                               levmin = 100, levmax = 700, 
@@ -115,12 +124,10 @@ ncep.qs <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(date))] %>%
 ```{r ampl-ncep, fig.cap = "Fourier amplitude of geopotential height"}
 breaks <- 2^seq(0, log2(650), by = 1)
 ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
-   geom_contour_fill(aes(z = amplitude), 
+   geom_contour_fill(aes(z = amplitude),
                      breaks = breaks) +
-   geom_contour3(aes(z = amplitude), 
-                     breaks = breaks) +
-    geom_label_contour2(aes(z = amplitude), 
-                     breaks = breaks) +
+   geom_contour_(aes(z = amplitude),
+                     breaks = breaks, gap = 1, rotate = FALSE) +
    surface +
    geom_index.region(rect.annotation) +
    scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
@@ -144,9 +151,9 @@ qs3 <- ncep.qs[k == 3, .(lon = lons,
 binwidth <- 10
 ggplot(qs3[lev == 200], aes(lon, lat)) +
    geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour3(aes(z = gh), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour_(aes(z = gh), breaks = AnchorBreaks(0, binwidth, 0), gap = 0) +
    map.SH +
-   scale_s_map() +
+   scale_s_map(limits.lat = c(-90, 20)) +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
                         name = "QS3",
                         guide = guide_colorstrip_bottom()) +
@@ -347,9 +354,9 @@ ncep.mean.season <- ncep.mean.season
 ggplot(ncep.mean.season[lev == 200], aes(lon, lat)) +
    geom_contour_fill(aes(z = gh.1),
                      breaks = AnchorBreaks(0, 10, 0), circular = "x") +
-   geom_contour3(aes(z = gh.1),
+   geom_contour_(aes(z = gh.1), gap = 0,
                  breaks = AnchorBreaks(0, 10, 0), circular = "x") +
-   geom_contour3(aes(z = u), breaks = 30) +
+   geom_contour_(aes(z = u), breaks = 30, gap = 0) +
    # stat_subset(aes(subset = u >= 30),
                # geom = "point", alpha = 0.5, size = 0.05) +
    stat_subset(aes(subset = u >= 30), geom = "point",
@@ -539,9 +546,8 @@ ncep.qs <- ncep.mean.season[, FitWave(gh, k = 3),
 binwidth <- 5
 ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
    geom_contour_fill(aes(z = amplitude), binwidth = binwidth) +
-   geom_contour3(aes(z = amplitude), binwidth = binwidth) +
-   geom_label_contour2(aes(z = amplitude), binwidth = binwidth,
-                       size = 3) +
+   geom_contour_(aes(z = amplitude), binwidth = binwidth, 
+                 gap = 1) +
    surface +
    geom_index.region(rect.annotation) +
    scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
@@ -801,7 +807,8 @@ olr[!is.na(qs.trim(date)),
 ```{r olr-regr, fig.cap = "Regression between OLR and PCs"}
 binwidth <- 1
 ggplot(olr.regr, aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0),
+                     circular = "x") +
    geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6),
                      linetype = factor(sign(..level..))),
                  breaks = c(-0.5, 0.5), circular = "x") +
@@ -861,6 +868,8 @@ ggplot(pp.regr, aes(lon, lat)) +
    coord_quickmap() +
    facet_grid(season~regressor)
 ```
+
+
 # Cosas para hacer
 
 - Usar datos de ERA
