@@ -230,9 +230,9 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 scale_x_longitude <- function(ticks = 60, ...) {
    metR::scale_x_longitude(ticks = ticks, breaks = seq(-180, 360, by = ticks), ...)
 }
-scale_s_map <- function(limits.lat = c(-90, 40),
-                        limits.lon = c(0, 360)) list(scale_y_latitude(limits = limits.lat),
-                                                     scale_x_longitude(limits = limits.lon))
+scale_s_map <- function(ylim = c(-90, 40),
+                        xlim = c(0, 360)) list(scale_y_latitude(limits = ylim),
+                                                     scale_x_longitude(limits = xlim))
 
 ggplot <- function(...) {
    ggplot2::ggplot(...) + scale_linetype(guide = "none")
@@ -480,3 +480,28 @@ FilterWave <- function(x, k) {
    Re(fft(f, inverse = T))/length(x)
 }
 
+
+FitRegr <- function(y, ...) {
+   
+   
+   setNames(ExtractLm(
+      RcppArmadillo::fastLm(cbind(mean = 1,
+                                  PC1 = PC1, 
+                                  PC2 = PC2),
+                            sst.a)),
+      c("regressor", "estimate", "se"))
+}
+
+FitLm <- function(y, ..., se = FALSE) {
+   X <- cbind(mean = 1, ...)
+   if (se == TRUE) {
+   a <- summary(RcppArmadillo::fastLm(X, y))
+   return(list(regressor = rownames(a$coefficients),
+               estimate  = unname(a$coefficients[, 1]),
+               se        = unname(a$coefficients[, 2])))
+   } else {
+      coef <- .lm.fit(X, y)$coefficients
+      return(list(regressor = dimnames(X)[[2]],
+                  estimate = coef))
+   }
+}

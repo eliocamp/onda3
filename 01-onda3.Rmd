@@ -647,7 +647,8 @@ qs.eof$right %>%
 
 ```{r}
 ice[!is.na(concentration), 
-    as.list(.lm.fit(cbind(1, PC1, PC2), concentration)$coefficients[2:3]),
+    FitLm(concentration, PC1, PC2),
+    # as.list(.lm.fit(cbind(1, PC1, PC2), concentration)$coefficients[2:3]),
     by = .(x, y, season = qs.season(date))] %>% 
    setnames(c("V1", "V2"), c("PC1", "PC2")) %>%
    melt(id.vars = c("x", "y", "season")) -> ice.regr
