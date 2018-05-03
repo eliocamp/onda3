@@ -481,27 +481,50 @@ FilterWave <- function(x, k) {
 }
 
 
-FitRegr <- function(y, ...) {
-   
-   
-   setNames(ExtractLm(
-      RcppArmadillo::fastLm(cbind(mean = 1,
-                                  PC1 = PC1, 
-                                  PC2 = PC2),
-                            sst.a)),
-      c("regressor", "estimate", "se"))
-}
-
 FitLm <- function(y, ..., se = FALSE) {
    X <- cbind(mean = 1, ...)
+   regressor <- dimnames(X)[[2]]
+   a <- .lm.fit(X, y)
+   estimate <- a$coefficients
    if (se == TRUE) {
-   a <- summary(RcppArmadillo::fastLm(X, y))
-   return(list(regressor = rownames(a$coefficients),
-               estimate  = unname(a$coefficients[, 1]),
-               se        = unname(a$coefficients[, 2])))
+   sigma <- sum(a$residuals^2)/(nrow(X) - ncol(X))
+   se <- sqrt(diag(solve(t(X)%*%X)*sigma))
+   return(list(regressor = dimnames(X)[[2]],
+               estimate = estimate,
+               se = se))
    } else {
-      coef <- .lm.fit(X, y)$coefficients
       return(list(regressor = dimnames(X)[[2]],
-                  estimate = coef))
+                  estimate = estimate))
    }
+}
+
+CutEOF <- function(eof, pc) {
+   if (is.numeric(pc)) pc <- paste0("PC", pc)
+   lapply(eof, function(x) {
+      x[PC %in% pc]
+   })
+}
+
+PermTest <- function(y, ..., N = 10) {
+   original <- FitLm(y, ..., se = FALSE)
+   regressor <- original$regressor
+   estimate <- original$estimate
+   f <- rep(0, length(estimate))
+   n <- length(y)
+   p <- seq_len(n)
+   set.seed(42)
+   for (i in seq_len(N)) {
+      y <- y[sample(p, n, replace = FALSE)]
+      e <- FitLm(y, ..., se = FALSE)$estimate
+      f <- f + as.numeric(abs(e) >= abs(estimate))
+   }
+   f <- f/N
+   return(append(original, list(p.value = f)))
+}
+
+
+Jump <- function(x, by = 1) {
+   keep <- JumpBy(unique(x), by = by)
+   x[!(x %in% keep)] <- NA
+   x
 }

@@ -227,9 +227,7 @@ PC1 and PC2 both are dominated by a wave 3 pattern. They both explain an almost 
 This result suggest that the ZW3 could be represented by a linear combination of PC1 and PC2 at the same time preserving it's meridional propagation and zonal variation.
 
 ```{r select-eof}
-qs.eof <- lapply(qs.eof, function(x) {
-   x[PC %in% c("PC1", "PC2")]
-})
+qs.eof <- CutEOF(qs.eof, 1:2)
 ```
 
 
@@ -856,6 +854,54 @@ ggplot(pp.regr, aes(lon, lat)) +
    facet_grid(season~regressor)
 ```
 
+```{r read-temp}
+t <- ReadNetCDF("DATA/air.mon.mean.nc", subset = list(level = 1000))
+setnames(t, "time", "date")
+t[, date := as.Date(date[1]), by = date]
+
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(date ~ PC, value.var = "gh") %>%
+   .[t, on = "date"] %>%
+   .[!is.na(PC1) & !is.na(qs.trim(date))] -> t
+
+t <- t[, air.a := Anomaly(air), by = .(lon, lat, month(date))]
+```
+
+```{r calc-t.regr}
+t[!is.na(qs.trim(date)), 
+   FitLm(air.a, PC1, PC2, se = TRUE),
+    by = .(lon, lat, season = qs.trim(date))] %>% 
+   .[regressor != "mean"] -> t.regr
+```
+
+
+```{r t-regr, fig.cap = "Regression between precipitation and PCs"}
+binwidth <- 0.15
+
+ggplot(t.regr, aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*2)),
+                 breaks = c(-0.5, 0.5), circular = "x") +
+   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05,
+               data = t.regr[lon %in% JumpBy(unique(lon), 2) &
+                                  lat %in% JumpBy(unique(lat), 2)]) +
+   map.SH +
+   scale_s_map() +
+   # scale_fill_distiller(palette = "BrBG",
+   #                      guide = guide_colorstrip_bottom(),
+                        # breaks = AnchorBreaks(0, binwidth, 0)) +
+   scale_fill_divergent(guide = guide_colorstrip_bottom(),
+                        limits = c(-1, 1),
+                        oob = scales::squish,
+                        breaks = AnchorBreaks(0, binwidth, 0)) +
+   # ggalt::coord_proj("+proj=wintri") +
+   coord_quickmap() +
+   facet_grid(season~regressor)
+```
+
 
 # Cosas para hacer
 
@@ -876,15 +922,15 @@ lats.eof <- c(-80, -30)
 copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, date, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
-   .[, gh := resid(.lm.fit(cbind(1, date), gh)), by = .(lon, lat)] %>% 
-   EOF(data = ., gh ~ lon + lat | date, n = 1:4) -> qs.eof
+   .[, gh := resid(.lm.fit(cbind(1, date), gh)), by = .(lon, lat, month(date))] %>% 
+   EOF(data = ., gh ~ lon + lat | date, n = 1:20, B = 100) -> qs.eof2
 
-qs.eof$left[PC == "PC2", gh := -gh]
-qs.eof$right[PC == "PC2", gh := -gh]
+# qs.eof$left[PC == "PC2", gh := -gh]
+# qs.eof$right[PC == "PC2", gh := -gh]
 
 pc.lab <- with(qs.eof$sdev, setNames(paste0(PC, " - ", round(r2*100), "%"), PC))
 
-ggplot(qs.eof$left, aes(lon, lat)) +
+ggplot(qs.eof$left[as.numeric(PC) %in% 1:3], aes(lon, lat)) +
    geom_contour_fill(aes(z = gh), circular = "x",
                      breaks = AnchorBreaks(0, 0.01, 0)) +
    geom_contour3(aes(z = gh), circular = "x",
@@ -896,6 +942,18 @@ ggplot(qs.eof$left, aes(lon, lat)) +
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, -20)) +
    facet_wrap(~PC, labeller = labeller(PC = pc.lab))
+```
+
+```{r}
+# n <- length(unique(ncep$date))
+qs.eof$sdev %>% 
+   # .[, se := sqrt(2/n)*sd] %>% 
+   ggplot(aes(as.numeric(PC), sd)) +
+   geom_point() +
+   geom_line() +
+   geom_errorbar(aes(ymin = sd - 2*se, ymax = sd + 2*se),
+                 width = 0.3) +
+   scale_x_continuous(breaks = 1:20, minor_breaks = NULL)
 ```
 
 
@@ -961,25 +1019,59 @@ qs.eof$right[PC %in% c("PC1", "PC2"), .(value = mean(gh)), by = .(PC, month(date
 ```{r lm-gh, fig.cap = "Linear regrssions of geopotential height (full) and geopotential height with zonal wave1 removed (no.1)"}
 copy(ncep[lev == 200]) %>% 
    .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, date)] %>%
-   .[, .(full = FitLm(gh, seq_len(.N))$estimate[[2]],
-         no.1 = FitLm(gh.1, seq_len(.N))$estimate[[2]]), by = .(lat, lon)] %>% 
-   melt(id.vars = c("lat", "lon")) -> gh.slope 
-   # .[regressor != "mean"] %>% 
-ggplot(gh.slope, aes(lon, lat)) +
-   geom_contour_fill(aes(z = value*12), circular = "x",
-                     breaks = AnchorBreaks(0, 0.2, 0)) +
-   geom_contour2(aes(z = value*12), circular = "x",
-                     breaks = AnchorBreaks(0, 0.2, 0))+
+   .[, FitLm(gh.1, seq_len(.N), se = TRUE), by = .(lat, lon, month(date))] %>% 
+   .[regressor != "mean"] %>%
+ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), circular = "x",
+                     breaks = AnchorBreaks(0, 0.5, 0)) +
+   geom_contour2(aes(z = estimate), circular = "x",
+                     breaks = AnchorBreaks(0, 0.5, 0))+
+   stat_subset(aes(x = Jump(lon, 2),
+                   y = Jump(lat, 2),   
+                   subset = abs(estimate) > se*2), geom = "point", 
+               size = 0.1) +
    map.SH +
    scale_s_map() +
    scale_fill_divergent() +
    coord_quickmap() +
-   facet_wrap(~variable, ncol = 1)
+   facet_wrap(~month, labeller = labeller(month = month.abb),
+              ncol = 2) +
+   labs(title = "Tendencai lineal mensual de altura geopotential filtrada")
+   
+
+   # coord_quickmap(ylim = c(-60, -30), xlim = c(280, 300)) 
+```
+
+```{r}
+copy(ncep[lev == 200]) %>% 
+   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, date)] %>%
+   .[, FitLm(gh.1, seq_len(.N), se = TRUE), by = .(lat, lon, month(date))] %>% 
+   .[regressor != "mean"] %>% 
+   .[, sd(estimate), by = .(lon, lat)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1), circular = "x") +
+   scale_fill_viridis_c() +
+   map.SH +
+   scale_s_map() +
+   coord_quickmap()
+
 ```
 
 La tendencia lineal del geopotencial total es positiva al norte de 60°S y negativa al sur. Probablemente represente la migración de la rama descendente de la celda de Hadley. Sin embargo, existen diferencias zonales en esta tendencia que son consistentes con la tendencia lineal del campo sin la onda 1. Curiosamente, el patrón de esta tendencia es de una onda 3, con decrecimiento del geopotencial sobre el sur de sudamérica y crecimiento al este y al oeste del continente. 
 
 La zona de decrecimiento del geopotencial es cerana a la zona de máximo de geopotencial de la onda 3. Entonces la tendencia lineal estaría reduciendo la amplitud de la onda 3 en esa zona (supongo que eso se puede confirmar o no calculando la amplpitud usnado wavelets y mostrando la tendencia lineal). Será que al restarla, la amplitud de la onda 3 aumenta en esa zona y entonces aparece como un patrón de variabilidad más importante? 
+
+```{r}
+ncep[lat == -45 & lev == 200] %>% 
+   # .[, gh := Anomaly(gh), by = .(lon, lat, month(date))] %>%
+   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, date)] %>%
+   .[lon == 290] %>% 
+   ggplot(aes(date, gh.1)) + 
+   geom_line() + 
+   geom_smooth(method = "lm") +
+   labs(title = "GH Filtrada", subtitle = "70°O 45°S")
+   # facet_wrap(~month(date))
+```
 
 Queda la duda de si es conveniente restar la tendencia o no. 
 
