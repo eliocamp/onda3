@@ -232,7 +232,7 @@ scale_x_longitude <- function(ticks = 60, ...) {
 }
 scale_s_map <- function(ylim = c(-90, 40),
                         xlim = c(0, 360)) list(scale_y_latitude(limits = ylim),
-                                                     scale_x_longitude(limits = xlim))
+                                               scale_x_longitude(limits = xlim))
 
 ggplot <- function(...) {
    ggplot2::ggplot(...) + scale_linetype(guide = "none")
@@ -382,10 +382,10 @@ qs.trim <- function(month) {
                           rep(NA, 1),
                           rep("MJJ", 3),
                           rep("ASO", 3),
-                          rep(NA, 2)))
+                          rep("ND", 2)))
    
    return(factor(qs.seasons[month], levels = c("JFM", "MJJ",
-                                               "ASO")))
+                                               "ASO", "ND")))
 }
 
 
@@ -487,11 +487,11 @@ FitLm <- function(y, ..., se = FALSE) {
    a <- .lm.fit(X, y)
    estimate <- a$coefficients
    if (se == TRUE) {
-   sigma <- sum(a$residuals^2)/(nrow(X) - ncol(X))
-   se <- sqrt(diag(solve(t(X)%*%X)*sigma))
-   return(list(regressor = dimnames(X)[[2]],
-               estimate = estimate,
-               se = se))
+      sigma <- sum(a$residuals^2)/(nrow(X) - ncol(X))
+      se <- sqrt(diag(solve(t(X)%*%X)*sigma))
+      return(list(regressor = dimnames(X)[[2]],
+                  estimate = estimate,
+                  se = se))
    } else {
       return(list(regressor = dimnames(X)[[2]],
                   estimate = estimate))
@@ -499,10 +499,14 @@ FitLm <- function(y, ..., se = FALSE) {
 }
 
 CutEOF <- function(eof, pc) {
-   if (is.numeric(pc)) pc <- paste0("PC", pc)
-   lapply(eof, function(x) {
-      x[PC %in% pc]
-   })
+   # if (is.numeric(pc)) pc <- paste0("PC", pc)
+   if (is.data.table(eof)) {
+      eof[as.numeric(PC) %in% pc]
+   } else if (is.list(eof)) {
+      lapply(as.list(eof), function(x) {
+         x[as.numeric(PC) %in% pc]
+      })
+   }
 }
 
 PermTest <- function(y, ..., N = 10) {
@@ -528,3 +532,5 @@ Jump <- function(x, by = 1) {
    x[!(x %in% keep)] <- NA
    x
 }
+
+
