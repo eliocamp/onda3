@@ -359,3 +359,78 @@ ggplot(sst.regr, aes(lon, lat)) +
    coord_quickmap() +
    facet_grid(regressor + rotation ~ season)
 ```
+
+
+# Epílogo
+
+---
+
+¿Speedy logra capturar estos PCs?
+
+---
+
+```{r}
+speedy <- ReadNetCDF("~/Documents/Archivo FACU/Tesis/DATA/SPEEDY/attm-Control.nc", 
+                     vars = "gh", subset = list(lev = 200, lat = -90:40))
+setnames(speedy, "time", "date")
+lats.eof <- c(-80, -30)
+
+qs.eof <- copy(speedy[lat %between% lats.eof]) %>% 
+   .[, gh := FilterWave(gh, 0:1), by = .(date, lat)] %>% 
+   .[ , gh := gh*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := resid(.lm.fit(cbind(1, date), gh)), 
+     by = .(lon, lat)] %>% 
+   EOF(data = ., gh ~ date | lon + lat, n = 1:10, rotate = TRUE)
+
+
+n <- length(unique(speedy$date))
+k <- sqrt(2/n)
+ggplot(qs.eof$sdev, aes(as.numeric(PC), sd)) +
+   geom_point() +
+   geom_line() +
+   geom_errorbar(aes(ymax = sd + 2*sd*k, ymin = sd - 2*sd*k), width = 0.5) +
+   scale_x_continuous(breaks = 1:10) 
+
+```
+
+---
+
+```{r}
+ggplot(qs.eof$right, aes(lon, lat)) + 
+   geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, 0.01, 0)) +
+   map.SH +
+   scale_s_map(ylim = c(-90, -20)) +
+   scale_fill_divergent() +
+   facet_wrap(~PC)  +
+   coord_quickmap(ylim = c(-90, -20)) 
+```
+
+---
+
+```{r}
+lags <- -12:12
+qs.eof$left %>% 
+   dcast(date ~ PC, value.var = "gh") %>% 
+   .[, lapply(lags, function(x) {
+      type <- ifelse(x > 0, "lead", "lag")
+      cor(PC1, shift(PC2, abs(x), type = type), 
+          use = "complete.obs")})] %>% 
+   melt() %>% 
+   .[, variable := lags] %>% 
+   ggplot(aes(lags, value)) +
+   geom_line() +
+   geom_hline(yintercept = 0) +
+   scale_y_continuous("Correlation") +
+   scale_x_continuous("Lag (PC1 leads PC2)", JumpBy(lags, 1))
+```
+
+---
+
+```{r}
+qs.eof$left %>% 
+   .[qs.eof$sdev, on = c("PC")] %>% 
+   .[, .(value = mean(gh*sd)), by = .(PC, month(date))] %>%
+   dcast(month  ~ PC, value.var = "value") %>% 
+   .[, plot(hclust(dist(.SD[, -1])),
+            labels = month.abb, hang = -1)]
+```
