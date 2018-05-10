@@ -1,13 +1,13 @@
 ---
-title: "03-1 - usar datos diarios"
+title: "03.1 - usar datos diarios"
 author: "Elio Campitelli"
 output:
-    ioslides_presentation:
-        fig_height: 5.5
-        fig_width: 10.5
-        smaller: yes
-        widescreen: yes
-        cache: yes
+   ioslides_presentation:
+      fig_height: 5.5
+      fig_width: 10.5
+      smaller: yes
+      widescreen: yes
+      cache: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -100,23 +100,36 @@ Datos diarios de anomalía zonal de altura geopotential con un promedio móvil d
 
 ---
 
+<!-- ```{r, cache = FALSE} -->
+<!--  f <- memoise::memoise(function() { -->
+<!--     gh <- ReadNetCDF("DATA/hgt.daily_2000.nc", -->
+<!--                      vars = c(gh = "hgt"), key = TRUE) -->
+<!--     setnames(gh, "level", "lev") -->
+<!--     gh[, gh1 := FilterWave(gh, 0:1), by = .(time, lat)] -->
+<!--     gh[, gh1roll := RcppRoll::roll_mean(gh1, 30, fill = NA), by = .(lon, lat)] -->
+
+<!--  }, cache = memoise::cache_filesystem(".rcache")) -->
+<!--  gh <- f() -->
+<!-- ``` -->
+
+
 ```{r}
-gh <- ReadNetCDF("DATA/hgt.daily_2000.nc", vars = c(gh = "hgt"))
-setnames(gh, "time", "date")
-gh[, gh1 := FilterWave(gh, 0:1), by = .(date, lat)]
+lats.eof <- c(-80, -30)
+gh <- ReadNetCDF("DATA/hgt.daily_2000.nc", subset = list(lat = lats.eof),
+                 key = TRUE, vars = c(gh = "hgt"))
+setnames(gh, "level", "lev")
+gh[, gh1 := FilterWave(gh, 0:1), by = .(time, lat)]
 gh[, gh1roll := RcppRoll::roll_mean(gh1, 30, fill = NA), by = .(lon, lat)]
 
-lats.eof <- c(-80, -30)
-qs.eof <- copy(gh[lat %between% lats.eof & !is.na(gh1roll)])
-qs.eof <- qs.eof[ , gh := gh1roll*sqrt(cos(lat*pi/180))] %>%
-   .[, gh := resid(.lm.fit(cbind(1, date), gh)), 
+qs.eof <- copy(gh[!is.na(gh1roll)])[ , gh := gh1roll*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := resid(.lm.fit(cbind(1, time), gh)), 
      by = .(lon, lat)]
-qs.eof <- EOF(data = qs.eof, gh ~ date | lon + lat, n = 1:10, rotate = TRUE)
+qs.eof <- EOF(data = qs.eof, gh ~ time | lon + lat, n = 1:10, rotate = TRUE)
 ```
 
 
 ```{r scree, fig.cap = "Valores principales"}
-n <- length(unique(gh$date))
+n <- length(unique(gh$time))
 k <- sqrt(2/n)
 ggplot(qs.eof$sdev, aes(as.numeric(PC), sd)) +
    geom_point() +
@@ -143,10 +156,10 @@ ggplot(qs.eof$right, aes(lon, lat)) +
 ```{r cor, fig.cap = "Correlograma entre PC1 y PC2"}
 lags <- -60:60
 qs.eof$left %>% 
-   dcast(date ~ PC, value.var = "gh") %>% 
+   dcast(time ~ PC, value.var = "gh") %>% 
    .[, lapply(lags, function(x) {
       type <- ifelse(x > 0, "lead", "lag")
-      cor(PC3, shift(PC6, abs(x), type = type), 
+      cor(PC1, shift(PC2, abs(x), type = type), 
           use = "complete.obs")})] %>% 
    melt() %>% 
    .[, variable := lags] %>% 
@@ -167,7 +180,7 @@ El autocorrelograma tiene una estructura de una onda propagante, aunque la ampli
 ```{r dendo, fig.cap = "Dendogram"}
 qs.eof$left %>% 
    .[qs.eof$sdev, on = c("PC")] %>% 
-   .[, .(value = mean(gh*sd)), by = .(PC, month(date))] %>%
+   .[, .(value = mean(gh*sd)), by = .(PC, month(time))] %>%
    dcast(month ~ PC, value.var = "value") %>% 
    .[, plot(hclust(dist(.SD[, -1])),
             labels = month.abb, hang = -1)] 
@@ -181,25 +194,26 @@ subset <- list(lat = -90:40, level = 200,
                time = lubridate::as_datetime(c("1979-12-01", "2015-12-01")))
 ncep <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
                    subset = subset) %>% 
-      setnames(., c("level", "time"), c("lev", "date"))
+   setnames(., c("level"), c("lev"))
 
 region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
 copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
-   .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, date, lev)] %>% 
+   .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, time, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
-   .[, gh := resid(.lm.fit(cbind(1, date), gh)), 
+   .[, gh := resid(.lm.fit(cbind(1, time), gh)), 
      by = .(lon, lat)] %>% 
-   EOF(data = ., gh ~ date | lon + lat, n = 1:10, rotate = TRUE) -> qs.eofm
+   EOF(data = ., gh ~ time | lon + lat, n = 1:10, rotate = TRUE) -> qs.eofm
+remove(ncep)
 ```
 
 
 ```{r eof-compare, fig.cap = "Comparación de la PC utilizando datos diarios (negro) y utilizando datos mensuales (rojo). Ambas están estandarizadas por sus respectivos desvios estándar."}
-ggplot(CutEOF(qs.eof$left, 1:2)[, gh := gh/sd(gh), by = PC], aes(date, gh)) + 
+ggplot(CutEOF(qs.eof$left, 1:2)[, gh := gh/sd(gh), by = PC], aes(time, gh)) + 
    geom_line() +
    geom_line(data = CutEOF(qs.eofm$left, 1:2)[, gh := gh/sd(gh), by = PC], color = "red") +
-   scale_x_datetime(limits = range(qs.eof$left$date)) +
+   scale_x_datetime(limits = range(qs.eof$left$time)) +
    facet_wrap(~PC, ncol = 1)
 ```
 
@@ -209,28 +223,29 @@ Ambas series son muy similares por lo que las regresiones usando una u otra tamb
 
 ---
 
-```{r read-olr}
-remove(gh)
+```{r, cache = FALSE}
 subset <- list(lat = -90:40)
-olr <- ReadNetCDF("DATA/olr.daily.nc", vars = "olr", subset = subset, key = TRUE)
-
-setnames(olr, "time", "date")
-setkey(qs.eof$left, date)
-
-qs.eof$left %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   .[as.numeric(PC) %in% 1:2] %>% 
-   dcast(date ~ PC, value.var = "gh") %>%
-   setkey(date) %>% 
-   .[olr, on = "date"] %>%
-   .[!is.na(PC1)] -> olr
-
-olr <- olr[, olr.a := Anomaly(olr), by = .(lon, lat, data.table::yday(date))]
-olr[, season := qs.trim(data.table::month(date[1])), by = date]
+f2 <- memoise::memoise(function(qs.eof) {
+   olr <- ReadNetCDF("DATA/olr.daily.nc", vars = "olr", subset = subset, key = TRUE)
+   olr[, olr.a := Anomaly(olr), by = .(lon, lat, data.table::yday(time))]
+   olr[, season := qs.trim(data.table::month(time[1])), by = time]
+   setkey(qs.eof$left, time)
+   
+   qs.eof$left %>%
+      .[, gh := gh/sd(gh), by = .(PC)] %>% 
+      .[as.numeric(PC) %in% 1:2] %>% 
+      dcast(time ~ PC, value.var = "gh") %>%
+      setkey(time) %>% 
+      .[olr, on = "time"] %>%
+      .[!is.na(PC1)] -> olr
+   return(olr)
+}, cache = memoise::cache_filesystem(".rcache"))
+olr <- f2(qs.eof)
 ```
 
+
 ```{r calc-olr.regr}
-olr[!is.na(qs.trim(date)), 
+olr[!is.na(qs.trim(time)), 
     FitLm(olr.a, PC1, PC2, se = TRUE),
     by = .(lon, lat, season)] %>% 
    .[regressor != "mean"] -> olr.regr
@@ -263,7 +278,7 @@ causa-efecto (anomalía de olr -> PC1).
 
 Haco la olr media en la región El Niño 3.4 (5S-5N, 170O-)
 
-## Correlación con  
+## Correlación con la olr en El Niño 3.4
 
 
 ```{r}
@@ -273,15 +288,15 @@ EN34 <- function(lon, lat) {
 
 enso <- olr[lat %between% c(-5, 5) & lon %between% c(190, 240)] %>% 
    .[ , .(anom = mean(olr.a), full   = mean(olr)), 
-      keyby = date] %>% 
-   melt(id.vars = "date", value.name = "olr", variable.name = "type")
+      keyby = time] %>% 
+   melt(id.vars = "time", value.name = "olr", variable.name = "type")
 
 qs.eof$left %>%
-   # .[, gh.a := Anomaly(gh), by = .(yday(date), PC)] %>%
+   # .[, gh.a := Anomaly(gh), by = .(yday(time), PC)] %>%
    .[as.numeric(PC) %in% 1:2] %>% 
-   dcast(date ~ PC, value.var = "gh") %>%
-   setkey(date) %>% 
-   .[enso, on = "date"] -> enso
+   dcast(time ~ PC, value.var = "gh") %>%
+   setkey(time) %>% 
+   .[enso, on = "time"] -> enso
 ```
 
 

@@ -85,6 +85,10 @@ coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
 coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
 
 lev.breaks <- c(10, 30, 100, 200, 500, 1000)
+
+season <- function(...) {
+   metR::season(..., lang = "en")
+}
 ```
 
 ```{r read-ncep}
@@ -97,7 +101,7 @@ ncep.f <- memoise::memoise(function(lat = -90:40,
                   time = time)
    n <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
                    subset = subset) %>% 
-      setnames(., c("level", "time"), c("lev", "date"))
+      setnames(., c("level"), c("lev"))
    if ("u" %in% vars) {
       n[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
                           subset = subset)[[1]]] 
@@ -106,7 +110,7 @@ ncep.f <- memoise::memoise(function(lat = -90:40,
       n[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
                           subset = subset)[[1]]]
    }
-   n[, date := as.Date(date[1]), by = date]
+   n[, time := as.Date(time[1]), by = time]
    return(n)
 }, cache = memoise::cache_filesystem(".rcache"))
 ncep <- ncep.f()
@@ -118,7 +122,7 @@ ncep <- ncep.f()
 rect.annotation <- data.frame(latmin = -65, latmax = -40,
                               levmin = 100, levmax = 700, 
                               k = 3)
-ncep.qs <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(date))] %>% 
+ncep.qs <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(time))] %>% 
    .[, FitWave(gh, k = 1:4), 
      by = .(lat, lev, season)] 
 ```
@@ -150,6 +154,7 @@ lons <- unique(ncep$lon)
 qs3 <- ncep.qs[k == 3, .(lon = lons, 
                          gh = BuildField(lons*pi/180, amplitude, phase, k)), 
                by = .(lat, lev, season)]
+
 binwidth <- 10
 ggplot(qs3[lev == 200], aes(lon, lat)) +
    geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, binwidth, 0)) +
@@ -183,48 +188,37 @@ Now this has some problems... yada yada yada, alternative analysis.
 
 # New seasons
 
-```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out."}
+```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa detrended geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out. Erros bars represent the 95% cuantile range estimated via bootstrap."}
 region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
-copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
-   .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, date, lev)] %>% 
+qs.eof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+   .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, time, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
-   .[, gh := resid(.lm.fit(cbind(1, date), gh)), 
-     by = .(lon, lat)] %>% 
-     {
-        qs.eof <<- EOF(data = ., gh ~ date | lon + lat, n = 1:10,
-                       B = 1000)
-        qs.eofr <<- EOF(data = ., gh ~ date | lon + lat, n = 1:10, 
-                     rotate = TRUE)
-      }
+   .[, gh := resid(.lm.fit(cbind(1, time), gh)), 
+     by = .(lon, lat)] %>%
+   EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000)
 
-rbindlist(list(Original = qs.eof$sdev, 
-               Rotated = qs.eofr$sdev), fill = TRUE,
-          idcol = "rotation") %>% 
-   ggplot(aes(as.numeric(PC), sd, color = rotation)) +
+qs.eof$sdev %>% 
+   ggplot(aes(as.numeric(PC), mid)) +
    geom_point() +
    geom_line() +
    geom_errorbar(aes(ymin = lower, ymax = upper),
                  width = 0.3) +
    scale_x_continuous("PC", 
                       breaks = 1:20, minor_breaks = NULL) +
-   scale_y_continuous("sigma") +
-   scale_color_brewer(palette = "Set1")
+   scale_y_continuous("sigma")
 ```
 
 ```{r}
-# qs.eof <- CutEOF(qs.eof, 1:7) 
+qs.eof <- CutEOF(qs.eof, 1:6)
 pc.labeller <- function(qs.eof) {
    with(qs.eof$sdev, setNames(paste0(PC, " - ", scales::percent(r2)),
                               PC))
 }
 
 binwidth <- 0.01
-rbindlist(list(Oiginal = CutEOF(qs.eof$right, 1:7),
-               Rotated = CutEOF(qs.eofr$right, 1:7)),
-          idcol = "rotation") %>%
-ggplot(aes(lon, lat)) +
+ggplot(qs.eof$right, aes(lon, lat)) +
    geom_contour_fill(aes(z = gh), 
                      breaks = AnchorBreaks(0, binwidth, 0)) +
    geom_contour3(aes(z = gh),
@@ -235,18 +229,18 @@ ggplot(aes(lon, lat)) +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, -20)) +
-   facet_grid(PC~rotation)
+   facet_wrap(~PC, ncol = 3, dir = "v", labeller = labeller(PC = pc.labeller(qs.eof)))
 ```
 
 ```{r fourier-eof, fig.cap = "Fourier decomposition by latitude of each EOF."}
-qs.eofr$loadings[, FitWave(gh, 2:4), by = .(lat, PC)]  %>%
-   ggplot(aes(lat, amplitude)) +
-   geom_line(aes(color = paste0("QS", k))) +
-   scale_x_latitude(trans = "reverse", ticks = 15) +
-   scale_y_continuous() +
+qs.eof$right[, FitWave(gh, 2:4), by = .(lat, PC)]  %>%
+   ggplot(aes(amplitude, lat)) +
+   geom_path(aes(color = paste0("QS", k))) +
+   scale_y_latitude(ticks = 15) +
+   scale_x_continuous() +
    scale_color_brewer(palette = "Set1") +
-   # coord_fixed(500) +
-   facet_wrap(~PC)
+   coord_fixed(1/900) +
+   facet_wrap(~PC, ncol = 3, dir = "v", labeller = labeller(PC = pc.labeller(qs.eof)))
 ```
 
 
@@ -258,13 +252,30 @@ PC1 and PC2 both are dominated by a wave 3 pattern. They both explain an almost 
 
 This result suggest that the ZW3 could be represented by a linear combination of PC1 and PC2 at the same time preserving it's meridional propagation and zonal variation.
 
+```{r PC1-PC2-trim, fig.cap = "Monthly mean values for each PC. Colors and shapes divide months into 5 'seasons'."}
+qs.eof$left %>% 
+   .[qs.eof$sdev, on = "PC"] %>% 
+   .[, .(value = mean(gh*sd)), by = .(PC, month(time))] %>%
+   dcast(... ~ PC) %>%
+   ggplot(aes(PC1, PC2)) +
+   # xlab("PC 1") + ylab("PC 2") +
+   geom_cross(color = "gray50") +
+   ggforce::geom_link2(aes(color = qs.season(month),
+                           group = 1),
+                       alpha = 0.5) +
+   geom_point(aes(color = qs.season(month), shape = qs.season(month)),
+              size = 3)+
+   ggrepel::geom_text_repel(aes(label = month.abb[month])) +
+   scale_color_brewer(palette = "Set1", na.translate = F) +
+   scale_shape_circlefill() +
+   guides(color = "none", shape = "none") +
+   coord_equal()
+```
 
 ```{r cluster, fig.cap = "Hierarchical clustering of the months of the year according to the mean value of each PC scaled by it's variance."}
-
-qs.eofr$left %>% 
-   .[qs.eofr$sdev, on = "PC"] %>% 
-    CutEOF(1:7) %>%
-   .[, .(value = mean(gh*sd)), by = .(PC, month(date))] %>%
+qs.eof$left %>% 
+   .[qs.eof$sdev, on = "PC"] %>% 
+   .[, .(value = mean(gh*sd)), by = .(PC, month(time))] %>%
    dcast(month ~ PC, value.var = "value") %>% 
    .[, -1] %>% 
    dist() %>%
@@ -273,10 +284,10 @@ qs.eofr$left %>%
 ```
 
 
-```{r PC1-PC2-trim, fig.cap = "Monthly mean values for each PC. Colors and shapes divide months into 5 'seasons'."}
-qs.eofr$left %>% 
-   .[qs.eofr$sdev, on = "PC"] %>% 
-    .[, .(value = mean(gh*sd)), by = .(PC, month(date))] %>%
+```{r PC1-PC2-trim-sd, fig.cap = "Monthly standard deviation for each PC. Colors and shapes divide months into 5 'seasons'."}
+qs.eof$left %>% 
+   .[qs.eof$sdev, on = "PC"] %>% 
+   .[, .(value = sd(gh*sd)), by = .(PC, month(time))] %>%
    dcast(... ~ PC) %>%
    ggplot(aes(PC1, PC2)) +
    # xlab("PC 1") + ylab("PC 2") +
@@ -294,39 +305,24 @@ qs.eofr$left %>%
 ```
 
 
-
-```{r lm-gh, fig.cap = "Linear regrssions of geopotential height (full) and geopotential height with zonal wave1 removed (no.1)"}
-binwidth <- 0.5
-copy(ncep[lev == 200]) %>% 
-   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, date)] %>%
-   .[!is.na(qs.trim(date)), .(gh = mean(gh.1)), 
-     by = .(lon, lat, year(date), season = qs.trim(date))] %>%
-   .[, FitLm(gh, year, se = TRUE), by = .(lat, lon, season)] %>% 
-   .[regressor != "mean"] %>%
-   ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), circular = "x",
-                     breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour2(aes(z = estimate), circular = "x",
-                 breaks = AnchorBreaks(0, binwidth, 0))+
-   stat_subset(aes(x = Jump(lon, 2),
-                   y = Jump(lat, 2),   
-                   subset = abs(estimate) > se*2), geom = "point", 
-               size = 0.1) +
-   map.SH +
-   scale_s_map() +
-   scale_fill_divergent() +
-   coord_quickmap() +
-   facet_wrap(~season, labeller = labeller(month = month.abb),
-              ncol = 2) +
-   labs(title = "Tendencia lineal trimestral de altura geopotential filtrada")
+```{r cluster-sd, fig.cap = "Hierarchical clustering of the months of the year according to the standard deviation of each PC scaled by it's variance."}
+qs.eof$left %>% 
+   .[qs.eof$sdev, on = "PC"] %>% 
+   .[, .(value = sd(gh*sd)), by = .(PC, month(time))] %>%
+   dcast(month ~ PC, value.var = "value") %>% 
+   .[, -1] %>% 
+   dist() %>%
+   hclust() %>% 
+   plot(labels = month.abb, hang = -1) 
 ```
 
 
-```{r sd-eof, fig.cap = "Standard deviation of each PC for each month"}
-qs.eofr$left %>%
-   .[, sd(gh), by = .(PC, month(date))] %>% 
-   .[qs.eofr$sdev, on = "PC"] %>% 
-   .[, V1 := V1*sd] %>% 
+
+
+```{r sd-eof, fig.cap = "Standard deviation (scaled by their variance) of each PC for each month"}
+qs.eof$left %>%
+   .[qs.eof$sdev, on = "PC"] %>% 
+   .[, sd(gh*sd), by = .(PC, month(time))] %>% 
    ggplot(aes(month, PC, color = V1)) +
    geom_raster(aes(fill = V1)) +
    scale_x_continuous("", breaks = 1:12, labels = month.abb,
@@ -338,8 +334,8 @@ qs.eofr$left %>%
 
 
 ```{r sd-eof2, fig.cap = "Standard deviation of each PC for each month"}
-qs.eofr$left %>%
-   .[, sd(gh), by = .(PC, month(date))] %>% 
+qs.eof$left %>%
+   .[, sd(gh), by = .(PC, month(time))] %>% 
    ggplot(aes(month, PC, color = V1)) +
    geom_raster(aes(fill = V1)) +
    scale_x_continuous("", breaks = 1:12, labels = month.abb,
@@ -351,25 +347,6 @@ qs.eofr$left %>%
 
 
 An optimal (if somewhat arbitrary) division of the year can be seen in Figure X based on monthly mean values of each PC...
-
-This division is supported by hierarchical clustering...
-
-<!-- ```{r correlogram} -->
-<!-- lags <- -12:12 -->
-<!-- qs.eof$right %>%  -->
-<!--    dcast(date ~ PC, value.var = "gh") %>%  -->
-<!--    .[, lapply(lags, function(x) { -->
-<!--       type <- ifelse(x > 0, "lead", "lag") -->
-<!--       cor(PC1, shift(PC2, abs(x), type = type),  -->
-<!--           use = "complete.obs")})] %>%  -->
-<!--    melt() %>%  -->
-<!--    .[, variable := lags] %>%  -->
-<!--    ggplot(aes(lags, value)) + -->
-<!--    geom_line() + -->
-<!--    geom_hline(yintercept = 0) + -->
-<!--    scale_y_continuous("Correlation") + -->
-<!--    scale_x_continuous("Lag (PC1 leads PC2)", -12:12) -->
-<!-- ``` -->
 
 
 Notes: 
@@ -383,13 +360,353 @@ Notes:
 - Futhermore, removing the linear trend as well as the QS1 field results in a similar classification to the one shown, but the structure of the EOF is slightly different with less separation between wavenumbers (the zonal wave 3 is present in PC1, PC2 and PC3) and a much more asymmetric nature, with higher amplitude anomalies on the western hemisphere than the eastern in the first two PCs and the reverse on the second two. Is it as the wave activity of each hemosphere is separated this way. 
 
 
+# Regressions
+
+
+```{r calc-gh.cor}
+qs.eof$left %>% 
+   copy() %>% 
+   .[, .(gh.eof = mean(gh)), 
+     by = .(PC, season = qs.trim(time), year(time))] %>% 
+   .[!is.na(season)] %>% 
+   .[, gh.eof := gh.eof/sd(gh.eof), by = .(PC)] -> eof.trim
+
+ncep[lev == 200, .(gh = mean(gh)), 
+     by = .(lon, lat, year(time), 
+            season = qs.trim(time))] %>% 
+   .[!is.na(season)] %>% 
+   .[, gh := Anomaly(gh), by = .(lon, lat, season)] -> gh.trim 
+
+gh.regr <- gh.trim[eof.trim, on = c("season", "year"), 
+                   allow.cartesian = TRUE] %>% 
+   .[, FitLm(gh, gh.eof, se = TRUE), 
+     by = .(lon, lat, season, PC)] %>% 
+   .[regressor != "mean"]
+```
+
+
+```{r gh-regr, fig.cap = "(scales) Regression between PCs and gh."}
+gh.regr %>% 
+   # .[, estimate.s := estimate/sd(estimate), by = .(PC)] %>% 
+   ggplot( aes(lon, lat)) +
+   # geom_contour2(aes(z = -value, linetype = factor(-sign(..level..))),
+   # breaks = AnchorBreaks(0, 0.15, 0), color = "black") +
+   geom_contour_fill(aes(z = estimate), circular = "x",
+                     breaks = AnchorBreaks(0, 10, 0)) +
+   geom_contour3(aes(z = estimate), circular = "x",
+                 breaks = AnchorBreaks(0, 10, 0)) +
+   map.SH +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 10, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map() +
+   coord_quickmap() +
+   facet_grid(PC~season)
+```
+
+```{r calc-psi.regr}
+stream %>% 
+   .[!is.na(qs.trim(time)), 
+     .(psi = mean(psi)), by = .(lon, lat, year(time),
+                                season = qs.trim(time))] ->
+   .[, psi.a := Anomaly(psi), by = .(lon, lat, season)] -> stream.trim
+
+
+
+
+stream.trim[eof.trim, on = c("season", "year"), allow.cartesian = TRUE] %>% 
+   .[complete.cases(.)] %>% 
+   .[, FitLm(psi.a, gh.eof),
+     by = .(lon, lat, season, PC)] %>% 
+   .[regressor != "mean"] -> psi.regr
+
+psi.regr %>% 
+   .[, psi.z := estimate] %>% 
+   .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = .(regressor, season)] 
+```
+```{r}
+stream[year(time) == 1998 & month(time) %in% c(1:3), 
+       .(psi = mean(psi)), 
+       by = .(lon, lat)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_raster(aes(fill = psi)) +
+   labs(title = "psi media EF")
+
+ggsave("share/psi_EF.png", plot = g)
+```
+
+
+```{r psi,regr, fig.cap = "Regression between PCs and Psi. "}
+binwidth <- 0.0015
+ggplot(psi.regr, aes(lon, lat)) +
+   geom_contour_fill(aes(z = psi.z*10^-9),
+                     breaks = AnchorBreaks(0, binwidth, 0),
+                     # breaks = breaks,
+                     circular = "x") +
+   geom_contour3(aes(z = psi.z*10^-9),
+                 breaks = AnchorBreaks(0, binwidth, 0),
+                 # breaks = breaks,
+                 circular = "x") +
+   geom_streamline(aes(dx = f.lon, dy = f.lat), 
+                   skip = 3, circular = "x", L = 10, size = 0.3, 
+                   min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
+   map.SH +
+   scale_s_map() +
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+                        guide = guide_colorstrip_bottom()) +
+   facet_grid(PC ~ season) +
+   coord_quickmap(ylim = c(-90, 20))
+```
+
+
+```{r read-ice}
+ice <- readRDS("DATA/seaice.Rds")
+ice.mask <- readRDS("DATA/landmask.Rds")
+ice.mask <- setDT(tidyr::complete(ice.mask, x, y, fill = list(concentration = 0)))
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(time ~ PC, value.var = "gh") %>%
+   .[ice, on = "time"] %>%
+   .[!is.na(PC1)] -> ice
+```
+
+```{r calc-ice.regr}
+ice[!is.na(concentration) & !is.na(qs.trim(time))] %>% 
+   .[, sd := sd(concentration), by = .(x, y, qs.trim(time))] %>% 
+   .[sd != 0] %>% 
+   .[, FitLm(concentration, PC1, PC2),
+     by = .(x, y, season = qs.trim(time))] %>%
+   .[regressor != "mean"] -> ice.regr
+```
+
+```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations."}
+binwidth <- 2.5
+
+ice.regr %>% 
+   ggplot(aes(x, y)) +
+   geom_raster(aes(fill = estimate*100), interpolate = TRUE) +
+   geom_contour3(aes(z = estimate*100), breaks = c(-1, 1)) +
+   geom_raster(data = ice.mask[x > 14 & concentration > 0], fill = "gray80") +
+   geom_contour3(data = ice.mask[x > 14], breaks = 0.99, aes(z = concentration)) +
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_x_continuous("", NULL, expand = c(0, 0)) +
+   scale_y_continuous("", NULL, expand = c(0, 0)) +
+   facet_grid(season ~ regressor) +
+   coord_equal()
+```
+
+
+```{r read-sst}
+sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
+sst[, time := as.Date(time[1]), by = time]
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(time ~ PC, value.var = "gh") %>%
+   .[sst, on = "time"] %>%
+   .[!is.na(PC1)] -> sst
+
+sst <- sst[, sst.a := Anomaly(sst), by = .(lon, lat, month(time))]
+```
+
+```{r calc-sst.regr}
+sst[!is.na(sst) & !is.na(qs.trim(time)), 
+    FitLm(sst.a, PC1, PC2, se = TRUE),
+    by = .(lon, lat, season = qs.trim(time))] %>% 
+   .[regressor != "mean"] -> sst.regr
+```
+
+```{r sst-regr, fig.cap = "Regression of standarized PC with SST."}
+ggplot(sst.regr, aes(lon, lat)) +
+   geom_raster(aes(fill = estimate)) +
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
+                 breaks = c(-0.5, 0.5), circular = "x") +
+   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05,
+               data = sst.regr[lon %in% JumpBy(unique(lon), 4) &
+                                  lat %in% JumpBy(unique(lat), 4)]) +
+   map.SH +
+   scale_fill_divergent(guide = guide_colorstrip_bottom(),
+                        breaks = AnchorBreaks(0, 0.1)) +
+   scale_s_map() +
+   coord_quickmap() +
+   facet_grid(season ~ regressor)
+```
+
+
+```{r read-oni}
+oni <- fread("DATA/ONI_v5.csv") 
+colnames(oni) <- c("year", 1:12)
+oni <- melt(oni, id.vars = "year", variable.name = "month", value.name = "ONI")
+oni[, time := lubridate::ymd(paste0(year, "-", month, "-01"))]
+oni[, c("year", "month") := NULL]
+```
+
+```{r enso-regr}
+qs.eof$right %>%
+   # .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   # dcast(time ~ PC, value.var = "gh") %>%
+   .[oni, on = "time"] %>% 
+   .[!is.na(gh)] -> oni
+
+oni[, broom::tidy(cor.test(gh, ONI)), by = .(PC)] %>% 
+   .[, .(PC, estimate, p.value)] %>% 
+   knitr::kable(digits = c(1, 2, 9), caption = "Correlation between ONI and each principal component")
+```
+
+\newpage
+
+
+```{r read-olr}
+olr <- ReadNetCDF("DATA/olr.mon.mean_sub.nc")
+olr[, time := as.Date(time[1]), by = time]
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(time ~ PC, value.var = "gh") %>%
+   .[olr, on = "time"] %>%
+   .[!is.na(PC1)] -> olr
+
+olr <- olr[, olr.a := Anomaly(olr), by = .(lon, lat, month(time))]
+```
+
+```{r}
+copy(oni) %>% 
+   .[, ONI := ONI/sd(ONI)] %>% 
+   .[olr, on = "time"] -> olr
+```
+
+
+```{r calc-olr.regr}
+olr[!is.na(qs.trim(time)), 
+    FitLm(olr.a, PC1, PC2, se = TRUE),
+    by = .(lon, lat, season = qs.trim(time))] %>% 
+   .[regressor != "mean"] -> olr.regr
+```
+
+```{r olr-regr, fig.cap = "Regression between OLR and PCs"}
+binwidth <- 1
+ggplot(olr.regr[regressor != "ONI"], aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0),
+                     circular = "x") +
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*2),
+                     linetype = factor(sign(..level..))),
+                 breaks = c(-0.5, 0.5), circular = "x") +
+   stat_subset(aes(subset =  abs(estimate) > se*2), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05,
+               data = olr.regr[regressor != "ONI" & lon %in% JumpBy(unique(lon), 2) &
+                                  lat %in% JumpBy(unique(lat), 2)]) +
+   map.SH +
+   scale_s_map() +
+   scale_fill_gradient2(breaks = AnchorBreaks(0, binwidth, 0),
+                        guide = guide_colorstrip_bottom()) +
+   coord_quickmap() +
+   facet_grid(season~regressor)
+```
+
+```{r read-pp}
+pp <- ReadNetCDF("DATA/precip.mon.mean.nc")
+pp[, time := as.Date(time[1]), by = time]
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(time ~ PC, value.var = "gh") %>%
+   .[pp, on = "time"] %>%
+   .[!is.na(PC1) & !is.na(qs.trim(time))] -> pp
+
+pp <- pp[, pp.a := Anomaly(precip), by = .(lon, lat, month(time))]
+# pp[, pp.p := precip/mean(precip), by = .(lon, lat, month(time))]
+```
+
+```{r calc-pp.regr}
+pp[!is.na(qs.trim(time)), 
+   FitLm(pp.a, PC1, PC2, se = TRUE),
+   by = .(lon, lat, season = qs.trim(time))] %>% 
+   .[regressor != "mean"] -> pp.regr
+```
+
+```{r pp-regr, fig.cap = "Regression between precipitation and PCs"}
+binwidth <- 0.15
+
+ggplot(pp.regr, aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
+                 breaks = c(-0.5, 0.5), circular = "x") +
+   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05,
+               data = pp.regr[lon %in% JumpBy(unique(lon), 2) &
+                                 lat %in% JumpBy(unique(lat), 2)]) +
+   map.SH +
+   scale_s_map() +
+   # scale_fill_distiller(palette = "BrBG",
+   #                      guide = guide_colorstrip_bottom(),
+   # breaks = AnchorBreaks(0, binwidth, 0)) +
+   scale_fill_divergent(guide = guide_colorstrip_bottom(),
+                        low = "#8C510A", high = "#01665E",
+                        breaks = AnchorBreaks(0, binwidth, 0)) +
+   # ggalt::coord_proj("+proj=wintri") +
+   coord_quickmap() +
+   facet_grid(season~regressor)
+```
+
+```{r read-temp}
+t <- ReadNetCDF("DATA/air.mon.mean.nc", subset = list(level = 1000))
+t[, time := as.Date(time[1]), by = time]
+
+
+qs.eof$right %>%
+   .[, gh := gh/sd(gh), by = .(PC)] %>% 
+   dcast(time ~ PC, value.var = "gh") %>%
+   .[t, on = "time"] %>%
+   .[!is.na(PC1) & !is.na(qs.trim(time))] -> t
+
+t <- t[, air.a := Anomaly(air), by = .(lon, lat, month(time))]
+```
+
+```{r calc-t.regr}
+t[!is.na(qs.trim(time)), 
+  FitLm(air.a, PC1, PC2, se = TRUE),
+  by = .(lon, lat, season = qs.trim(time))] %>% 
+   .[regressor != "mean"] -> t.regr
+```
+
+
+```{r t-regr, fig.cap = "Regression between precipitation and PCs"}
+binwidth <- 0.15
+
+ggplot(t.regr, aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*2)),
+                 breaks = c(-0.5, 0.5), circular = "x") +
+   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
+               alpha = 0.5, color = "black", size = 0.05,
+               data = t.regr[lon %in% JumpBy(unique(lon), 2) &
+                                lat %in% JumpBy(unique(lat), 2)]) +
+   map.SH +
+   scale_s_map() +
+   # scale_fill_distiller(palette = "BrBG",
+   #                      guide = guide_colorstrip_bottom(),
+   # breaks = AnchorBreaks(0, binwidth, 0)) +
+   scale_fill_divergent(guide = guide_colorstrip_bottom(),
+                        limits = c(-1, 1),
+                        oob = scales::squish,
+                        breaks = AnchorBreaks(0, binwidth, 0)) +
+   # ggalt::coord_proj("+proj=wintri") +
+   coord_quickmap() +
+   facet_grid(season~regressor)
+```
+
+
+
+
 ```{r calc-mean-season}
 mean.season <- memoise::memoise(function() {
    ncep <- ncep.f(vars = c("gh", "u", "v"), lat= -90:30)
    
    ncep.mean.season <- ncep[, lapply(.SD, mean),
                             by = .(lon, lat, lev, 
-                                   season = qs.trim(month(date)))] %>% 
+                                   season = qs.trim(month(time)))] %>% 
       .[!is.na(season)]
    
    # remove(ncep)
@@ -525,12 +842,12 @@ subset <- list(lat = -90:40,
                time = lubridate::as_datetime(c("1979-12-01", "2016-02-01")))
 stream <- ReadNetCDF("DATA/stream.mon.mean.nc",
                      subset = subset, key = TRUE) %>%
-   setnames(c("level", "time"), c("lev", "date")) %>%
-   .[, psi.z := Anomaly(psi), by = .(lat, date)] %>%
-   .[, date := as.Date(date), by = date]
+   setnames(c("level"), c("lev")) %>%
+   .[, psi.z := Anomaly(psi), by = .(lat, time)] %>%
+   .[, time := as.Date(time), by = time]
 stream.mean.season <- stream[, .(psi = mean(psi),
                                  psi.z = mean(psi.z)),
-                             by = .(lon, lat, lev, season = qs.trim(date))] %>% 
+                             by = .(lon, lat, lev, season = qs.trim(time))] %>% 
    .[!is.na(season)]
 stream.mean.season[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season]
 ```
@@ -653,15 +970,15 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
 ```{r clac-stationarity}
 ncep[lat %inrange% range(region$lat) &
         lev %inrange% range(region$lev), 
-     mean(gh), by = .(lat, lon, lev, season = qs.season(date))] %>% 
+     mean(gh), by = .(lat, lon, lev, season = qs.season(time))] %>% 
    .[, FitWave(V1, k = 3), by = .(lat, lev, season)] -> mean.qs
 
 ncep %>%
    .[lat %inrange% range(region$lat) &
         lev %inrange% range(region$lev), 
      FitWave(gh, k = 3),
-     by = .(lat, lev, date)] %>%
-   .[, .(MA = mean(amplitude)), by = .(lat, lev, season = qs.season(date))] %>%
+     by = .(lat, lev, time)] %>%
+   .[, .(MA = mean(amplitude)), by = .(lat, lev, season = qs.season(time))] %>%
    .[mean.qs[, .(lat, lev, season, AM = amplitude)], on = c("lat", "lev", "season")] %>% 
    .[, stationarity := AM/MA] -> stationarity
 ```
@@ -675,348 +992,6 @@ knitr::kable(stationarity[,
              digits = 2, caption = "Stationarity, seasonal mean monthly amplitude (MA) and amplitude of the seasonal mean (AM) zonal wave 3 for each season defined in the text.")
 ```
 
-
-
-# Regressions
-
-
-```{r calc-gh.cor}
-qs.eof$right %>% 
-   copy() %>% 
-   .[, .(gh.eof = mean(gh)), 
-     by = .(PC, season = qs.trim(date), year(date))] %>% 
-   .[!is.na(season)] %>% 
-   .[, gh.eof := gh.eof/sd(gh.eof), by = .(PC)] -> eof.trim
-
-ncep[lev == 200, .(gh = mean(gh)), 
-     by = .(lon, lat, year(date), 
-            season = qs.trim(date))] %>% 
-   .[!is.na(season)] %>% 
-   .[, gh := Anomaly(gh), by = .(lon, lat, season)] -> gh.trim 
-
-gh.regr <- gh.trim[eof.trim, on = c("season", "year"), 
-                    allow.cartesian = TRUE] %>% 
-   .[, FitLm(gh, gh.eof, se = TRUE), 
-                    by = .(lon, lat, season, PC)] %>% 
-   .[regressor != "mean"]
-```
-
-
-```{r gh-regr, fig.cap = "(scales) Regression between PCs and gh."}
-gh.regr %>% 
-   .[, estimate.s := estimate/sd(estimate), by = .(PC)] %>% 
-   ggplot( aes(lon, lat)) +
-   # geom_contour2(aes(z = -value, linetype = factor(-sign(..level..))),
-   # breaks = AnchorBreaks(0, 0.15, 0), color = "black") +
-   geom_contour_fill(aes(z = estimate.s), circular = "x",
-                     breaks = AnchorBreaks(0, 1, 0)) +
-   geom_contour3(aes(z = estimate.s), circular = "x",
-                 breaks = AnchorBreaks(0, 1, 0)) +
-   map.SH +
-   scale_fill_divergent(breaks = AnchorBreaks(0, 1, 0),
-                        guide = guide_colorstrip_bottom()) +
-   scale_s_map() +
-   coord_quickmap() +
-   facet_grid(PC~season)
-```
-
-```{r calc-psi.regr}
-stream %>% 
-   .[!is.na(qs.trim(date)), 
-      .(psi = mean(psi)), by = .(lon, lat, year(date),
-                                season = qs.trim(date))] ->
-   .[, psi.a := Anomaly(psi), by = .(lon, lat, season)] -> stream.trim
-   
-
-
-
-stream.trim[eof.trim, on = c("season", "year"), allow.cartesian = TRUE] %>% 
-   .[complete.cases(.)] %>% 
-   .[, FitLm(psi.a, gh.eof),
-     by = .(lon, lat, season, PC)] %>% 
-   .[regressor != "mean"] -> psi.regr
-
-psi.regr %>% 
-   .[, psi.z := estimate] %>% 
-   .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = .(regressor, season)] 
-```
-```{r}
-stream[year(date) == 1998 & month(date) %in% c(1:3), 
-       .(psi = mean(psi)), 
-       by = .(lon, lat)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_raster(aes(fill = psi)) +
-   labs(title = "psi media EF")
-
-ggsave("share/psi_EF.png", plot = g)
-```
-
-
-```{r psi,regr, fig.cap = "Regression between PCs and Psi. "}
-binwidth <- 0.0015
-ggplot(psi.regr, aes(lon, lat)) +
-   geom_contour_fill(aes(z = psi.z*10^-9),
-                     breaks = AnchorBreaks(0, binwidth, 0),
-                     # breaks = breaks,
-                     circular = "x") +
-   geom_contour3(aes(z = psi.z*10^-9),
-                 breaks = AnchorBreaks(0, binwidth, 0),
-                 # breaks = breaks,
-                 circular = "x") +
-   geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.3, 
-                   min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
-   map.SH +
-   scale_s_map() +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
-                        guide = guide_colorstrip_bottom()) +
-   facet_grid(PC ~ season) +
-   coord_quickmap(ylim = c(-90, 20))
-```
-
-
-```{r read-ice}
-ice <- readRDS("DATA/seaice.Rds")
-ice.mask <- readRDS("DATA/landmask.Rds")
-ice.mask <- setDT(tidyr::complete(ice.mask, x, y, fill = list(concentration = 0)))
-
-qs.eof$right %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   dcast(date ~ PC, value.var = "gh") %>%
-   .[ice, on = "date"] %>%
-   .[!is.na(PC1)] -> ice
-```
-
-```{r calc-ice.regr}
-ice[!is.na(concentration) & !is.na(qs.trim(date))] %>% 
-   .[, sd := sd(concentration), by = .(x, y, qs.trim(date))] %>% 
-   .[sd != 0] %>% 
-   .[, FitLm(concentration, PC1, PC2),
-     by = .(x, y, season = qs.trim(date))] %>%
-   .[regressor != "mean"] -> ice.regr
-```
-
-```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations."}
-binwidth <- 2.5
-
-ice.regr %>% 
-   ggplot(aes(x, y)) +
-   geom_raster(aes(fill = estimate*100), interpolate = TRUE) +
-   geom_contour3(aes(z = estimate*100), breaks = c(-1, 1)) +
-   geom_raster(data = ice.mask[x > 14 & concentration > 0], fill = "gray80") +
-   geom_contour3(data = ice.mask[x > 14], breaks = 0.99, aes(z = concentration)) +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
-                        guide = guide_colorstrip_bottom()) +
-   scale_x_continuous("", NULL, expand = c(0, 0)) +
-   scale_y_continuous("", NULL, expand = c(0, 0)) +
-   facet_grid(season ~ regressor) +
-   coord_equal()
-```
-
-
-```{r read-sst}
-sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
-setnames(sst, "time", "date")
-sst[, date := as.Date(date[1]), by = date]
-
-qs.eof$right %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   dcast(date ~ PC, value.var = "gh") %>%
-   .[sst, on = "date"] %>%
-   .[!is.na(PC1)] -> sst
-
-sst <- sst[, sst.a := Anomaly(sst), by = .(lon, lat, month(date))]
-```
-
-```{r calc-sst.regr}
-sst[!is.na(sst) & !is.na(qs.trim(date)), 
-    FitLm(sst.a, PC1, PC2, se = TRUE),
-    by = .(lon, lat, season = qs.trim(date))] %>% 
-   .[regressor != "mean"] -> sst.regr
-```
-
-```{r sst-regr, fig.cap = "Regression of standarized PC with SST."}
-ggplot(sst.regr, aes(lon, lat)) +
-   geom_raster(aes(fill = estimate)) +
-   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
-                 breaks = c(-0.5, 0.5), circular = "x") +
-   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
-               alpha = 0.5, color = "black", size = 0.05,
-               data = sst.regr[lon %in% JumpBy(unique(lon), 4) &
-                                  lat %in% JumpBy(unique(lat), 4)]) +
-   map.SH +
-   scale_fill_divergent(guide = guide_colorstrip_bottom(),
-                        breaks = AnchorBreaks(0, 0.1)) +
-   scale_s_map() +
-   coord_quickmap() +
-   facet_grid(season ~ regressor)
-```
-
-
-```{r read-oni}
-oni <- fread("DATA/ONI_v5.csv") 
-colnames(oni) <- c("year", 1:12)
-oni <- melt(oni, id.vars = "year", variable.name = "month", value.name = "ONI")
-oni[, date := lubridate::ymd(paste0(year, "-", month, "-01"))]
-oni[, c("year", "month") := NULL]
-```
-
-```{r enso-regr}
-qs.eof$right %>%
-   # .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   # dcast(date ~ PC, value.var = "gh") %>%
-   .[oni, on = "date"] %>% 
-   .[!is.na(gh)] -> oni
-
-oni[, broom::tidy(cor.test(gh, ONI)), by = .(PC)] %>% 
-   .[, .(PC, estimate, p.value)] %>% 
-   knitr::kable(digits = c(1, 2, 9), caption = "Correlation between ONI and each principal component")
-```
-
-\newpage
-
-
-```{r read-olr}
-olr <- ReadNetCDF("DATA/olr.mon.mean_sub.nc")
-setnames(olr, "time", "date")
-olr[, date := as.Date(date[1]), by = date]
-
-qs.eof$right %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   dcast(date ~ PC, value.var = "gh") %>%
-   .[olr, on = "date"] %>%
-   .[!is.na(PC1)] -> olr
-
-olr <- olr[, olr.a := Anomaly(olr), by = .(lon, lat, month(date))]
-```
-
-```{r}
-copy(oni) %>% 
-   .[, ONI := ONI/sd(ONI)] %>% 
-   .[olr, on = "date"] -> olr
-```
-
-
-```{r calc-olr.regr}
-olr[!is.na(qs.trim(date)), 
-    FitLm(olr.a, PC1, PC2, se = TRUE),
-    by = .(lon, lat, season = qs.trim(date))] %>% 
-   .[regressor != "mean"] -> olr.regr
-```
-
-```{r olr-regr, fig.cap = "Regression between OLR and PCs"}
-binwidth <- 1
-ggplot(olr.regr[regressor != "ONI"], aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0),
-                     circular = "x") +
-   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*2),
-                     linetype = factor(sign(..level..))),
-                 breaks = c(-0.5, 0.5), circular = "x") +
-   stat_subset(aes(subset =  abs(estimate) > se*2), geom = "point",
-               alpha = 0.5, color = "black", size = 0.05,
-               data = olr.regr[regressor != "ONI" & lon %in% JumpBy(unique(lon), 2) &
-                                  lat %in% JumpBy(unique(lat), 2)]) +
-   map.SH +
-   scale_s_map() +
-   scale_fill_gradient2(breaks = AnchorBreaks(0, binwidth, 0),
-                        guide = guide_colorstrip_bottom()) +
-   coord_quickmap() +
-   facet_grid(season~regressor)
-```
-
-```{r read-pp}
-pp <- ReadNetCDF("DATA/precip.mon.mean.nc")
-setnames(pp, "time", "date")
-pp[, date := as.Date(date[1]), by = date]
-
-qs.eof$right %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   dcast(date ~ PC, value.var = "gh") %>%
-   .[pp, on = "date"] %>%
-   .[!is.na(PC1) & !is.na(qs.trim(date))] -> pp
-
-pp <- pp[, pp.a := Anomaly(precip), by = .(lon, lat, month(date))]
-# pp[, pp.p := precip/mean(precip), by = .(lon, lat, month(date))]
-```
-
-```{r calc-pp.regr}
-pp[!is.na(qs.trim(date)), 
-   FitLm(pp.a, PC1, PC2, se = TRUE),
-   by = .(lon, lat, season = qs.trim(date))] %>% 
-   .[regressor != "mean"] -> pp.regr
-```
-
-```{r pp-regr, fig.cap = "Regression between precipitation and PCs"}
-binwidth <- 0.15
-
-ggplot(pp.regr, aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
-                 breaks = c(-0.5, 0.5), circular = "x") +
-   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
-               alpha = 0.5, color = "black", size = 0.05,
-               data = pp.regr[lon %in% JumpBy(unique(lon), 2) &
-                                 lat %in% JumpBy(unique(lat), 2)]) +
-   map.SH +
-   scale_s_map() +
-   # scale_fill_distiller(palette = "BrBG",
-   #                      guide = guide_colorstrip_bottom(),
-   # breaks = AnchorBreaks(0, binwidth, 0)) +
-   scale_fill_divergent(guide = guide_colorstrip_bottom(),
-                        low = "#8C510A", high = "#01665E",
-                        breaks = AnchorBreaks(0, binwidth, 0)) +
-   # ggalt::coord_proj("+proj=wintri") +
-   coord_quickmap() +
-   facet_grid(season~regressor)
-```
-
-```{r read-temp}
-t <- ReadNetCDF("DATA/air.mon.mean.nc", subset = list(level = 1000))
-setnames(t, "time", "date")
-t[, date := as.Date(date[1]), by = date]
-
-
-qs.eof$right %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   dcast(date ~ PC, value.var = "gh") %>%
-   .[t, on = "date"] %>%
-   .[!is.na(PC1) & !is.na(qs.trim(date))] -> t
-
-t <- t[, air.a := Anomaly(air), by = .(lon, lat, month(date))]
-```
-
-```{r calc-t.regr}
-t[!is.na(qs.trim(date)), 
-  FitLm(air.a, PC1, PC2, se = TRUE),
-  by = .(lon, lat, season = qs.trim(date))] %>% 
-   .[regressor != "mean"] -> t.regr
-```
-
-
-```{r t-regr, fig.cap = "Regression between precipitation and PCs"}
-binwidth <- 0.15
-
-ggplot(t.regr, aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*2)),
-                 breaks = c(-0.5, 0.5), circular = "x") +
-   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
-               alpha = 0.5, color = "black", size = 0.05,
-               data = t.regr[lon %in% JumpBy(unique(lon), 2) &
-                                lat %in% JumpBy(unique(lat), 2)]) +
-   map.SH +
-   scale_s_map() +
-   # scale_fill_distiller(palette = "BrBG",
-   #                      guide = guide_colorstrip_bottom(),
-   # breaks = AnchorBreaks(0, binwidth, 0)) +
-   scale_fill_divergent(guide = guide_colorstrip_bottom(),
-                        limits = c(-1, 1),
-                        oob = scales::squish,
-                        breaks = AnchorBreaks(0, binwidth, 0)) +
-   # ggalt::coord_proj("+proj=wintri") +
-   coord_quickmap() +
-   facet_grid(season~regressor)
-```
 
 
 # Cosas para hacer
@@ -1036,11 +1011,11 @@ region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
 copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
-   .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, date, lev)] %>% 
+   .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, time, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
-   .[, gh := resid(.lm.fit(cbind(1, date), gh)), 
-     by = .(lon, lat, month(date))] %>% 
-   EOF(data = ., gh ~ lon + lat | date, n = 1:20, B = 100) -> qs.eof2
+   .[, gh := resid(.lm.fit(cbind(1, time), gh)), 
+     by = .(lon, lat, month(time))] %>% 
+   EOF(data = ., gh ~ lon + lat | time, n = 1:20, B = 100) -> qs.eof2
 
 # qs.eof$left[PC == "PC2", gh := -gh]
 # qs.eof$right[PC == "PC2", gh := -gh]
@@ -1062,7 +1037,7 @@ ggplot(qs.eof$left[as.numeric(PC) %in% 1:3], aes(lon, lat)) +
 ```
 
 ```{r}
-# n <- length(unique(ncep$date))
+# n <- length(unique(ncep$time))
 qs.eof$sdev %>% 
    # .[, se := sqrt(2/n)*sd] %>% 
    ggplot(aes(as.numeric(PC), sd)) +
@@ -1106,7 +1081,7 @@ qs.eof$left[, FitWave(gh, 2:4), by = .(lat, PC)]  %>%
 
 
 ```{r PC1-PC2-trim2, fig.cap = "Monthly mean values for each PC. Colors and shapes divide months into 5 'seasons'."}
-qs.eof$right[, .(value = mean(gh)), by = .(PC, month(date))] %>%
+qs.eof$right[, .(value = mean(gh)), by = .(PC, month(time))] %>%
    dcast(... ~ PC) %>%
    ggplot(aes(PC1, PC2)) +
    # xlab("PC 1") + ylab("PC 2") +
@@ -1124,7 +1099,7 @@ qs.eof$right[, .(value = mean(gh)), by = .(PC, month(date))] %>%
 ```
 
 ```{r cluster2, fig.cap = 'NO VA. Clústering jerárquico. Cortando en ~0.03 se obtienen 4 clusters, y un 5to separando Abril de ASO por continuidad temporal. Confirma la validez del agrupamiento "a ojo"'}
-qs.eof$right[PC %in% c("PC1", "PC2"), .(value = mean(gh)), by = .(PC, month(date))] %>%
+qs.eof$right[PC %in% c("PC1", "PC2"), .(value = mean(gh)), by = .(PC, month(time))] %>%
    dcast(... ~ PC) %>% 
    .[, -1] %>% 
    dist() %>%
@@ -1135,8 +1110,8 @@ qs.eof$right[PC %in% c("PC1", "PC2"), .(value = mean(gh)), by = .(PC, month(date
 
 ```{r lm-gh, fig.cap = "Linear regrssions of geopotential height (full) and geopotential height with zonal wave1 removed (no.1)"}
 copy(ncep[lev == 200]) %>% 
-   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, date)] %>%
-   .[, FitLm(gh.1, seq_len(.N), se = TRUE), by = .(lat, lon, month(date))] %>% 
+   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, time)] %>%
+   .[, FitLm(gh.1, seq_len(.N), se = TRUE), by = .(lat, lon, month(time))] %>% 
    .[regressor != "mean"] %>%
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = estimate), circular = "x",
@@ -1161,8 +1136,8 @@ copy(ncep[lev == 200]) %>%
 
 ```{r}
 copy(ncep[lev == 200]) %>% 
-   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, date)] %>%
-   .[, FitLm(gh.1, seq_len(.N), se = TRUE), by = .(lat, lon, month(date))] %>% 
+   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, time)] %>%
+   .[, FitLm(gh.1, seq_len(.N), se = TRUE), by = .(lat, lon, month(time))] %>% 
    .[regressor != "mean"] %>% 
    .[, sd(estimate), by = .(lon, lat)] %>% 
    ggplot(aes(lon, lat)) +
@@ -1180,14 +1155,14 @@ La zona de decrecimiento del geopotencial es cerana a la zona de máximo de geop
 
 ```{r}
 ncep[lat == -45 & lev == 200] %>% 
-   # .[, gh := Anomaly(gh), by = .(lon, lat, month(date))] %>%
-   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, date)] %>%
+   # .[, gh := Anomaly(gh), by = .(lon, lat, month(time))] %>%
+   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, time)] %>%
    .[lon == 290] %>% 
-   ggplot(aes(date, gh.1)) + 
+   ggplot(aes(time, gh.1)) + 
    geom_line() + 
    geom_smooth(method = "lm") +
    labs(title = "GH Filtrada", subtitle = "70°O 45°S")
-# facet_wrap(~month(date))
+# facet_wrap(~month(time))
 ```
 
 Queda la duda de si es conveniente restar la tendencia o no. 
@@ -1201,3 +1176,32 @@ gh.slope[variable == "full",
 ```
 
 
+
+
+
+
+```{r lm-gh, fig.cap = "Linear regrssions of geopotential height (full) and geopotential height with zonal wave1 removed (no.1)"}
+binwidth <- 0.5
+copy(ncep[lev == 200]) %>% 
+   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, time)] %>%
+   .[!is.na(qs.trim(time)), .(gh = mean(gh.1)), 
+     by = .(lon, lat, year(time), season = qs.trim(time))] %>%
+   .[, FitLm(gh, year, se = TRUE), by = .(lat, lon, season)] %>% 
+   .[regressor != "mean"] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), circular = "x",
+                     breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour2(aes(z = estimate), circular = "x",
+                 breaks = AnchorBreaks(0, binwidth, 0))+
+   stat_subset(aes(x = Jump(lon, 2),
+                   y = Jump(lat, 2),   
+                   subset = abs(estimate) > se*2), geom = "point", 
+               size = 0.1) +
+   map.SH +
+   scale_s_map() +
+   scale_fill_divergent() +
+   coord_quickmap() +
+   facet_wrap(~season, labeller = labeller(month = month.abb),
+              ncol = 2) +
+   labs(title = "Tendencia lineal trimestral de altura geopotential filtrada")
+```

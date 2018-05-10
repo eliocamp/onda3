@@ -471,12 +471,22 @@ geom_contour3 <- function(mapping = NULL, data = NULL,
 }
 
 
-FilterWave <- function(x, k) {
+FilterWave <- function(x, k, s = sign(k[k != 0][1])) {
    f <- fft(x)
    # Need to remove the k+1 spots (because index 1 is k = 0) 
    # and the N - k + 1 because of symmetry.
-   k <- c(k + 1, length(x) - k[k != 0] + 1) 
-   f[k] <- 0 + 0i
+   k1 <- abs(k)
+   if (is.na(s)) s <- 1
+   k1 <- c(k1 + 1, length(x) - k1[k1 != 0] + 1) 
+   index <- s*k1
+   f[index] <- 0 + 0i
+   Re(fft(f, inverse = T))/length(x)
+}
+
+BuildWave <- function(x, k) {
+   f <- fft(x)
+   
+   f[-k] <- 0 + 0i
    Re(fft(f, inverse = T))/length(x)
 }
 
