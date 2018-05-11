@@ -230,7 +230,7 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 scale_x_longitude <- function(ticks = 60, ...) {
    metR::scale_x_longitude(ticks = ticks, breaks = seq(-180, 360, by = ticks), ...)
 }
-scale_s_map <- function(ylim = c(-90, 40),
+scale_s_map <- function(ylim = c(-90, -15),
                         xlim = c(0, 360)) list(scale_y_latitude(limits = ylim),
                                                scale_x_longitude(limits = xlim))
 
@@ -470,27 +470,6 @@ geom_contour3 <- function(mapping = NULL, data = NULL,
    )
 }
 
-
-FilterWave <- function(x, k, s = sign(k[k != 0][1])) {
-   f <- fft(x)
-   # Need to remove the k+1 spots (because index 1 is k = 0) 
-   # and the N - k + 1 because of symmetry.
-   k1 <- abs(k)
-   if (is.na(s)) s <- 1
-   k1 <- c(k1 + 1, length(x) - k1[k1 != 0] + 1) 
-   index <- s*k1
-   f[index] <- 0 + 0i
-   Re(fft(f, inverse = T))/length(x)
-}
-
-BuildWave <- function(x, k) {
-   f <- fft(x)
-   
-   f[-k] <- 0 + 0i
-   Re(fft(f, inverse = T))/length(x)
-}
-
-
 FitLm <- function(y, ..., se = FALSE) {
    X <- cbind(mean = 1, ...)
    regressor <- dimnames(X)[[2]]
@@ -543,4 +522,66 @@ Jump <- function(x, by = 1) {
    x
 }
 
+shift2 <- function(x, n = 1L, fill = NA, give.names = FALSE) {
+   type <- ifelse(n > 0, "lead", "lag")
+   data.table::shift(x, abs(n), fill, type, give.names)
+}
 
+shiftcor <- function(x, y, lags) {
+   vapply(lags, function(i) cor(x, shift2(y, i), use = "complete.obs"), 1)
+}
+
+BuildEOF <- function(formula, value.var = NULL, data = NULL, n = 1, 
+                     rotate = FALSE) {
+   
+   if (!is.null(value.var)) {
+      if (is.null(data)) stop("data must not be NULL if value.var is NULL",
+                              .call = FALSE)
+      data <- copy(data)
+      f <- as.character(formula)
+      f <- stringr::str_replace(f, "~", "\\|")
+      formula <- Formula::as.Formula(paste0(value.var, " ~ ", f))
+   }
+   
+   if (is.null(data)) {
+      formula <- Formula::as.Formula(formula)
+      data <- as.data.table(eval(quote(model.frame(formula, data  = data))))
+   }
+   
+   f <- as.character(formula)
+   f <- stringr::str_split(f,"~", n = 2)[[1]]
+   dcast.formula <- stringr::str_squish(f[stringr::str_detect(f, "\\|")])
+   dcast.formula <- as.formula(stringr::str_replace(dcast.formula, "\\|", "~"))
+   
+   value.var <- stringr::str_squish(f[!stringr::str_detect(f, "\\|")])
+   
+   g <- metR:::.tidy2matrix(data, dcast.formula, value.var)
+   
+   if (is.null(n)) n <- seq_len(min(ncol(g$matrix), nrow(g$matrix)))
+   
+   if (requireNamespace("irlba", quietly = TRUE) &
+       max(n) < 0.5 *  min(ncol(g$matrix), nrow(g$matrix))) {
+      set.seed(42)
+      eof <- irlba::irlba(g$matrix, nv = max(n), nu = max(n), rng = runif)
+   } else {
+      eof <- svd(g$matrix, nu = max(n), nv = max(n))
+      eof$d <- eof$d[1:max(n)]
+   }
+   eof$D <- diag(eof$d, ncol = max(n), nrow = max(n))
+   
+   if (rotate == TRUE & max(n) > 1) {
+      # Rotation
+      loadings <- t(with(eof, D%*%t(v)))
+      scores <- eof$u
+      R <- varimax(loadings, normalize = FALSE)
+      eof$u <- eof$u%*%R$rotmat
+      
+      # Recover rotated V and D matrixs
+      loadings <- R$loadings
+      class(loadings) <- "matrix"
+      eof$d <- sqrt(apply(loadings, 2, function(x) sum(x^2)))
+      eof$v <- t(diag(1/eof$d)%*%t(loadings))
+   }
+   
+   c(with(eof, u%*%D%*%t(v)))
+}

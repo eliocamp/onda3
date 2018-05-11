@@ -197,7 +197,7 @@ region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
 copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
-   .[, gh.minus := FilterWave(gh, k = 0:1), by = .(lat, date, lev)] %>% 
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, date, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
    EOF(data = ., gh ~ lon + lat | date, n = 1:4) -> qs.eof
 
@@ -371,8 +371,8 @@ Lo anterior justifica el agrupamiento de los meses que viene.
 
 ```{r ghminus1-ncep, fig.cap = "Zonal anomaly of 200hPa geopotential field with zonal wavenumber 1 filtered out. Areas with zonal wind greater than 30 m/s are hatched."}
 ncep.mean.season[, gh.z := Anomaly(gh), by = .(lat, lev, season)] %>% 
-   .[, gh.1 := FilterWave(gh, 0:1), by = .(lat, lev, season)] %>% 
-   .[, gh.12 := FilterWave(gh, 0:2), by = .(lat, lev, season)] 
+   .[, gh.1 := FilterWave(gh, 0:-1), by = .(lat, lev, season)] %>% 
+   .[, gh.12 := FilterWave(gh, 0:-2), by = .(lat, lev, season)] 
 ncep.mean.season <- ncep.mean.season 
 
 ggplot(ncep.mean.season[lev == 200], aes(lon, lat)) +
@@ -509,7 +509,7 @@ binwidth <- 0.0015
 limits <- c(-0.005, 0.005)
 breaks <- AnchorBreaks(0, binwidth, 0)(limits)
 copy(stream.mean.season) %>%
-   .[, psi.z := FilterWave(psi, 0:1),
+   .[, psi.z := FilterWave(psi, 0:-1),
      by = .(lat, season)] %>%
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = season] %>%
    ggplot(aes(lon, lat)) +
@@ -688,11 +688,13 @@ ggplot(psi.regr, aes(lon, lat)) +
                  breaks = AnchorBreaks(0, binwidth, 0),
                  # breaks = breaks,
                  circular = "x") +
-   geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.3, 
-                   min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
+   geom_vector(aes(dx = f.lon, dy = f.lat), skip = 3,
+               scale = 1e2) +
+   # geom_streamline(aes(dx = f.lon, dy = f.lat), 
+   #                 skip = 3, circular = "x", L = 10, size = 0.3, 
+   #                 min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
-   scale_s_map() +
+   scale_s_map(ylim = c(-90, 40)) +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                         guide = guide_colorstrip_bottom()) +
    facet_grid(season~regressor) +

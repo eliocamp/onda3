@@ -124,7 +124,39 @@ gh[, gh1roll := RcppRoll::roll_mean(gh1, 30, fill = NA), by = .(lon, lat)]
 qs.eof <- copy(gh[!is.na(gh1roll)])[ , gh := gh1roll*sqrt(cos(lat*pi/180))] %>%
    .[, gh := resid(.lm.fit(cbind(1, time), gh)), 
      by = .(lon, lat)]
-qs.eof <- EOF(data = qs.eof, gh ~ time | lon + lat, n = 1:10, rotate = TRUE)
+qs.eof <- EOF(data = qs.eof, gh ~ time | lon + lat, n = 1:10)
+```
+
+```{r}
+qs.eof$left %>% 
+   dcast(time ~ PC, value.var = "gh") %>% 
+   .[, angle := atan2(PC2, PC1)] -> angle
+
+gh[!is.na(gh1roll), angle := angle$angle*180/pi, by = .(lon, lat)]
+
+N <- 10
+
+plyr::round_any
+
+gh[, rangle := plyr::round_any(angle, 3)]
+
+gh[, .(gh = mean(gh1)), by = .(lon, lat, rangle)] %>% 
+   .[!is.na(rangle)] -> fields
+```
+
+```{r}
+binwidth <- 20
+ggplot(fields, aes(lon, lat)) +
+   geom_contour_fill(aes(z = gh, frame = factor(rangle)), circular = "x",
+                     breaks = AnchorBreaks(0, binwidth, 0))  +
+   geom_vline(aes(frame = factor(rangle), 
+                  xintercept = ConvertLongitude(rangle, 180))) +
+   map.SH +
+   scale_s_map(ylim = c(-90, -30)) +
+   scale_fill_divergent() +
+   coord_polar() -> g
+
+gganimate::gganimate(g, "angle.gif", interval = 0.2)
 ```
 
 

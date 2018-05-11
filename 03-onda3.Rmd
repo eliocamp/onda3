@@ -413,8 +413,6 @@ qs.eof$left %>%
    dcast(date ~ PC, value.var = "gh") %>% 
    .[, lapply(lags, function(x) {
       type <- ifelse(x > 0, "lead", "lag")
-      cor(PC1, shift(PC2, abs(x), type = type), 
-          use = "complete.obs")})] %>% 
    melt() %>% 
    .[, variable := lags] %>% 
    ggplot(aes(lags, value)) +
