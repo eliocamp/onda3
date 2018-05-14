@@ -45,5 +45,18 @@ sea <- rbindlist(lapply(list.files("DATA/seaice", full.names = TRUE), ReadSeaIce
 file <- "DATA/seaice/nt_198601_n07_v1.1_s.bin"
 land.mask <- ReadSeaIceBIN(file, out = "land")
 
+sea[, y := -y + max(y)]
+
+sea[, x1 := - 3950*1000 + 2*3950*1000*x/316, by = x]
+sea[, y1 := - 3950*1000 + (4350+3950)*1000*y/332, by = y]
+proj <- "+proj=stere +lat_0=-90 +lat_ts=-70 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs"
+coord <- sea[date == date[1]] %>% 
+   .[, c("lon", "lat") := proj4::project(list(x1, y1), proj = proj, 
+                                         inverse = TRUE)] %>% 
+   .[, .(x, y, lon, lat)]
+
+sea[, c("lon", "lat") := coord[, .(ConvertLongitude(lon), lat)]]
+
+
 saveRDS(sea, "DATA/seaice.Rds")
 saveRDS(land.mask, "DATA/landmask.Rds")

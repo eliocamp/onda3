@@ -460,7 +460,6 @@ stream.trim[eof.trim, on = c("season", "year")] %>%
 qs.eof$left %>% CutEOF(1:2) %>% 
    dcast(time ~ PC, value.var = "gh.sd") %>%
    .[stream, on = "time"] %>%
-   # .[complete.cases(.)] %>% 
    .[, psi := Anomaly(psi), by = .(lon, lat, month(time))] %>% 
    .[!is.na(qs.trim(time)),
      FitLm(psi, PC1, PC2),
@@ -509,11 +508,9 @@ psi.regr %>%
 ggplot(psi.regr, aes(lon, lat)) +
    geom_contour_fill(aes(z = psi.z*10^-9),
                      breaks = AnchorBreaks(0, binwidth, 0),
-                     # breaks = breaks,
                      circular = "x") +
    geom_contour3(aes(z = psi.z*10^-9),
                  breaks = AnchorBreaks(0, binwidth, 0),
-                 # breaks = breaks,
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
                    skip = 3, circular = "x", L = 10, size = 0.3, 
@@ -526,42 +523,44 @@ ggplot(psi.regr, aes(lon, lat)) +
    coord_quickmap(ylim = c(-90, 20))
 ```
 
+
 ```{r read-ice}
 ice <- readRDS("DATA/seaice.Rds")
 ice.mask <- readRDS("DATA/landmask.Rds")
 ice.mask <- setDT(tidyr::complete(ice.mask, x, y, fill = list(concentration = 0)))
+setnames(ice, "date", "time")
 
-qs.eof$right %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   dcast(time ~ PC, value.var = "gh") %>%
-   .[ice, on = "time"] %>%
-   .[!is.na(PC1)] -> ice
+ice.trim <- ice[!is.na(qs.trim(time)), 
+                       .(concentration = mean(concentration)), 
+                keyby = .(lon, lat, year(time), season = qs.trim(time))]
+
+ice.trim[, concentration.a := Anomaly(concentration), 
+         by = .(lon, lat, season)]
 ```
 
 ```{r calc-ice.regr}
-ice[!is.na(concentration) & !is.na(qs.trim(time))] %>% 
-   .[, sd := sd(concentration), by = .(x, y, qs.trim(time))] %>% 
-   .[sd != 0] %>% 
-   .[, FitLm(concentration, PC1, PC2),
-     by = .(x, y, season = qs.trim(time))] %>%
+ice.trim[eof.trim, on = c("season", "year")] %>% 
+   .[complete.cases(.)] %>% 
+   .[, FitLm(concentration.a, PC1, PC2, se = TRUE),
+     by = .(lon, lat, season)] %>% 
    .[regressor != "mean"] -> ice.regr
 ```
 
 ```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations."}
-binwidth <- 2.5
+binwidth <- 10
 
-ice.regr %>% 
-   ggplot(aes(x, y)) +
-   geom_raster(aes(fill = estimate*100), interpolate = TRUE) +
-   geom_contour3(aes(z = estimate*100), breaks = c(-1, 1)) +
-   geom_raster(data = ice.mask[x > 14 & concentration > 0], fill = "gray80") +
-   geom_contour3(data = ice.mask[x > 14], breaks = 0.99, aes(z = concentration)) +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+ggplot(ice.regr[lat < -55], aes(lon, lat)) +
+   geom_point(aes(color = estimate*100), size = 0.05) +
+   geom_contour3(data = gh.regr, aes(z = estimate),
+                 breaks = AnchorBreaks(0, 25, 0), circular = "x") +
+   map.SH +
+   scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+                         limits = c(-25, 25),
                         guide = guide_colorstrip_bottom()) +
-   scale_x_continuous("", NULL, expand = c(0, 0)) +
-   scale_y_continuous("", NULL, expand = c(0, 0)) +
-   facet_grid(season ~ regressor) +
-   coord_equal()
+   scale_s_map(ylim = c(-90, -40)) +
+   coord_polar() +
+   # coord_quickmap(ylim = c(-90, -55)) +
+   facet_grid(regressor ~ season)
 ```
 
 
@@ -569,19 +568,18 @@ ice.regr %>%
 sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
 sst[, time := as.Date(time[1]), by = time]
 
-qs.eof$right %>%
-   .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   dcast(time ~ PC, value.var = "gh") %>%
-   .[sst, on = "time"] %>%
-   .[!is.na(PC1)] -> sst
-
-sst <- sst[, sst.a := Anomaly(sst), by = .(lon, lat, month(time))]
+sst.trim <- sst[!is.na(qs.trim(time)), 
+                .(sst = mean(sst)), 
+                keyby = .(lon, lat, year(time), 
+                          season = qs.trim(time))] %>% 
+   .[, sst.a := Anomaly(sst), by = .(lon, lat, season)]
 ```
 
 ```{r calc-sst.regr}
-sst[!is.na(sst) & !is.na(qs.trim(time)), 
-    FitLm(sst.a, PC1, PC2, se = TRUE),
-    by = .(lon, lat, season = qs.trim(time))] %>% 
+sst.trim[eof.trim, on = c("season", "year")] %>% 
+   .[complete.cases(.)] %>% 
+   .[, FitLm(sst.a, PC1, PC2, se = TRUE),
+     by = .(lon, lat, season)] %>% 
    .[regressor != "mean"] -> sst.regr
 ```
 
@@ -590,15 +588,15 @@ ggplot(sst.regr, aes(lon, lat)) +
    geom_raster(aes(fill = estimate)) +
    geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
                  breaks = c(-0.5, 0.5), circular = "x") +
-   stat_subset(aes(subset =  abs(estimate) > se*1.6), geom = "point",
+   stat_subset(aes(subset =  abs(estimate) > se*2), geom = "point",
                alpha = 0.5, color = "black", size = 0.05,
                data = sst.regr[lon %in% JumpBy(unique(lon), 4) &
                                   lat %in% JumpBy(unique(lat), 4)]) +
    map.SH +
    scale_fill_divergent(guide = guide_colorstrip_bottom(),
-                        breaks = AnchorBreaks(0, 0.1)) +
-   scale_s_map() +
-   coord_quickmap() +
+                        breaks = AnchorBreaks(0, 0.5, 0)) +
+   scale_s_map(ylim = c(-90, 30)) +
+   coord_quickmap(ylim = c(-90, 30)) +
    facet_grid(season ~ regressor)
 ```
 
@@ -612,15 +610,21 @@ oni[, c("year", "month") := NULL]
 ```
 
 ```{r enso-regr}
-qs.eof$right %>%
-   # .[, gh := gh/sd(gh), by = .(PC)] %>% 
-   # dcast(time ~ PC, value.var = "gh") %>%
-   .[oni, on = "time"] %>% 
-   .[!is.na(gh)] -> oni
+oni.trim <- oni[!is.na(qs.trim(time)), 
+                .(ONI = mean(ONI)), 
+                by = .(year(time), season = qs.trim(time))] %>% 
+   .[, ONI.a := Anomaly(ONI), by = season]
 
-oni[, broom::tidy(cor.test(gh, ONI)), by = .(PC)] %>% 
-   .[, .(PC, estimate, p.value)] %>% 
-   knitr::kable(digits = c(1, 2, 9), caption = "Correlation between ONI and each principal component")
+eof.trim %>% 
+   melt(id.vars = c("year", "season"), variable.name = "PC") %>%
+   oni.trim[., on = c("season", "year")] %>% 
+   .[complete.cases(.)] %>% 
+   .[,  broom::tidy(cor.test(value, ONI)),
+     by = .(season, PC)] %>% 
+   .[PC == "PC1"] %>% 
+   dcast(season ~ PC, value.var = c("estimate", "p.value")) %>% 
+   knitr::kable(digits = c(1, 2, 9), 
+                caption = "Correlation between ONI and PC1")
 ```
 
 \newpage
