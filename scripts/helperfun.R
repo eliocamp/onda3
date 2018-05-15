@@ -470,30 +470,13 @@ geom_contour3 <- function(mapping = NULL, data = NULL,
    )
 }
 
-FitLm <- function(y, ..., se = FALSE) {
-   X <- cbind(mean = 1, ...)
-   regressor <- dimnames(X)[[2]]
-   a <- .lm.fit(X, y)
-   estimate <- a$coefficients
-   if (se == TRUE) {
-      sigma <- sum(a$residuals^2)/(nrow(X) - ncol(X))
-      se <- sqrt(diag(solve(t(X)%*%X)*sigma))
-      return(list(regressor = dimnames(X)[[2]],
-                  estimate = estimate,
-                  se = se))
-   } else {
-      return(list(regressor = dimnames(X)[[2]],
-                  estimate = estimate))
-   }
-}
 
-CutEOF <- function(eof, pc) {
-   # if (is.numeric(pc)) pc <- paste0("PC", pc)
+CutEOF <- function(eof, n) {
    if (is.data.table(eof)) {
-      eof[as.numeric(PC) %in% pc]
+      eof[as.numeric(PC) %in% n]
    } else if (is.list(eof)) {
       lapply(as.list(eof), function(x) {
-         x[as.numeric(PC) %in% pc]
+         x[as.numeric(PC) %in% n]
       })
    }
 }
@@ -515,6 +498,12 @@ PermTest <- function(y, ..., N = 10) {
    return(append(original, list(p.value = f)))
 }
 
+Detrend <- function(y, x) {
+   nas <- is.na(y)
+   if (!hasArg(x)) x <- seq_along(y)
+   y[!nas] <- .lm.fit(cbind(1, x[!nas]), y[!nas])$residuals
+   return(y)
+}
 
 Jump <- function(x, by = 1) {
    keep <- JumpBy(unique(x), by = by)
@@ -584,4 +573,131 @@ BuildEOF <- function(formula, value.var = NULL, data = NULL, n = 1,
    }
    
    c(with(eof, u%*%D%*%t(v)))
+}
+
+
+
+stat_contour4 <- function(mapping = NULL, data = NULL,
+                          geom = "contour", position = "identity",
+                          ...,
+                          breaks = scales::fullseq,
+                          bins = NULL,
+                          binwidth = NULL,
+                          na.rm = FALSE,
+                          circular = NULL,
+                          show.legend = NA,
+                          inherit.aes = TRUE) {
+   layer(
+      data = data,
+      mapping = mapping,
+      stat = StatContour4,
+      geom = geom,
+      position = position,
+      show.legend = show.legend,
+      inherit.aes = inherit.aes,
+      params = list(
+         na.rm = na.rm,
+         breaks = breaks,
+         bins = bins,
+         binwidth = binwidth,
+         circular = circular,
+         ...
+      )
+   )
+}
+
+#' @rdname geom_contour2
+#' @usage NULL
+#' @format NULL
+#' @export
+StatContour4 <- ggplot2::ggproto("StatContour4", Stat,
+  required_aes = c("x", "y", "z"),
+  default_aes = ggplot2::aes(order = ..level..),
+  setup_params = function(data, params) {
+     # Check is.null(breaks) for backwards compatibility
+     if (is.null(params$breaks)) {
+        params$breaks <- scales::fullseq
+     }
+     
+     if (is.function(params$breaks)) {
+        # If no parameters set, use pretty bins to calculate binwidth
+        if (is.null(params$bins) && is.null(params$binwidth)) {
+           params$binwidth <- diff(pretty(range(data$z), 10))[1]
+        }
+        # If provided, use bins to calculate binwidth
+        if (!is.null(params$bins)) {
+           params$binwidth <- diff(range(data$z)) / params$bins
+        }
+        
+        params$breaks <- params$breaks(range(data$z), params$binwidth)
+     }
+     return(params)
+     
+  },
+  compute_group = function(data, scales, bins = NULL, binwidth = NULL,
+                           breaks = scales::fullseq, complete = FALSE,
+                           na.rm = FALSE, circular = NULL) {
+     
+     if (!is.null(circular)) {
+        # M <- max(data[[circular]]) + resolution(data[[circular]])
+        data <- RepeatCircular(data, circular)
+     }
+     d <<- data
+     breaks <<- breaks
+     
+     contours <- as.data.table(.contour_lines(data, breaks, complete = complete))
+     
+     # contours <- .order_contour(contours, setDT(data))
+     
+     return(contours)
+  }
+)
+
+
+.contour_lines <- function(data, breaks, complete = FALSE) {
+   
+   cl <- setDT(contoureR::getContourLines(
+      x = data$x, y = data$y, z = data$z, levels = breaks))
+   
+   if (length(cl) == 0) {
+      warning("Not possible to generate contour data", call. = FALSE)
+      return(data.frame())
+   }
+   setnames(cl, c("z", "Group", "PID"), c("level", "group", "piece"))
+   return(cl)
+}
+
+
+Smooth2D <- function(formula, x.out = 64, y.out = 64, data = NULL, ...) {
+   dep.names <- formula.tools::lhs.vars(formula)
+   if (length(dep.names) == 0) stop("LHS of formula must have at least one variable")
+   
+   ind.names <- formula.tools::rhs.vars(formula)
+   if (length(ind.names) > 2) {
+      stop("RHS of formula must be of the form x + y")
+   }
+   
+   formula <- Formula::as.Formula(formula)
+   data <- as.data.table(eval(quote(model.frame(formula, data = data,
+                                                na.action = NULL))))
+   
+   loc <- setDF(data)[, ind.names]
+   # for (v in seq_along(dep.names)) {
+      value.var <- dep.names[1]
+      
+      sm <- fields::smooth.2d(data[[value.var]], loc, 
+                              nrow = y.out, ncol = x.out, 
+                              ...)
+      dimnames(sm$z) <- with(sm, setNames(list(x, y), ind.names))
+      
+      z <- setDT(melt(sm$z, value.name = value.var))
+      # set(loc, NULL, value.var, z)
+   # }
+   return(z)
+}
+
+
+seq_range <- function(x, n) {
+   r <- range(x)
+   seq(r[1], r[2], length.out = n)
 }

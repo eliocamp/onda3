@@ -21,6 +21,7 @@ library(WaveletComp)
 library(circular)
 library(hrbrthemes)
 library(extrafont)
+library(patchwork)
 
 source("scripts/helperfun.R")
 # Plot thingys
@@ -195,8 +196,8 @@ lats.eof <- c(-80, -30)
 qs.eof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
-   .[, gh := resid(.lm.fit(cbind(1, time), gh)),
-        by = .(lon, lat)] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat)] %>%
    EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000)
 
 qs.eof$sdev %>% 
@@ -378,7 +379,7 @@ ncep[lev == 200, .(gh = mean(gh)),
      by = .(lon, lat, year(time), 
             season = qs.trim(time))] %>% 
    .[!is.na(season)] %>% 
-   .[, gh := Anomaly(gh), by = .(lon, lat, season)] -> gh.trim 
+   .[, gh := Detrend(gh), by = .(lon, lat, season)] -> gh.trim 
 
 
 # Regresión de PCs estandarizados con anomalía trimestral,
@@ -448,7 +449,7 @@ stream %>%
    .[!is.na(qs.trim(time)), 
      .(psi = mean(psi)), by = .(lon, lat, year(time),
                                 season = qs.trim(time))] %>% 
-   .[, psi.a := Anomaly(psi), by = .(lon, lat, season)] -> stream.trim
+   .[, psi.a := Detrend(psi), by = .(lon, lat, season)] -> stream.trim
 
 # Regresión de PCs estandarizados con anomalía trimestral,
 # (1 dato por trimestre por año)
@@ -535,10 +536,10 @@ ice.mask <- setDT(tidyr::complete(ice.mask, x, y,
 setnames(ice, "date", "time")
 
 ice.trim <- ice[!is.na(qs.trim(time)), 
-                       .(concentration = mean(concentration)), 
+                .(concentration = mean(concentration)), 
                 keyby = .(lon, lat, year(time), season = qs.trim(time))]
 remove(ice)
-ice.trim[, concentration.a := Anomaly(concentration), 
+ice.trim[, concentration.a := Detrend(concentration), 
          by = .(lon, lat, season)]
 ```
 
@@ -560,7 +561,7 @@ ggplot(ice.regr[lat < -55], aes(lon, lat)) +
    map.SH +
    scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                          limits = c(-25, 25),
-                        guide = guide_colorstrip_bottom()) +
+                         guide = guide_colorstrip_bottom()) +
    scale_s_map(ylim = c(-90, -40)) +
    coord_polar() +
    # coord_quickmap(ylim = c(-90, -55)) +
@@ -608,7 +609,8 @@ ggplot(sst.regr, aes(lon, lat)) +
 ```{r read-oni}
 oni <- fread("DATA/ONI_v5.csv") 
 colnames(oni) <- c("year", 1:12)
-oni <- melt(oni, id.vars = "year", variable.name = "month", value.name = "ONI")
+oni <- melt(oni, id.vars = "year", variable.name = "month", 
+            value.name = "ONI")
 oni[, time := lubridate::ymd(paste0(year, "-", month, "-01"))]
 oni[, c("year", "month") := NULL]
 ```
@@ -629,4 +631,66 @@ eof.trim %>%
    dcast(season ~ PC, value.var = c("estimate", "p.value")) %>% 
    knitr::kable(digits = c(1, 2, 9), 
                 caption = "Correlation between ONI and PC1")
+```
+
+
+# QS3
+
+```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours are a representation of the linear fit on the right. b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude."}
+qs3 <- ncep.f(level = 200, lat = -65:-40) %>% 
+   .[, FitWave(gh, 3), by = .(time, lat)] %>% 
+   .[, .(amplitude = mean(amplitude),
+         phase = .SD[amplitude == max(amplitude)]$phase), 
+     by = .(time)]
+
+qs3 <- qs.eof$left %>% 
+   .[qs.eof$sdev[, .(PC, sd)], on = "PC"] %>% 
+   .[, gh := gh*sd] %>% 
+   CutEOF(1:4) %>% 
+   dcast(time ~ PC, value.var = "gh") %>% 
+   .[qs3, on = "time"]
+
+model <- lm(amplitude ~ I(sqrt(PC1^2 + PC2^2)) - 1, data = qs3)
+grid <- setDT(expand.grid(PC1 = seq_range(qs3$PC1, 64),
+                          PC2 = seq_range(qs3$PC2, 64)))
+grid[, amplitude := predict(model, grid)]
+smooth <-  qs3[, Smooth2D(amplitude ~ PC1 + PC2, theta = 0.025,
+                          x.out = 64*2, y.out = 64*2)]
+min <- smooth[which.min(amplitude)] 
+
+ggplot(qs3, aes(PC1, PC2)) +
+   geom_cross(size = 0.2) +
+   geom_contour(data = grid, aes(z = amplitude, color = ..level..)) +
+   geom_point(aes(color = amplitude)) +
+   scale_color_viridis_c() +
+   scale_x_continuous(expand = c(0, 0)) + 
+   scale_y_continuous(expand = c(0, 0)) +
+   coord_equal() +   
+   labs(tag = "a")  +
+   
+   ggplot(qs3, aes(abs(PC2) + abs(PC1), amplitude)) +
+   geom_point(alpha = 0.5, size = 0.5) +
+   geom_smooth(method = "lm", formula = y ~ x - 1,
+               color = "black", se = T) +
+   scale_x_continuous(expression(sqrt(PC1^2 + PC2^2))) +
+   scale_y_continuous("Wave 3 amplitude") +
+   labs(tag = "b")
+```
+
+```{r}
+ggplot(qs3, aes(PC1, PC2)) +
+   geom_cross(size = 0.2) +
+   # geom_contour(data = grid, aes(z = amplitude, color = ..level..)) +
+   # geom_point(aes(color = cos(phase))) +
+   stat_summary_hex(aes(z = phase*180/pi), bins = 10) +
+   scale_fill_gradientn(colours = c("#DAE136", "#414485", "#DAE136"), 
+                        limits = c(0, 120)) +
+   # scale_color_divergent() +
+   scale_x_continuous(expand = c(0, 0)) + 
+   scale_y_continuous(expand = c(0, 0)) +
+   coord_equal() +   
+   labs(tag = "a") 
+
+
+   
 ```
