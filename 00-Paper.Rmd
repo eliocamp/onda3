@@ -650,6 +650,17 @@ qs3 <- qs.eof$left %>%
    dcast(time ~ PC, value.var = "gh") %>% 
    .[qs3, on = "time"]
 
+compl <- ncep.f(level = 200, lat = -65:-40) %>% 
+   .[, fft2(gh, 3), by = .(time, lat)] %>% 
+   .[, .(R = mean(R), I = mean(I)), by = time]
+
+compl <- qs.eof$left %>% 
+   .[qs.eof$sdev[, .(PC, sd)], on = "PC"] %>% 
+   .[, gh := gh*sd] %>% 
+   CutEOF(1:4) %>% 
+   dcast(time ~ PC, value.var = "gh") %>% 
+   .[compl, on = "time"]
+
 model <- lm(amplitude ~ I(sqrt(PC1^2 + PC2^2)) - 1, data = qs3)
 grid <- setDT(expand.grid(PC1 = seq_range(qs3$PC1, 64),
                           PC2 = seq_range(qs3$PC2, 64)))
@@ -662,35 +673,91 @@ ggplot(qs3, aes(PC1, PC2)) +
    geom_cross(size = 0.2) +
    geom_contour(data = grid, aes(z = amplitude, color = ..level..)) +
    geom_point(aes(color = amplitude)) +
-   scale_color_viridis_c() +
+   scale_color_viridis_c(limits = c(0, 120),
+                         oob = scales::squish) +
    scale_x_continuous(expand = c(0, 0)) + 
    scale_y_continuous(expand = c(0, 0)) +
    coord_equal() +   
    labs(tag = "a")  +
    
-   ggplot(qs3, aes(abs(PC2) + abs(PC1), amplitude)) +
+   ggplot(qs3, aes(sqrt(PC2^2 + PC1^2), amplitude)) +
    geom_point(alpha = 0.5, size = 0.5) +
-   geom_smooth(method = "lm", formula = y ~ x - 1,
+   geom_smooth(method = "lm", formula = y ~ x -1,
                color = "black", se = T) +
    scale_x_continuous(expression(sqrt(PC1^2 + PC2^2))) +
    scale_y_continuous("Wave 3 amplitude") +
    labs(tag = "b")
 ```
 
+
 ```{r}
-ggplot(qs3, aes(PC1, PC2)) +
-   geom_cross(size = 0.2) +
-   # geom_contour(data = grid, aes(z = amplitude, color = ..level..)) +
-   # geom_point(aes(color = cos(phase))) +
-   stat_summary_hex(aes(z = phase*180/pi), bins = 10) +
-   scale_fill_gradientn(colours = c("#DAE136", "#414485", "#DAE136"), 
-                        limits = c(0, 120)) +
-   # scale_color_divergent() +
-   scale_x_continuous(expand = c(0, 0)) + 
-   scale_y_continuous(expand = c(0, 0)) +
-   coord_equal() +   
-   labs(tag = "a") 
-
-
-   
+ggplot(qs3, aes(phase*180/pi*3, 
+                ConvertLongitude(atan2(PC2, PC1)*180/pi)+47)) +
+   geom_point() +
+   geom_abline() +
+   scale_x_continuous("Phase (degrees)") +
+   scale_y_continuous(expression(tan^{-1}~(PC2/PC1)/3)) +
+   coord_equal()
 ```
+
+```{r phase-PCs, fig.cap = "Phase of zonal wave 3 and value of PCs 1 to 3. The line is a loess smooth."}
+smoothcircular <- function(data, range = c(0, 360), span = 0.75, n = 50) {
+   if (!exists("d")) d <<- copy(data)
+   data <- rbindlist(list(left = data,
+                          mid = data,
+                          right = data), 
+                     idcol = "side")
+   
+   setDT(data)
+   data[side == "right", x := x + diff(range)]
+   data[side == "left", x := x - diff(range)]
+   
+   x <- seq(min(range), max(range), length.out = n)
+   if (max(x) != max(range)) x[n+1] <- max(range)
+   
+   grid <- data.frame(x = x)
+   grid$y <- predict(loess(y ~ x, data = data, span = span), grid)
+   grid
+}
+
+qs3[, .(time, PC1, PC2, PC3, phase)] %>% 
+   melt(id.vars = c("time", "phase"), variable.name = "PC") %>% 
+   ggplot(aes(phase*180/pi, value, color = PC)) +
+   geom_point(size = 0.5, alpha = 0.5) +
+   # geom_smooth(span = 0.15*3) +
+   stat_rasa(fun = smoothcircular, geom = "line", span = 0.15,
+             range = c(0, 360/3)) +
+   scale_color_brewer(palette = "Set1") +
+   scale_x_continuous("Phase", 
+                      breaks = seq(0, 360/3, by = 15),
+                      limits = c(0, 360/3), 
+                      expand = c(0, 0)) +
+   scale_y_continuous("PC Value") #+ coord_polar() + # facet_wrap(~PC)
+```
+
+
+
+The first two principal modes are closely related to the zonal wave 3. In fact, it can be shown that they define a rotation of the complex plane defined by the real an imaginary part of the wave3 fourier transform. 
+
+```{r}
+a1 <- coef(lm(PC1 ~ R + I -1, data = compl))
+a2 <- coef(lm(PC2 ~ R + I -1, data = compl))
+
+a1 <- coef(lm(R ~ PC1 + PC2 -1, data = compl))
+a2 <- coef(lm(I ~ PC1 + PC2 -1, data = compl))
+
+angles <- as.data.table(rbind(a1, a2))
+angles[, PC := c("PC1", "PC2")]
+angles[, PC := c("R", "I")]
+setcolorder(angles, c(4, 1:3))
+
+knitr::kable(angles)
+```
+
+```{r}
+ggplot(angles, aes(PC1, PC2)) +
+   geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+                arrow = grid::arrow()) +
+   coord_equal() 
+```
+

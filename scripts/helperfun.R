@@ -642,9 +642,7 @@ StatContour4 <- ggplot2::ggproto("StatContour4", Stat,
         # M <- max(data[[circular]]) + resolution(data[[circular]])
         data <- RepeatCircular(data, circular)
      }
-     d <<- data
-     breaks <<- breaks
-     
+   
      contours <- as.data.table(.contour_lines(data, breaks, complete = complete))
      
      # contours <- .order_contour(contours, setDT(data))
@@ -686,7 +684,7 @@ Smooth2D <- function(formula, x.out = 64, y.out = 64, data = NULL, ...) {
       value.var <- dep.names[1]
       
       sm <- fields::smooth.2d(data[[value.var]], loc, 
-                              nrow = y.out, ncol = x.out, 
+                              nrow = x.out, ncol = y.out, 
                               ...)
       dimnames(sm$z) <- with(sm, setNames(list(x, y), ind.names))
       
@@ -701,3 +699,56 @@ seq_range <- function(x, n) {
    r <- range(x)
    seq(r[1], r[2], length.out = n)
 }
+
+fft2 <- function(x, k) {
+   f <- fft(x)/length(x)
+   f[-1] <- f[-1]*2
+   return(list(R = Re(f[k + 1]), 
+               I = Im(f[k + 1])))
+}
+
+
+StatRasa <- ggplot2::ggproto("StatRasa", Stat,
+  compute_group = function(data, scales, fun, fun.args) {
+     args <- formals(fun)
+
+     for (i in seq_along(fun.args)) {
+        if (names(fun.args[i]) %in% names(fun.args)) {
+           args[[names(fun.args[i])]] <- fun.args[[i]]
+        }
+     }
+
+     formals(fun) <- args
+     fun(data)
+  })
+
+stat_rasa <- function(mapping = NULL, data = NULL,
+                      geom = "point", 
+                      position = "identity",
+                      fun = NULL,
+                      ...,
+                      show.legend = NA,
+                      inherit.aes = TRUE) {
+   if (!is.function(fun)) stop("fun must be a function")
+   
+   fun.args <- match.call(expand.dots = FALSE)$`...`
+   layer(
+      data = data,
+      mapping = mapping,
+      stat = StatRasa,
+      geom = geom,
+      position = position,
+      show.legend = show.legend,
+      inherit.aes = inherit.aes,
+      check.aes = FALSE,
+      check.param = FALSE,
+      params = list(
+         fun = fun, 
+         fun.args = fun.args,
+         na.rm = FALSE,
+         ...
+      )
+   )
+}
+
+
