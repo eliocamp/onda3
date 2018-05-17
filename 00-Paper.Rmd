@@ -492,7 +492,7 @@ ggplot(psi.regr, aes(lon, lat)) +
                  # breaks = breaks,
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.3, 
+                   skip = 3, circular = "x", L = 10, size = 0.1, 
                    min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
    scale_s_map(ylim = c(-90, 40)) +
@@ -517,7 +517,7 @@ ggplot(psi.regr, aes(lon, lat)) +
                  breaks = AnchorBreaks(0, binwidth, 0),
                  circular = "x") +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.3, 
+                   skip = 3, circular = "x", L = 10, size = 0.1, 
                    min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
    scale_s_map(ylim = c(-90, 40)) +
@@ -537,7 +537,25 @@ setnames(ice, "date", "time")
 
 ice.trim <- ice[!is.na(qs.trim(time)), 
                 .(concentration = mean(concentration)), 
-                keyby = .(lon, lat, year(time), season = qs.trim(time))]
+                keyby = .(lon, lat, year(time), 
+                          season = qs.trim(time))]
+
+ice <- ice[!is.na(concentration)]
+ice[, s := sum(concentration), by = .(x, y)]
+ice <- ice[s >= 0.05]
+
+ice[, concentration := Detrend(concentration), by = .(x, y, month(time))]
+
+ice.eof <- ice[!is.na(qs.trim(time)), 
+               EOF(concentration ~ x + y | time, n = 1:2)$left,
+               by = .(season = qs.trim(time))]
+
+ice.eof_time <- ice[!is.na(qs.trim(time)), 
+               EOF(concentration ~ x + y | time, n = 1:2)$right,
+               by = .(season = qs.trim(time))]
+
+setnames(ice.eof, "PC", "regressor")
+
 remove(ice)
 ice.trim[, concentration.a := Detrend(concentration), 
          by = .(lon, lat, season)]
@@ -551,7 +569,7 @@ ice.trim[eof.trim, on = c("season", "year")] %>%
    .[regressor != "mean"] -> ice.regr
 ```
 
-```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations."}
+```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations (shaded) and regression of standarized PC with 200hPa geopotential height (contours)."}
 binwidth <- 10
 
 ggplot(ice.regr[lat < -55], aes(lon, lat)) +
@@ -568,6 +586,48 @@ ggplot(ice.regr[lat < -55], aes(lon, lat)) +
    facet_grid(regressor ~ season)
 ```
 
+```{r ice-eof, fig.cap = "First 2 EOFs of antarctic sea ice concentration for each season (shaded) and regression of standarized PC (of geopotential) with 200hPa geopotential height (contours)" }
+ice.eof[, y1 := as.numeric(-y + max(y))]
+ice.eof[, x1 := - 3950*1000 + 2*3950*1000*x/316]
+ice.eof[, y1 := - 3950*1000 + (4350+3950)*1000*y/332]
+proj <- "+proj=stere +lat_0=-90 +lat_ts=-70 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs"
+ice.eof[, c("lon", "lat") := proj4::project(list(x1, y1), proj = proj, 
+                                         inverse = TRUE)] -> ice.eof
+ice.eof[, lon := ConvertLongitude(lon, from = 180)]
+
+binwidth <- 0.01
+
+ice.eof[lat < -55] %>% 
+   ggplot(aes(lon, lat)) + 
+   geom_point(aes(color = concentration), size = 0.05) +
+   # geom_contour3(data = gh.regr, aes(z = estimate),
+   #               breaks = AnchorBreaks(0, 25, 0), circular = "x") +
+   map.SH +
+   scale_fill_divergent() +
+   scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+                         # limits = c(-25, 25),
+                         guide = guide_colorstrip_bottom()) +
+   scale_s_map(ylim = c(-90, -55)) +
+   coord_polar() +
+   facet_grid(regressor~season)
+```
+
+```{r ice-east-west, fig.cap = c("Mean sea ice concentration at the east of 90°W vs. at the west.")}
+ice.trim[,
+         .(concentration.a = mean(concentration.a, na.rm = TRUE)), 
+         by = .(year, season, 
+                region = ifelse(lon %between% c(270, 330), "East",
+                         ifelse(lon %between% c(190, 270), "West",
+                                NA)))] %>% 
+   .[complete.cases(.)] %>% 
+   dcast(year + season ~ region, value.var = "concentration.a") %>% 
+   ggplot(aes(East, West)) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   scale_x_continuous("Mean sea ice concentration \nbetween 90°O and 30°O") +
+   scale_y_continuous("Mean sea ice concentration \nbetween 170°O and 90°O") +
+   facet_wrap(~season)
+```
 
 ```{r read-sst}
 sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
@@ -633,6 +693,12 @@ eof.trim %>%
                 caption = "Correlation between ONI and PC1")
 ```
 
+```{r}
+
+```
+
+
+
 
 # QS3
 
@@ -661,38 +727,79 @@ compl <- qs.eof$left %>%
    dcast(time ~ PC, value.var = "gh") %>% 
    .[compl, on = "time"]
 
-model <- lm(amplitude ~ I(sqrt(PC1^2 + PC2^2)) - 1, data = qs3)
-grid <- setDT(expand.grid(PC1 = seq_range(qs3$PC1, 64),
-                          PC2 = seq_range(qs3$PC2, 64)))
-grid[, amplitude := predict(model, grid)]
-smooth <-  qs3[, Smooth2D(amplitude ~ PC1 + PC2, theta = 0.025,
-                          x.out = 64*2, y.out = 64*2)]
-min <- smooth[which.min(amplitude)] 
-
 ggplot(qs3, aes(PC1, PC2)) +
    geom_cross(size = 0.2) +
-   geom_contour(data = grid, aes(z = amplitude, color = ..level..)) +
-   geom_point(aes(color = amplitude)) +
+   stat_rasa(aes(z = amplitude, color = ..level..),
+             fun = SmoothContour,
+             geom = "contour2", smooth = 0.07,
+             breaks = AnchorBreaks(0, 10, 0)) +
+   # geom_contour(data = grid, aes(z = amplitude, color = ..level..),
+   #              binwidth = 10) +
+   geom_point(aes(color = amplitude), size = 0.4) +
    scale_color_viridis_c(limits = c(0, 120),
                          oob = scales::squish) +
    scale_x_continuous(expand = c(0, 0)) + 
    scale_y_continuous(expand = c(0, 0)) +
-   coord_equal() +   
+   # coord_cartesian(ylim = c(-2000, 2000),
+                   # xlim = c(-2000, 2000)) +
+   coord_equal() +
    labs(tag = "a")  +
    
-   ggplot(qs3, aes(sqrt(PC2^2 + PC1^2), amplitude)) +
+ggplot(qs3, aes(sqrt(PC1^2 + PC2^2), amplitude)) +
    geom_point(alpha = 0.5, size = 0.5) +
-   geom_smooth(method = "lm", formula = y ~ x -1,
+   # geom_abline() +
+   geom_smooth(method = "loess", formula = y ~ x,
                color = "black", se = T) +
+   # geom_line(data = grid) +
    scale_x_continuous(expression(sqrt(PC1^2 + PC2^2))) +
    scale_y_continuous("Wave 3 amplitude") +
-   labs(tag = "b")
+   labs(tag = "b") 
+```
+
+```{r}
+model <- nls(amplitude ~ a0 + a*sqrt((PC1 - p1_0)^2 + (PC2 - p2_0)^2),
+             data = qs3)
+cm <- as.list(coef(model))
+grid <- setDT(expand.grid(PC1 = seq_range(qs3$PC1, 64),
+                          PC2 = seq_range(qs3$PC2, 64)))
+grid[, amplitude := predict(model, grid)]
+qs3[, pred := predict(model, .SD)]
+
+ggplot(qs3, aes(PC1, PC2)) +
+   geom_cross(size = 0.2) +
+   # stat_rasa(aes(z = amplitude, color = ..level..), 
+   #           fun = SmoothContour, 
+   #           geom = "contour2", smooth = 0.07,
+   #           breaks = AnchorBreaks(0, 5, 0)) +
+   geom_contour(data = grid, aes(z = amplitude, color = ..level..),
+                binwidth = 10) +
+   geom_point(aes(color = amplitude), size = 0.4) +
+   scale_color_viridis_c(limits = c(0, 120),
+                         oob = scales::squish) +
+   scale_x_continuous(expand = c(0, 0)) + 
+   scale_y_continuous(expand = c(0, 0)) +
+   # coord_cartesian(ylim = c(-2000, 2000),
+                   # xlim = c(-2000, 2000)) +
+   coord_equal() +
+   labs(tag = "a")  +
+   
+ggplot(qs3, aes(pred, amplitude)) +
+   geom_point(alpha = 0.5, size = 0.5) +
+   geom_abline() +
+   # geom_smooth(method = "lm", formula = y ~ x,
+               # color = "black", se = T) +
+   # geom_line(data = grid) +
+   scale_x_continuous(expression(a[0] + a%*%sqrt((PC1 - p[1])^2 + (PC2 - p[2])^2)),
+                      limits = c(0, NA)) +
+   scale_y_continuous("Wave 3 amplitude") +
+   coord_equal() +
+   labs(tag = "b") 
 ```
 
 
 ```{r}
 ggplot(qs3, aes(phase*180/pi*3, 
-                ConvertLongitude(atan2(PC2, PC1)*180/pi)+47)) +
+                ConvertLongitude(atan2(PC2, PC1)*180/pi))) + 
    geom_point() +
    geom_abline() +
    scale_x_continuous("Phase (degrees)") +
@@ -720,7 +827,7 @@ smoothcircular <- function(data, range = c(0, 360), span = 0.75, n = 50) {
    grid
 }
 
-qs3[, .(time, PC1, PC2, PC3, phase)] %>% 
+qs3[, .(time, PC1, PC2, phase)] %>% 
    melt(id.vars = c("time", "phase"), variable.name = "PC") %>% 
    ggplot(aes(phase*180/pi, value, color = PC)) +
    geom_point(size = 0.5, alpha = 0.5) +
@@ -749,7 +856,7 @@ a2 <- coef(lm(I ~ PC1 + PC2 -1, data = compl))
 angles <- as.data.table(rbind(a1, a2))
 angles[, PC := c("PC1", "PC2")]
 angles[, PC := c("R", "I")]
-setcolorder(angles, c(4, 1:3))
+setcolorder(angles, c(3, 1:2))
 
 knitr::kable(angles)
 ```
@@ -759,5 +866,9 @@ ggplot(angles, aes(PC1, PC2)) +
    geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
                 arrow = grid::arrow()) +
    coord_equal() 
+```
+
+```{r}
+
 ```
 

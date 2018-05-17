@@ -686,6 +686,10 @@ Smooth2D <- function(formula, x.out = 64, y.out = 64, data = NULL, ...) {
       sm <- fields::smooth.2d(data[[value.var]], loc, 
                               nrow = x.out, ncol = y.out, 
                               ...)
+      if (!is.finite(diff(range(sm$z)))) {
+         stop(paste0("smoothing failed for ", value.var, " use a bigger smooth parameter"))
+      }
+      
       dimnames(sm$z) <- with(sm, setNames(list(x, y), ind.names))
       
       z <- setDT(melt(sm$z, value.name = value.var))
@@ -749,6 +753,27 @@ stat_rasa <- function(mapping = NULL, data = NULL,
          ...
       )
    )
+}
+
+
+SmoothContour <- function(data, nx = 64, ny = 64, breaks, 
+                          smooth = 0.05) {
+   data <- data[complete.cases(data), ]
+   M <- max(diff(range(data$x)), diff(range(data$y)))
+   theta <- smooth*M
+   sm <- setDF(Smooth2D(z ~ x + y, data = data, x.out = nx, y.out = ny,
+                        theta = theta))
+   breaks <- breaks(range(sm$z))
+   contours <- as.data.table(.contour_lines(sm, breaks,
+                                            complete = FALSE))
+   
+   if (length(contours) == 0) {
+      warning("Not possible to generate contour data", call. = FALSE)
+      return(data.frame())
+   }
+   
+   contours <- metR:::.order_contour(contours, setDT(sm))
+   return(contours)
 }
 
 
