@@ -777,3 +777,15 @@ SmoothContour <- function(data, nx = 64, ny = 64, breaks,
 }
 
 
+
+
+notify <- function(title = "title", text = NULL, time = 2) {
+   time <- time*1000
+   system(paste0('notify-send "', title, '" "', text, '" -t ', time, ' -a rstudio'))
+}
+
+notify_after <- function(expression, ...) {
+   expression <- eval(expression)
+   notify(title = "Run\\ ended", ...)
+   return(expression)
+}

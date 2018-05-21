@@ -22,6 +22,7 @@ library(circular)
 library(hrbrthemes)
 library(extrafont)
 library(patchwork)
+library(officer)
 
 source("scripts/helperfun.R")
 # Plot thingys
@@ -90,6 +91,49 @@ lev.breaks <- c(10, 30, 100, 200, 500, 1000)
 season <- function(...) {
    metR::season(..., lang = "en")
 }
+
+
+## Options for generating ppt output
+ppt <- TRUE
+pptfile <- "figuras.pptx"
+ppttemplate <- "ppttemplate.pptx"
+# Initial ppt
+if (ppt == TRUE){
+   my_pres <- read_pptx(ppttemplate)
+   print(my_pres, pptfile)   
+}
+
+# Add a plot to ppt 
+knit_plot <- knitr::knit_hooks$get("plot")
+
+knitr::knit_hooks$set(plot = function(x, options) {
+   if (ppt == TRUE) {
+      # print(options)
+      if (inherits(last_plot(), "gg")) {
+         read_pptx(pptfile)  %>%
+            add_slide(layout = "figure", master = "Office Theme") %>%
+            ph_with_gg(last_plot(), type = "pic") %>%
+            ph_with_text(options$fig.cap, type = "body") %>%
+            print(pptfile)
+         set_last_plot(NULL)   # remove last_plot()
+      } else {
+         read_pptx(pptfile)  %>%
+            add_slide(layout = "figure", master = "Office Theme") %>%
+            rvg::ph_with_vg(code = eval(parse(text = options$code)), 
+                            type = "pic") %>%
+            ph_with_text(options$fig.cap, type = "body") %>% 
+            print("pptprueba.pptx")
+      }
+   }
+   knit_plot(x, options)
+})
+
+# Turn off cache for figures
+knitr::opts_hooks$set(fig.cap = function(options) {
+   if (ppt == TRUE) options$cache <- FALSE
+   options
+})
+
 ```
 
 ```{r read-ncep}
@@ -150,12 +194,14 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
    facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
 ```
 
-```{r gh3-season, fig.cap = "Wave 3 component of the geopotential field of each season at 200hPa."}
+```{r calc-gh3-season}
 lons <- unique(ncep$lon)
 qs3 <- ncep.qs[k == 3, .(lon = lons, 
                          gh = BuildField(lons*pi/180, amplitude, phase, k)), 
                by = .(lat, lev, season)]
+```
 
+```{r gh3-season, fig.cap = "Wave 3 component of the geopotential field of each season at 200hPa."}
 binwidth <- 10
 ggplot(qs3[lev == 200], aes(lon, lat)) +
    geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, binwidth, 0)) +
@@ -188,8 +234,7 @@ ggplot(qs3[lat %between% cutlats, .(gh = mean(gh)), by = .(lon, lev, season)],
 Now this has some problems... yada yada yada, alternative analysis. 
 
 # New seasons
-
-```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa detrended geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out. Erros bars represent the 95% cuantile range estimated via bootstrap."}
+```{r calc-qs.eof}
 region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
@@ -199,7 +244,9 @@ qs.eof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh := Detrend(gh, time),
      by = .(lon, lat)] %>%
    EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000)
+```
 
+```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa detrended geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out. Erros bars represent the 95% cuantile range estimated via bootstrap."}
 qs.eof$sdev %>% 
    ggplot(aes(as.numeric(PC), mid)) +
    geom_point() +
@@ -211,7 +258,7 @@ qs.eof$sdev %>%
    scale_y_continuous("sigma")
 ```
 
-```{r}
+```{r spatial-eofs, fig.cap = "EOFs"}
 qs.eof <- CutEOF(qs.eof, 1:6)
 pc.labeller <- function(qs.eof) {
    with(qs.eof$sdev, setNames(paste0(PC, " - ", scales::percent(r2)),
@@ -551,8 +598,8 @@ ice.eof <- ice[!is.na(qs.trim(time)),
                by = .(season = qs.trim(time))]
 
 ice.eof_time <- ice[!is.na(qs.trim(time)), 
-               EOF(concentration ~ x + y | time, n = 1:2)$right,
-               by = .(season = qs.trim(time))]
+                    EOF(concentration ~ x + y | time, n = 1:2)$right,
+                    by = .(season = qs.trim(time))]
 
 setnames(ice.eof, "PC", "regressor")
 
@@ -569,13 +616,30 @@ ice.trim[eof.trim, on = c("season", "year")] %>%
    .[regressor != "mean"] -> ice.regr
 ```
 
+```{r read-slp}
+slp <- ReadNetCDF("DATA/slp.mon.mean.nc", subset = list(lat = -90:40))
+
+slp.trim <- slp[!is.na(qs.trim(time)), 
+                .(slp = mean(slp)), 
+                by = .(lon, lat, year(time), season = qs.trim(time))]
+
+slp.trim[, slp.a := Detrend(slp), by = .(lon, lat, season)]
+
+eof.trim %>% 
+   slp.trim[., on = c("season", "year")] %>% 
+   .[complete.cases(.)] %>% 
+   .[, FitLm(slp.a, PC1, PC2, se = TRUE), by = .(lon, lat, season)] %>% 
+   .[regressor != "mean"] -> slp.regr
+```
+
+
 ```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations (shaded) and regression of standarized PC with 200hPa geopotential height (contours)."}
 binwidth <- 10
 
 ggplot(ice.regr[lat < -55], aes(lon, lat)) +
    geom_point(aes(color = estimate*100), size = 0.05) +
-   geom_contour3(data = gh.regr, aes(z = estimate),
-                 breaks = AnchorBreaks(0, 25, 0), circular = "x") +
+   geom_contour3(data = slp.regr, aes(z = estimate),
+                 breaks = AnchorBreaks(0, 1, 0), circular = "x") +
    map.SH +
    scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                          limits = c(-25, 25),
@@ -592,7 +656,7 @@ ice.eof[, x1 := - 3950*1000 + 2*3950*1000*x/316]
 ice.eof[, y1 := - 3950*1000 + (4350+3950)*1000*y/332]
 proj <- "+proj=stere +lat_0=-90 +lat_ts=-70 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs"
 ice.eof[, c("lon", "lat") := proj4::project(list(x1, y1), proj = proj, 
-                                         inverse = TRUE)] -> ice.eof
+                                            inverse = TRUE)] -> ice.eof
 ice.eof[, lon := ConvertLongitude(lon, from = 180)]
 
 binwidth <- 0.01
@@ -612,13 +676,13 @@ ice.eof[lat < -55] %>%
    facet_grid(regressor~season)
 ```
 
-```{r ice-east-west, fig.cap = c("Mean sea ice concentration at the east of 90°W vs. at the west.")}
+```{r ice-east-west, fig.cap = "Mean sea ice concentration at the east of 90°W vs. at the west."}
 ice.trim[,
          .(concentration.a = mean(concentration.a, na.rm = TRUE)), 
          by = .(year, season, 
                 region = ifelse(lon %between% c(270, 330), "East",
-                         ifelse(lon %between% c(190, 270), "West",
-                                NA)))] %>% 
+                                ifelse(lon %between% c(190, 270), "West",
+                                       NA)))] %>% 
    .[complete.cases(.)] %>% 
    dcast(year + season ~ region, value.var = "concentration.a") %>% 
    ggplot(aes(East, West)) +
@@ -628,6 +692,9 @@ ice.trim[,
    scale_y_continuous("Mean sea ice concentration \nbetween 170°O and 90°O") +
    facet_wrap(~season)
 ```
+
+
+
 
 ```{r read-sst}
 sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
@@ -693,16 +760,37 @@ eof.trim %>%
                 caption = "Correlation between ONI and PC1")
 ```
 
-```{r}
 
+```{r eof-enso, fig.cap = "Relationship between PC1 and PC2 with ONI anomalies."}
+eof.trim %>% 
+   melt(id.vars = c("year", "season"), variable.name = "PC") %>%
+   oni.trim[., on = c("season", "year")] %>% 
+   ggplot(aes(ONI.a, value)) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   facet_grid(season ~ PC)
 ```
 
+```{r sam.trim, fig.cap = "Relationship between PC1 and PC2 and SAM."}
+sam <- fread("DATA/sam.monthly.txt")
+colnames(sam) <- c("year", "month", "sam")
+sam.trim <- sam[!is.na(qs.trim(month)), 
+                .(sam = mean(sam)), 
+                by = .(year, season = qs.trim(month))]
 
+eof.trim %>% 
+   melt(id.vars = c("year", "season"), variable.name = "PC") %>%
+   sam.trim[., on = c("season", "year")] %>% 
+   ggplot(aes(sam, value)) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   facet_grid(season ~ PC)
+```
 
 
 # QS3
 
-```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours are a representation of the linear fit on the right. b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude."}
+```{r calc-qs3eof}
 qs3 <- ncep.f(level = 200, lat = -65:-40) %>% 
    .[, FitWave(gh, 3), by = .(time, lat)] %>% 
    .[, .(amplitude = mean(amplitude),
@@ -727,7 +815,10 @@ compl <- qs.eof$left %>%
    dcast(time ~ PC, value.var = "gh") %>% 
    .[compl, on = "time"]
 
-ggplot(qs3, aes(PC1, PC2)) +
+```
+
+```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours are a representation of the linear fit on the right. b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude."}
+p1 <- ggplot(qs3, aes(PC1, PC2)) +
    geom_cross(size = 0.2) +
    stat_rasa(aes(z = amplitude, color = ..level..),
              fun = SmoothContour,
@@ -741,11 +832,11 @@ ggplot(qs3, aes(PC1, PC2)) +
    scale_x_continuous(expand = c(0, 0)) + 
    scale_y_continuous(expand = c(0, 0)) +
    # coord_cartesian(ylim = c(-2000, 2000),
-                   # xlim = c(-2000, 2000)) +
+   # xlim = c(-2000, 2000)) +
    coord_equal() +
-   labs(tag = "a")  +
+   labs(tag = "a")  
    
-ggplot(qs3, aes(sqrt(PC1^2 + PC2^2), amplitude)) +
+p2 <- ggplot(qs3, aes(sqrt(PC1^2 + PC2^2), amplitude)) +
    geom_point(alpha = 0.5, size = 0.5) +
    # geom_abline() +
    geom_smooth(method = "loess", formula = y ~ x,
@@ -754,9 +845,11 @@ ggplot(qs3, aes(sqrt(PC1^2 + PC2^2), amplitude)) +
    scale_x_continuous(expression(sqrt(PC1^2 + PC2^2))) +
    scale_y_continuous("Wave 3 amplitude") +
    labs(tag = "b") 
+p1 + p2
+set_last_plot(p1 + p2)
 ```
 
-```{r}
+```{r, fig.cap = "algo"}
 model <- nls(amplitude ~ a0 + a*sqrt((PC1 - p1_0)^2 + (PC2 - p2_0)^2),
              data = qs3)
 cm <- as.list(coef(model))
@@ -765,7 +858,7 @@ grid <- setDT(expand.grid(PC1 = seq_range(qs3$PC1, 64),
 grid[, amplitude := predict(model, grid)]
 qs3[, pred := predict(model, .SD)]
 
-ggplot(qs3, aes(PC1, PC2)) +
+p1 <- ggplot(qs3, aes(PC1, PC2)) +
    geom_cross(size = 0.2) +
    # stat_rasa(aes(z = amplitude, color = ..level..), 
    #           fun = SmoothContour, 
@@ -779,25 +872,28 @@ ggplot(qs3, aes(PC1, PC2)) +
    scale_x_continuous(expand = c(0, 0)) + 
    scale_y_continuous(expand = c(0, 0)) +
    # coord_cartesian(ylim = c(-2000, 2000),
-                   # xlim = c(-2000, 2000)) +
+   # xlim = c(-2000, 2000)) +
    coord_equal() +
-   labs(tag = "a")  +
+   labs(tag = "a")  
    
-ggplot(qs3, aes(pred, amplitude)) +
+p2 <- ggplot(qs3, aes(pred, amplitude)) +
    geom_point(alpha = 0.5, size = 0.5) +
    geom_abline() +
    # geom_smooth(method = "lm", formula = y ~ x,
-               # color = "black", se = T) +
+   # color = "black", se = T) +
    # geom_line(data = grid) +
    scale_x_continuous(expression(a[0] + a%*%sqrt((PC1 - p[1])^2 + (PC2 - p[2])^2)),
                       limits = c(0, NA)) +
    scale_y_continuous("Wave 3 amplitude") +
    coord_equal() +
    labs(tag = "b") 
+
+p1 + p2 
+set_last_plot(p1 + p2)
 ```
 
 
-```{r}
+```{r, fig.cap = "otra cosa"}
 ggplot(qs3, aes(phase*180/pi*3, 
                 ConvertLongitude(atan2(PC2, PC1)*180/pi))) + 
    geom_point() +
@@ -807,9 +903,8 @@ ggplot(qs3, aes(phase*180/pi*3,
    coord_equal()
 ```
 
-```{r phase-PCs, fig.cap = "Phase of zonal wave 3 and value of PCs 1 to 3. The line is a loess smooth."}
+```{r phase-PCs, fig.cap = "Phase of zonal wave 3 and value of PCs 1 to 2. The line is a loess smooth."}
 smoothcircular <- function(data, range = c(0, 360), span = 0.75, n = 50) {
-   if (!exists("d")) d <<- copy(data)
    data <- rbindlist(list(left = data,
                           mid = data,
                           right = data), 
@@ -861,14 +956,17 @@ setcolorder(angles, c(3, 1:2))
 knitr::kable(angles)
 ```
 
-```{r}
+```{r, fig.cap = "ultima cosa"}
 ggplot(angles, aes(PC1, PC2)) +
    geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
                 arrow = grid::arrow()) +
    coord_equal() 
 ```
 
-```{r}
 
+
+
+```{r, cache = FALSE}
+notify("Done knitting!", time = 5)
 ```
 
