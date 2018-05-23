@@ -92,20 +92,20 @@ names(month.abb_sp) <- as.character(1:12)
 names(month.abb) <- as.character(1:12)
 
 
-# Para interpolación en data table
-Interpolate.DT <- function(z, x, y, yo = unique(y), xo = unique(x), ...){
-   na <- is.na(z)
-   int <- akima::interp(x = x[!na], y = y[!na], z = z[!na], yo = yo, xo = xo, ...)
-   names <- c(deparse(substitute(x)),
-              deparse(substitute(y)),
-              deparse(substitute(z)))    # muy feo, sí
-   r <- with(int, {
-      grid <- expand.grid(x, y)
-      r <- list(grid[,1], grid[, 2], c(z))
-      names(r) <- names
-      return(r)
-   })
-}
+# # Para interpolación en data table
+# Interpolate.DT <- function(z, x, y, yo = unique(y), xo = unique(x), ...){
+#    na <- is.na(z)
+#    int <- akima::interp(x = x[!na], y = y[!na], z = z[!na], yo = yo, xo = xo, ...)
+#    names <- c(deparse(substitute(x)),
+#               deparse(substitute(y)),
+#               deparse(substitute(z)))    # muy feo, sí
+#    r <- with(int, {
+#       grid <- expand.grid(x, y)
+#       r <- list(grid[,1], grid[, 2], c(z))
+#       names(r) <- names
+#       return(r)
+#    })
+# }
 
 # Función que hace autocorrelograma y su test según Anderson o large lag.
 acf.sig <- function(x, lag.max=0.3*length(x), alpha = 0.05,

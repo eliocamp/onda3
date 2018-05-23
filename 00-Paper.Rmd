@@ -17,7 +17,6 @@ library(ggplot2)
 library(dplyr)
 library(metR) 
 library(WaveletComp)
-# library(patchwork)
 library(circular)
 library(hrbrthemes)
 library(extrafont)
@@ -462,9 +461,9 @@ rbindlist(list(full = gh.regr.month,
    ggplot( aes(lon, lat)) +
    # geom_contour2(aes(z = -value, linetype = factor(-sign(..level..))),
    # breaks = AnchorBreaks(0, 0.15, 0), color = "black") +
-   geom_contour_fill(aes(z = estimate), circular = "x",
+   geom_contour_fill(aes(z = estimate), xwrap = c(0, 360),
                      breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour3(aes(z = estimate), circular = "x",
+   geom_contour3(aes(z = estimate), xwrap = c(0, 360),
                  breaks = AnchorBreaks(0, binwidth, 0)) +
    map.SH +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
@@ -533,13 +532,13 @@ ggplot(psi.regr, aes(lon, lat)) +
    geom_contour_fill(aes(z = psi.z*10^-9),
                      breaks = AnchorBreaks(0, binwidth, 0),
                      # breaks = breaks,
-                     circular = "x") +
+                     xwrap = c(0, 360)) +
    geom_contour3(aes(z = psi.z*10^-9),
                  breaks = AnchorBreaks(0, binwidth, 0),
                  # breaks = breaks,
-                 circular = "x") +
+                 xwrap = c(0, 360)) +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.1, 
+                   skip = 3, xwrap = c(0, 360), L = 10, size = 0.1, 
                    min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
    scale_s_map(ylim = c(-90, 40)) +
@@ -559,12 +558,12 @@ psi.regr %>%
 ggplot(psi.regr, aes(lon, lat)) +
    geom_contour_fill(aes(z = psi.z*10^-9),
                      breaks = AnchorBreaks(0, binwidth, 0),
-                     circular = "x") +
+                     xwrap = c(0, 360)) +
    geom_contour3(aes(z = psi.z*10^-9),
                  breaks = AnchorBreaks(0, binwidth, 0),
-                 circular = "x") +
+                 xwrap = c(0, 360)) +
    geom_streamline(aes(dx = f.lon, dy = f.lat), 
-                   skip = 3, circular = "x", L = 10, size = 0.1, 
+                   skip = 3, xwrap = c(0, 360), L = 10, size = 0.1, 
                    min.dist = 5, arrow.length = 0.2, arrow.angle = 10) +
    map.SH +
    scale_s_map(ylim = c(-90, 40)) +
@@ -633,13 +632,13 @@ eof.trim %>%
 ```
 
 
-```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations (shaded) and regression of standarized PC with 200hPa geopotential height (contours)."}
+```{r ice-regr, fig.cap = "Regression of standarized PC with antarctic sea ice concentrations (shaded) and regression of standarized PC with SLP (contours)."}
 binwidth <- 10
 
 ggplot(ice.regr[lat < -55], aes(lon, lat)) +
    geom_point(aes(color = estimate*100), size = 0.05) +
    geom_contour3(data = slp.regr, aes(z = estimate),
-                 breaks = AnchorBreaks(0, 1, 0), circular = "x") +
+                 breaks = AnchorBreaks(0, 1, 0), xwrap = c(0, 360)) +
    map.SH +
    scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                          limits = c(-25, 25),
@@ -665,7 +664,7 @@ ice.eof[lat < -55] %>%
    ggplot(aes(lon, lat)) + 
    geom_point(aes(color = concentration), size = 0.05) +
    # geom_contour3(data = gh.regr, aes(z = estimate),
-   #               breaks = AnchorBreaks(0, 25, 0), circular = "x") +
+   #               breaks = AnchorBreaks(0, 25, 0), xwrap = c(0, 360)) +
    map.SH +
    scale_fill_divergent() +
    scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
@@ -719,7 +718,7 @@ sst.trim[eof.trim, on = c("season", "year")] %>%
 ggplot(sst.regr, aes(lon, lat)) +
    geom_raster(aes(fill = estimate)) +
    geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
-                 breaks = c(-0.5, 0.5), circular = "x") +
+                 breaks = c(-0.5, 0.5), xwrap = c(0, 360)) +
    stat_subset(aes(subset =  abs(estimate) > se*2), geom = "point",
                alpha = 0.5, color = "black", size = 0.05,
                data = sst.regr[lon %in% JumpBy(unique(lon), 4) &
