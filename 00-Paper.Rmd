@@ -29,17 +29,18 @@ start.time <- unclass(Sys.time())
 min.time <- 10
 knit_doc <- knitr::knit_hooks$get("document")
 knitr::knit_hooks$set(document = function(x) {
-   print(unclass(Sys.time()) - start.time)
-   if (unclass(Sys.time()) - start.time >= min.time){
-       system(paste0('notify-send "Done kniting!" -t 5000 -a rstudio'))
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
    }  
    knit_doc(x)
 })
 
-# Errors
 knit_error <-  knitr::knit_hooks$get("error")
 knitr::knit_hooks$set(error = function(x, options) {
-   system(paste0('notify-send "Error kniting!" -t 5000 -a rstudio'))
+   notify("Error knitting!", time = 5)
    knit_error(x, options)
 })
 
@@ -335,7 +336,7 @@ qs.eof$left %>%
               size = 3)+
    ggrepel::geom_text_repel(aes(label = month.abb[month])) +
    scale_color_brewer(palette = "Set1", na.translate = F) +
-   scale_shape_circlefill() +
+   ggthemes::scale_shape_circlefill() +
    guides(color = "none", shape = "none") +
    coord_equal()
 ```
@@ -367,7 +368,7 @@ qs.eof$left %>%
               size = 3)+
    ggrepel::geom_text_repel(aes(label = month.abb[month])) +
    scale_color_brewer(palette = "Set1", na.translate = F) +
-   scale_shape_circlefill() +
+   ggthemes::scale_shape_circlefill() +
    guides(color = "none", shape = "none") +
    coord_equal()
 ```
@@ -713,8 +714,57 @@ ice.trim[,
    facet_wrap(~season)
 ```
 
+```{r eof-ghice}
+gh <- ReadNetCDF("DATA/hgt.mon.mean.nc", var = c(gh = "hgt"),
+                 subset = list(level = 200))
+gh[, time := as.Date(time[1]), by = time]
+
+ice <- readRDS("DATA/seaice.Rds")
+ice <- ice[!is.na(concentration), .(lon, lat, date, concentration)]
+setnames(ice, "date", "time")
+
+usable.range <- c(max(min(gh$time), min(ice$time)),
+                  min(max(gh$time), max(ice$time)))
+
+gh <- gh[time %between% usable.range]
+ice <- ice[time %between% usable.range]
+
+lats.eof <- c(-80, -30)
+gh <- gh[lat %between% lats.eof] %>%
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time)] %>% 
+   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat)] 
+
+ghice <- rbindlist(list(ice = ice[, .(lon, lat, time, value = concentration)], 
+                         gh = gh[, .(lon, lat, time, value = gh)]), 
+                    idcol = "variable")
+remove(ice, gh)
+
+ghice[, value.a := Anomaly(value), by = .(lon, lat, variable, month(time))]
+ghice[, value.a := value.a/sd(value.a), by = .(lon, lat, variable)]
+ghice <- ghice[is.finite(value.a)]
+
+# ghice[, value := value.a*sqrt(cost(lat*pi/180))]
 
 
+ghic.eof <- EOF(value.a ~ lon + lat + variable | time, data = ghice, n = 1:4)
+```
+
+```{r gif-eoffhice, fig.cap = "Joint EOF of filtered geopotential height and antarctic sea ice concentration."}
+ghic.eof$left %>% 
+{
+   ggplot(., aes(lon, lat)) +
+      geom_point(aes(color = value.a), data = .[variable == "ice"], 
+                 size = 0.1) +
+      geom_contour2(aes(z = value.a), data = .[variable == "gh"], 
+                    xwrap = c(0, 360)) +
+      map.world +
+      scale_s_map(ylim = c(-90, -20)) +
+      scale_color_divergent() +
+      facet_wrap(~PC)
+}
+```
 
 ```{r read-sst}
 sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
