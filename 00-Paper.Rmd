@@ -7,6 +7,8 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+start.time <- Sys.time()
+
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE, cache.lazy = TRUE,
                       warning = FALSE,
@@ -22,6 +24,24 @@ library(hrbrthemes)
 library(extrafont)
 library(patchwork)
 library(officer)
+
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   print(unclass(Sys.time()) - start.time)
+   if (unclass(Sys.time()) - start.time >= min.time){
+       system(paste0('notify-send "Done kniting!" -t 5000 -a rstudio'))
+   }  
+   knit_doc(x)
+})
+knit_error <-  knitr::knit_hooks$get("error")
+knitr::knit_hooks$set(error = function(x, options) {
+   system(paste0('notify-send "Error kniting!" -t 5000 -a rstudio'))
+   knit_error(x, options)
+})
+
 
 source("scripts/helperfun.R")
 # Plot thingys
@@ -116,12 +136,12 @@ knitr::knit_hooks$set(plot = function(x, options) {
             print(pptfile)
          set_last_plot(NULL)   # remove last_plot()
       } else {
-         read_pptx(pptfile)  %>%
+         read_pptx(pptfile ) %>%
             add_slide(layout = "figure", master = "Office Theme") %>%
             rvg::ph_with_vg(code = eval(parse(text = options$code)), 
                             type = "pic") %>%
             ph_with_text(options$fig.cap, type = "body") %>% 
-            print("pptprueba.pptx")
+            print(pptfile)
       }
    }
    knit_plot(x, options)
@@ -816,7 +836,7 @@ compl <- qs.eof$left %>%
 
 ```
 
-```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours are a representation of the linear fit on the right. b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude."}
+```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours represent a smooth surface from data points b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude; line is a loess smooth."}
 p1 <- ggplot(qs3, aes(PC1, PC2)) +
    geom_cross(size = 0.2) +
    stat_rasa(aes(z = amplitude, color = ..level..),
@@ -848,7 +868,7 @@ p1 + p2
 set_last_plot(p1 + p2)
 ```
 
-```{r, fig.cap = "algo"}
+```{r, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours are a representation of the linear fit on the right. b) Amplitude of monthly mean wave 3 amplitude as function of the model prediction."}
 model <- nls(amplitude ~ a0 + a*sqrt((PC1 - p1_0)^2 + (PC2 - p2_0)^2),
              data = qs3)
 cm <- as.list(coef(model))
@@ -892,7 +912,7 @@ set_last_plot(p1 + p2)
 ```
 
 
-```{r, fig.cap = "otra cosa"}
+```{r, fig.cap = "Relationship between wave 3 phase and angle betweenPC2 and PC1."}
 ggplot(qs3, aes(phase*180/pi*3, 
                 ConvertLongitude(atan2(PC2, PC1)*180/pi))) + 
    geom_point() +
@@ -955,17 +975,10 @@ setcolorder(angles, c(3, 1:2))
 knitr::kable(angles)
 ```
 
-```{r, fig.cap = "ultima cosa"}
+```{r, fig.cap = "Angle between PC1 and PC2 and Real and Imaginary part of wave 3"}
 ggplot(angles, aes(PC1, PC2)) +
    geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
                 arrow = grid::arrow()) +
    coord_equal() 
-```
-
-
-
-
-```{r, cache = FALSE}
-notify("Done knitting!", time = 5)
 ```
 
