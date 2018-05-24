@@ -225,12 +225,14 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
                     barwidth = width, ...)
 }
 
-scale_x_longitude <- function(ticks = 60, ...) {
-   metR::scale_x_longitude(ticks = ticks, breaks = seq(-180, 360, by = ticks), ...)
+scale_x_longitude <- function(ticks = 60, xwrap = c(0, 360), ...) {
+   b <- seq(min(xwrap), max(xwrap), by = ticks)
+   metR::scale_x_longitude(ticks = ticks, breaks = b ,...)
 }
-scale_s_map <- function(ylim = c(-90, -15),
-                        xlim = c(0, 360)) list(scale_y_latitude(limits = ylim),
-                                               scale_x_longitude(limits = xlim))
+scale_s_map <- function(ylim = c(-90, -15), xlim = c(0, 360)) {
+   list(scale_y_latitude(limits = ylim),
+        scale_x_longitude(limits = xlim, xwrap = xlim)) 
+} 
 
 ggplot <- function(...) {
    ggplot2::ggplot(...) + scale_linetype(guide = "none")
@@ -354,6 +356,17 @@ mode.circular <- function(x, limits = c(0, 2/3*pi)) {
    } else {
       x
    }
+}
+
+# "Estaciones" en base a la amplitud y fase de la onda 3.
+qs.sem <- function(month) {
+   if (metR:::.is.somedate(month)) month <- lubridate::month(month)
+   
+   qs.seasons <- factor(c(rep("DJFMA", 4),
+                          rep("MJJASON", 7),
+                          rep("DJFMA", 1)))
+   
+   return(factor(qs.seasons[month], levels = c("DJFMA", "MJJASON")))
 }
 
 # "Estaciones" en base a la amplitud y fase de la onda 3.

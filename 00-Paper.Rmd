@@ -115,7 +115,7 @@ season <- function(...) {
 
 
 ## Options for generating ppt output
-ppt <- TRUE
+ppt <- FALSE
 pptfile <- "figuras.pptx"
 ppttemplate <- "ppttemplate.pptx"
 # Initial ppt
@@ -179,7 +179,7 @@ ncep.f <- memoise::memoise(function(lat = -90:40,
    n[, time := as.Date(time[1]), by = time]
    return(n)
 }, cache = memoise::cache_filesystem(".rcache"))
-ncep <- ncep.f()
+ncep <- ncep.f(level = 200)
 ```
 
 # "Tradicional" analysis.
@@ -265,11 +265,14 @@ qs.eof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh := Detrend(gh, time),
      by = .(lon, lat)] %>%
    EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000)
+
+qs.eof$right[PC == "PC1", gh := -gh]
+qs.eof$left[PC == "PC1", gh := -gh]
 ```
 
 ```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa detrended geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out. Erros bars represent the 95% cuantile range estimated via bootstrap."}
 qs.eof$sdev %>% 
-   ggplot(aes(as.numeric(PC), mid)) +
+   ggplot(aes(as.numeric(PC), sd)) +
    geom_point() +
    geom_line() +
    geom_errorbar(aes(ymin = lower, ymax = upper),
@@ -288,14 +291,14 @@ pc.labeller <- function(qs.eof) {
 
 binwidth <- 0.01
 ggplot(qs.eof$right, aes(lon, lat)) +
-   geom_contour_fill(aes(z = gh), 
+   geom_contour_fill(aes(z = gh), xwrap = c(-180, 360+180),
                      breaks = AnchorBreaks(0, binwidth, 0)) +
    geom_contour3(aes(z = gh),
                  breaks = AnchorBreaks(0, binwidth, 0)) +
    map.SH +
    geom_hline(yintercept = lats.eof, linetype = 2) +
-   scale_s_map() +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+   scale_s_map(xlim = c(-180, 360+180)) +
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), #) +
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, -20)) +
    facet_wrap(~PC, ncol = 3, dir = "v", labeller = labeller(PC = pc.labeller(qs.eof)))
@@ -361,10 +364,10 @@ qs.eof$left %>%
    ggplot(aes(PC1, PC2)) +
    # xlab("PC 1") + ylab("PC 2") +
    geom_cross(color = "gray50") +
-   ggforce::geom_link2(aes(color = qs.season(month),
+   ggforce::geom_link2(aes(color = qs.sem(month),
                            group = 1),
                        alpha = 0.5) +
-   geom_point(aes(color = qs.season(month), shape = qs.season(month)),
+   geom_point(aes(color = qs.sem(month), shape = qs.sem(month)),
               size = 3)+
    ggrepel::geom_text_repel(aes(label = month.abb[month])) +
    scale_color_brewer(palette = "Set1", na.translate = F) +
@@ -386,33 +389,19 @@ qs.eof$left %>%
 ```
 
 
-
-
-```{r sd-eof, fig.cap = "Standard deviation (scaled by their variance) of each PC for each month"}
+```{r}
 qs.eof$left %>%
    .[qs.eof$sdev, on = "PC"] %>% 
-   .[, sd(gh*sd), by = .(PC, month(time))] %>% 
-   ggplot(aes(month, PC, color = V1)) +
-   geom_raster(aes(fill = V1)) +
-   scale_x_continuous("", breaks = 1:12, labels = month.abb,
-                      expand = c(0, 0)) +
-   scale_y_discrete("", expand = c(0, 0)) +
-   theme(panel.ontop = FALSE) +
-   scale_fill_viridis_c()
+   CutEOF(1:2) %>% 
+   ggplot(aes(factor(month(time)), gh*sd)) +
+   geom_hline(yintercept = 0) +
+   geom_boxplot(aes(color = PC), fill = "gray80", alpha = 0.2) +
+   
+   scale_y_continuous("Value") +
+   scale_x_discrete("Month", labels = month.abb) 
 ```
 
 
-```{r sd-eof2, fig.cap = "Standard deviation of each PC for each month"}
-qs.eof$left %>%
-   .[, sd(gh), by = .(PC, month(time))] %>% 
-   ggplot(aes(month, PC, color = V1)) +
-   geom_raster(aes(fill = V1)) +
-   scale_x_continuous("", breaks = 1:12, labels = month.abb,
-                      expand = c(0, 0)) +
-   scale_y_discrete("", expand = c(0, 0)) +
-   theme(panel.ontop = FALSE) +
-   scale_fill_viridis_c()
-```
 
 
 An optimal (if somewhat arbitrary) division of the year can be seen in Figure X based on monthly mean values of each PC...
@@ -427,6 +416,64 @@ Notes:
 - JJ is a relatively robust grouping but with obviously more heterogeneous than JFM or ASO
 
 - Futhermore, removing the linear trend as well as the QS1 field results in a similar classification to the one shown, but the structure of the EOF is slightly different with less separation between wavenumbers (the zonal wave 3 is present in PC1, PC2 and PC3) and a much more asymmetric nature, with higher amplitude anomalies on the western hemisphere than the eastern in the first two PCs and the reverse on the second two. Is it as the wave activity of each hemosphere is separated this way. 
+
+
+```{r calc-events}
+events <- qs.eof$left %>%
+   .[, gh.norm := gh/sd(gh), by = PC] %>% 
+   .[, event := cut(gh.norm, c(-Inf, -0.5, 0.5, Inf), 
+                    c("negative", "neutral", "positive" ))] %>% 
+   .[, event := factor(event, ordered = TRUE,
+                       levels = c("positive", "neutral", "negative"))] %>% 
+   CutEOF(1:2) %>% 
+   .[, .(time, PC, event)] 
+
+events %>%
+   .[ncep, on = c("time"), allow.cartesian = TRUE] %>%
+   .[, .(gh = mean(gh)), by = .(lon, lat, month(time), event, PC)] %>% 
+   dcast(lon + lat + month + PC ~ event, value.var = "gh") %>% 
+   .[, `:=`(positive = positive - neutral, 
+            negative = negative - neutral,
+            neutral = NULL)]  %>% 
+   melt(id.vars = c("lon", "lat", "month", "PC")) %>% 
+   # .[PC == "PC1"] %>%
+   # .[month <= 6] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = value), breaks = AnchorBreaks(0, 20, 0)) +
+   map.SH +
+   scale_s_map() +
+   coord_quickmap() +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 20, 0),
+                        guide = guide_colorstrip_bottom()) -> g
+```
+
+```{r number-of-events, fig.cap = "Number of positive and negative events (+- 0.5 sigma) for each PC and each month."}
+events %>% 
+   .[event != "neutral"] %>% 
+   .[, .N, by = .(month(time), event, PC)] %>% 
+   # dcast(month + PC ~ event, value.var = "N") %>% 
+   ggplot(aes(month, N)) +
+   # geom_area(aes(ymax = N, fill = event), 
+   #           position = "dodge", alpha = 0.5) +
+   geom_line(aes(color = event)) +
+   scale_color_brewer(palette = "Set1") +
+   scale_x_continuous("Month", 1:12, labels = month.abb) +
+   scale_y_continuous("# of events", limits = c(0, NA)) +
+   facet_wrap(~PC, ncol = 1)
+```
+
+```{r comp-events-1, fig.cap = "Mean gh anomaly (positive - neutral; negative - neutral) for positive and negatives events for each PC and each month."}
+g + facet_grid_paginate(month ~ PC + variable, ncol = 4, 
+                        nrow = 6, page = 1,
+              labeller = labeller(month = month.abb))
+```
+
+```{r comp-events-1, fig.cap = "Mean gh anomaly (positive - neutral; negative - neutral) for positive and negatives events for each PC and each month. (continued)"}
+g + facet_grid_paginate(month ~ PC + variable, ncol = 4, 
+                        nrow = 6, page = 2,
+              labeller = labeller(month = month.abb))
+```
+
 
 
 # Regressions
@@ -737,8 +784,8 @@ gh <- gh[lat %between% lats.eof] %>%
      by = .(lon, lat)] 
 
 ghice <- rbindlist(list(ice = ice[, .(lon, lat, time, value = concentration)], 
-                         gh = gh[, .(lon, lat, time, value = gh)]), 
-                    idcol = "variable")
+                        gh = gh[, .(lon, lat, time, value = gh)]), 
+                   idcol = "variable")
 remove(ice, gh)
 
 ghice[, value.a := Anomaly(value), by = .(lon, lat, variable, month(time))]
@@ -905,7 +952,7 @@ p1 <- ggplot(qs3, aes(PC1, PC2)) +
    # xlim = c(-2000, 2000)) +
    coord_equal() +
    labs(tag = "a")  
-   
+
 p2 <- ggplot(qs3, aes(sqrt(PC1^2 + PC2^2), amplitude)) +
    geom_point(alpha = 0.5, size = 0.5) +
    # geom_abline() +
@@ -945,7 +992,7 @@ p1 <- ggplot(qs3, aes(PC1, PC2)) +
    # xlim = c(-2000, 2000)) +
    coord_equal() +
    labs(tag = "a")  
-   
+
 p2 <- ggplot(qs3, aes(pred, amplitude)) +
    geom_point(alpha = 0.5, size = 0.5) +
    geom_abline() +
