@@ -188,23 +188,6 @@ date_month2factor <- function(x) {
    factor(as.numeric(stringi::stri_sub(x, 6, 7)), levels = c(12, 1:11), ordered = T)
 }
 
-#### Esto es re útil y lo tengo que poner en metR. 
-#### Técnicametne es igual que broom::tidy, pero ese parece que no funciona bien 
-#### con RcppArmadillo::fastLm
-ExtractLm <- function(model) {
-   # Extrae el estimador y el error estándar de cada regressor para un modelo
-   # lineal (¿o cualquier modelo?).
-   # Entra:
-   #   model: un modelo lineal (o no)
-   # Sale:
-   #   una lista con 3 vectores: el nombre de los elementos, los estimadores y
-   #   el error estándar.
-   a <- summary(model)
-   return(list(regressor = rownames(a$coefficients),
-               estimate  = unname(a$coefficients[, 1]),
-               se        = unname(a$coefficients[, 2])))
-}
-
 WaveFlux <- function(psi, p = 250, a = 6371000) {
    k <- p*100/(a^2*2000)
    psi <- copy(psi)
@@ -774,7 +757,10 @@ SmoothContour <- function(data, nx = 64, ny = 64, breaks,
    theta <- smooth*M
    sm <- setDF(Smooth2D(z ~ x + y, data = data, x.out = nx, y.out = ny,
                         theta = theta))
-   breaks <- breaks(range(sm$z))
+   if (is.function(breaks)) {
+      breaks <- breaks(sm$z)      
+   }
+
    contours <- as.data.table(.contour_lines(sm, breaks,
                                             complete = FALSE))
    
@@ -799,4 +785,16 @@ notify_after <- function(expression, ...) {
    expression <- eval(expression)
    notify(title = "Run\\ ended", ...)
    return(expression)
+}
+
+pm <- function(x) {
+   x <- abs(x)
+   c(-x, x)
+}
+
+
+
+SmoothSen <- function(data) {
+   data$y <- predict(mblm::mblm(y ~ x, data = data))
+   data
 }
