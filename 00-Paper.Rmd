@@ -438,7 +438,7 @@ events.number <- events %>%
    .[event != "neutral"] %>% 
    .[as.numeric(PC) %in% 1:2]
 
-events %>%
+g <- events %>%
    .[ncep, on = c("time"), allow.cartesian = TRUE] %>%
    .[, .(gh = mean(gh)), by = .(lon, lat, month(time), event, PC)] %>% 
    dcast(lon + lat + month + PC ~ event, value.var = "gh") %>% 
@@ -459,7 +459,7 @@ events %>%
    scale_s_map() +
    coord_quickmap() +
    scale_fill_divergent(breaks = AnchorBreaks(0, 20, 0),
-                        guide = guide_colorstrip_bottom()) -> g
+                        guide = guide_colorstrip_bottom())
 ```
 
 ```{r number-of-events, fig.cap = "Number of positive and negative events (+- 0.5 sigma) for each PC and each month."}
@@ -809,6 +809,46 @@ ghic.eof$left %>%
 }
 ```
 
+
+```{r read-icedrift}
+ice.drift <- readRDS("DATA/ice.drift.rda")
+icemap <- unique(ice.drift[, .(x, y, lon, lat)])
+
+ice.drift.sem <- ice.drift[, .(u = mean(u), v = mean(v)), 
+                            by = .(x, y, year = year(time), 
+                                   season = qs.sem(time))]
+
+
+ice.drift.sem[, `:=`(u = Detrend(u), 
+                     v = Detrend(v)), by = .(x, y, season)]
+
+ice.drift.regr <- ice.drift.sem %>% 
+   melt(id.vars = c("x", "y", "season", "year")) %>% 
+   .[eof.sem, on = c("year", "season")] %>%
+   .[, N := sum(!is.na(value)), by = .(x, y, season, variable)] %>% 
+   .[N > 10] %>% 
+   .[, FitLm(value/10, PC1, PC2, se = TRUE), 
+     by = .(x, y, season, variable)] %>% 
+   .[regressor != "mean"]
+```
+
+```{r}
+ice.drift.regr %>% 
+   dcast(x + y + season + regressor ~ variable, value.var = "estimate") %>% 
+   icemap[., on = c("x", "y")] %>% 
+   .[complete.cases(.)] %>% 
+   # saveRDS("~/data.Rds")
+ggplot(aes(x, -y)) +
+    geom_streamline(aes(dx = u*cos(lon*pi/180) + v*sin(lon*pi/180),
+                        dy = -u*sin(lon*pi/180) + v*cos(lon*pi/180),
+                        color = Mag(..dx.., ..dy..)),
+                    skip = 5, arrow.length = 0.1) +
+    scale_color_viridis_c() +
+    coord_equal() +
+    facet_grid(season ~ regressor)
+```
+
+
 ```{r read-sst}
 sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
 sst[, time := as.Date(time[1]), by = time]
@@ -927,7 +967,6 @@ compl <- qs.eof$left %>%
    CutEOF(1:4) %>% 
    dcast(time ~ PC, value.var = "gh") %>% 
    .[compl, on = "time"]
-
 ```
 
 
@@ -1027,19 +1066,17 @@ qs3[, .(time, PC1, PC2, phase, A = Mag(PC2, PC1))] %>%
 
 
 
-```{r, fig.cap = "Relationship between wave 3 phase and angle betweenPC2 and PC1. Points to the left of the left dotted line are duplicates from the right of the right dotted line. Dashed line is the x = y line and solid line is a linear fit based on the Theil-Sen estimator."}
+```{r phase-angle, fig.cap = "Relationship between wave 3 phase and angle between PC2 and PC1. Points to the left of the left dotted line are duplicates from the right of the right dotted line. Dashed line is the x = y line and solid line is a linear fit based on the Theil-Sen estimator."}
 shift <- 45
 qs3 %>% 
    .[, pc.angle := ConvertLongitude(atan2(PC2-cm$p2_0,
                                           PC1-cm$p1_0)*180/pi) + shift] %>% 
    .[, phase := phase*180*3/pi] %>% 
    rbind(.,., idcol = TRUE) %>%
-   # .[.id == 2, phase := phase-360/3*pi/180] %>% 
    .[.id == 1, pc.angle := pc.angle-360] %>%
    .[pc.angle %between% c(-10, 360 + shift)] %>%
    .[, dupl := .id == 2] %>% 
-   # WrapCircular("pc.angle", wrap = c(-180, 180+360)) %>% 
-ggplot(aes(pc.angle, phase)) + 
+   ggplot(aes(pc.angle, phase)) + 
    geom_point(size = 0.4) +
    geom_abline(linetype = 2) +
    stat_rasa(fun = SmoothSen, 
@@ -1054,7 +1091,7 @@ ggplot(aes(pc.angle, phase)) +
 
 The first two principal modes are closely related to the zonal wave 3. In fact, it can be shown that they define a rotation of the complex plane defined by the real an imaginary part of the wave3 fourier transform. 
 
-```{r}
+```{r angle-table}
 a1 <- coef(lm(PC1 ~ R + I -1, data = compl))
 a2 <- coef(lm(PC2 ~ R + I -1, data = compl))
 
@@ -1069,7 +1106,7 @@ setcolorder(angles, c(3, 1:2))
 knitr::kable(angles)
 ```
 
-```{r, fig.cap = "Angle between PC1 and PC2 and Real and Imaginary part of wave 3"}
+```{r vectors, fig.cap = "Angle between PC1 and PC2 and Real and Imaginary part of wave 3"}
 ggplot(angles, aes(PC1, PC2)) +
    geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
                 arrow = grid::arrow()) +

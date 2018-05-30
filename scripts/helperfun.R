@@ -787,14 +787,21 @@ notify_after <- function(expression, ...) {
    return(expression)
 }
 
+# Plus-minus functions
 pm <- function(x) {
    x <- abs(x)
    c(-x, x)
 }
 
 
+`%pm%` <- function(x, y) {
+   c(x - y, x + y)
+}
+
 
 SmoothSen <- function(data) {
    data$y <- predict(mblm::mblm(y ~ x, data = data))
    data
 }
+
+
