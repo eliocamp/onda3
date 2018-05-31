@@ -352,6 +352,8 @@ qs.sem <- function(month) {
    return(factor(qs.seasons[month], levels = c("DJFMA", "MJJASON")))
 }
 
+
+
 # "Estaciones" en base a la amplitud y fase de la onda 3.
 qs.season <- function(month) {
    if (metR:::.is.somedate(month)) month <- lubridate::month(month)
@@ -381,7 +383,7 @@ qs.trim <- function(month) {
    return(factor(qs.seasons[month], levels = c("JFM", "MJJ",
                                                "ASO", "ND")))
 }
-
+qs.sem <- qs.trim
 
 
 geom_contour_back <- function(..., color = "black", size = 0.2, alpha = 0.5) {
@@ -605,44 +607,44 @@ stat_contour4 <- function(mapping = NULL, data = NULL,
 #' @format NULL
 #' @export
 StatContour4 <- ggplot2::ggproto("StatContour4", Stat,
-  required_aes = c("x", "y", "z"),
-  default_aes = ggplot2::aes(order = ..level..),
-  setup_params = function(data, params) {
-     # Check is.null(breaks) for backwards compatibility
-     if (is.null(params$breaks)) {
-        params$breaks <- scales::fullseq
-     }
-     
-     if (is.function(params$breaks)) {
-        # If no parameters set, use pretty bins to calculate binwidth
-        if (is.null(params$bins) && is.null(params$binwidth)) {
-           params$binwidth <- diff(pretty(range(data$z), 10))[1]
-        }
-        # If provided, use bins to calculate binwidth
-        if (!is.null(params$bins)) {
-           params$binwidth <- diff(range(data$z)) / params$bins
-        }
-        
-        params$breaks <- params$breaks(range(data$z), params$binwidth)
-     }
-     return(params)
-     
-  },
-  compute_group = function(data, scales, bins = NULL, binwidth = NULL,
-                           breaks = scales::fullseq, complete = FALSE,
-                           na.rm = FALSE, circular = NULL) {
-     
-     if (!is.null(circular)) {
-        # M <- max(data[[circular]]) + resolution(data[[circular]])
-        data <- RepeatCircular(data, circular)
-     }
-   
-     contours <- as.data.table(.contour_lines(data, breaks, complete = complete))
-     
-     # contours <- .order_contour(contours, setDT(data))
-     
-     return(contours)
-  }
+                                 required_aes = c("x", "y", "z"),
+                                 default_aes = ggplot2::aes(order = ..level..),
+                                 setup_params = function(data, params) {
+                                    # Check is.null(breaks) for backwards compatibility
+                                    if (is.null(params$breaks)) {
+                                       params$breaks <- scales::fullseq
+                                    }
+                                    
+                                    if (is.function(params$breaks)) {
+                                       # If no parameters set, use pretty bins to calculate binwidth
+                                       if (is.null(params$bins) && is.null(params$binwidth)) {
+                                          params$binwidth <- diff(pretty(range(data$z), 10))[1]
+                                       }
+                                       # If provided, use bins to calculate binwidth
+                                       if (!is.null(params$bins)) {
+                                          params$binwidth <- diff(range(data$z)) / params$bins
+                                       }
+                                       
+                                       params$breaks <- params$breaks(range(data$z), params$binwidth)
+                                    }
+                                    return(params)
+                                    
+                                 },
+                                 compute_group = function(data, scales, bins = NULL, binwidth = NULL,
+                                                          breaks = scales::fullseq, complete = FALSE,
+                                                          na.rm = FALSE, circular = NULL) {
+                                    
+                                    if (!is.null(circular)) {
+                                       # M <- max(data[[circular]]) + resolution(data[[circular]])
+                                       data <- RepeatCircular(data, circular)
+                                    }
+                                    
+                                    contours <- as.data.table(.contour_lines(data, breaks, complete = complete))
+                                    
+                                    # contours <- .order_contour(contours, setDT(data))
+                                    
+                                    return(contours)
+                                 }
 )
 
 
@@ -675,19 +677,19 @@ Smooth2D <- function(formula, x.out = 64, y.out = 64, data = NULL, ...) {
    
    loc <- setDF(data)[, ind.names]
    # for (v in seq_along(dep.names)) {
-      value.var <- dep.names[1]
-      
-      sm <- fields::smooth.2d(data[[value.var]], loc, 
-                              nrow = x.out, ncol = y.out, 
-                              ...)
-      if (!is.finite(diff(range(sm$z)))) {
-         stop(paste0("smoothing failed for ", value.var, " use a bigger smooth parameter"))
-      }
-      
-      dimnames(sm$z) <- with(sm, setNames(list(x, y), ind.names))
-      
-      z <- setDT(melt(sm$z, value.name = value.var))
-      # set(loc, NULL, value.var, z)
+   value.var <- dep.names[1]
+   
+   sm <- fields::smooth.2d(data[[value.var]], loc, 
+                           nrow = x.out, ncol = y.out, 
+                           ...)
+   if (!is.finite(diff(range(sm$z)))) {
+      stop(paste0("smoothing failed for ", value.var, " use a bigger smooth parameter"))
+   }
+   
+   dimnames(sm$z) <- with(sm, setNames(list(x, y), ind.names))
+   
+   z <- setDT(melt(sm$z, value.name = value.var))
+   # set(loc, NULL, value.var, z)
    # }
    return(z)
 }
@@ -707,18 +709,18 @@ fft2 <- function(x, k) {
 
 
 StatRasa <- ggplot2::ggproto("StatRasa", Stat,
-  compute_group = function(data, scales, fun, fun.args) {
-     args <- formals(fun)
-
-     for (i in seq_along(fun.args)) {
-        if (names(fun.args[i]) %in% names(fun.args)) {
-           args[[names(fun.args[i])]] <- fun.args[[i]]
-        }
-     }
-
-     formals(fun) <- args
-     fun(data)
-  })
+                             compute_group = function(data, scales, fun, fun.args) {
+                                args <- formals(fun)
+                                
+                                for (i in seq_along(fun.args)) {
+                                   if (names(fun.args[i]) %in% names(fun.args)) {
+                                      args[[names(fun.args[i])]] <- fun.args[[i]]
+                                   }
+                                }
+                                
+                                formals(fun) <- args
+                                fun(data)
+                             })
 
 stat_rasa <- function(mapping = NULL, data = NULL,
                       geom = "point", 
@@ -760,7 +762,7 @@ SmoothContour <- function(data, nx = 64, ny = 64, breaks,
    if (is.function(breaks)) {
       breaks <- breaks(sm$z)      
    }
-
+   
    contours <- as.data.table(.contour_lines(sm, breaks,
                                             complete = FALSE))
    
@@ -804,4 +806,21 @@ SmoothSen <- function(data) {
    data
 }
 
+prob.t <- function(estimate, se, df) {
+   pt(abs(estimate)/se, df, lower.tail = FALSE)
+}
+
+
+MakeCircle <- function(r, x0 = 0, y0 = 0, n = 40) {
+   data <- data.table(r = r, x0 = x0, y0 = y0)
+   theta <- seq(0, 360, length.out = n)
+   data[, .(x = r*cos(theta*pi/180) + x0,
+            y = r*sin(theta*pi/180) + y0), by = .(r)]
+}
+
+MakeLine <- function(angle, r = 1) {
+   data <- data.table(angle = angle, x = 0, y = 0)
+   data[, `:=`(xend = r[1]*cos(angle*pi/180),
+               yend = r[1]*sin(angle*pi/180))]
+}
 

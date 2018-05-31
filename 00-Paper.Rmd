@@ -7,7 +7,19 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-start.time <- Sys.time()
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
 
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE, cache.lazy = TRUE,
@@ -23,20 +35,6 @@ library(hrbrthemes)
 library(extrafont)
 library(patchwork)
 library(officer)
-
-# Notification
-start.time <- unclass(Sys.time())
-min.time <- 10
-knit_doc <- knitr::knit_hooks$get("document")
-knitr::knit_hooks$set(document = function(x) {
-   took <- unclass(Sys.time()) - start.time
-   if (unclass(Sys.time()) - start.time >= min.time) {
-      notify("Done knitting!", 
-             paste0("Took ", round(took), " seconds"),
-             time = 5)
-   }  
-   knit_doc(x)
-})
 
 knit_error <-  knitr::knit_hooks$get("error")
 knitr::knit_hooks$set(error = function(x, options) {
@@ -485,10 +483,7 @@ g + facet_grid_paginate(month ~ PC + event, ncol = 4,
                         labeller = labeller(month = month.abb))
 ```
 
-
-
 # Regressions
-
 
 ```{r calc-gh.cor}
 qs.eof$left <- qs.eof$left[, gh.sd := gh/sd(gh), by = .(PC)]
@@ -517,7 +512,7 @@ gh.regr <- gh.sem[eof.sem,
      by = .(lon, lat, season)] %>% 
    .[regressor != "mean"]
 
-remove(ncep)
+# remove(ncep)
 ```
 
 
@@ -814,10 +809,23 @@ ghic.eof$left %>%
 ice.drift <- readRDS("DATA/ice.drift.rda")
 icemap <- unique(ice.drift[, .(x, y, lon, lat)])
 
-ice.drift.sem <- ice.drift[, .(u = mean(u), v = mean(v)), 
-                            by = .(x, y, year = year(time), 
-                                   season = qs.sem(time))]
+# 25km resolution 321*321 grid centered in the south pole
+ice.drift[, x := 25000*(x - 161)]
+ice.drift[, y := 25000*(161 - y)]
 
+icemap[, x := 25000*(x - 161)]
+icemap[, y := 25000*(161 - y)]
+
+proj <- "+proj=stere +lat_0=-90 +lat_ts=-70 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs"
+antarctica <- setDT(map_data("world", "Antarctica")) %>% 
+   .[, c("x", "y") := proj4::project(list(long, lat),
+                                     proj = proj)] %>% 
+   geom_polygon(data = ., aes(x, y, group = group), 
+                fill = "gray80", color = "black", size = 0.3)
+
+ice.drift.sem <- ice.drift[, .(u = mean(u), v = mean(v)), 
+                           by = .(x, y, year = year(time), 
+                                  season = qs.sem(time))]
 
 ice.drift.sem[, `:=`(u = Detrend(u), 
                      v = Detrend(v)), by = .(x, y, season)]
@@ -827,26 +835,72 @@ ice.drift.regr <- ice.drift.sem %>%
    .[eof.sem, on = c("year", "season")] %>%
    .[, N := sum(!is.na(value)), by = .(x, y, season, variable)] %>% 
    .[N > 10] %>% 
-   .[, FitLm(value/10, PC1, PC2, se = TRUE), 
+   .[, FitLm(value/1000, PC1, PC2, se = TRUE), 
      by = .(x, y, season, variable)] %>% 
    .[regressor != "mean"]
+
+regr.v <- ice.drift.sem %>% 
+   icemap[., on = c("x", "y")] %>% 
+   .[, v := u*sin(lon*pi/180) + v*cos(lon*pi/180)] %>% 
+   .[eof.sem, on = c("year", "season")] %>%
+   .[, N := sum(!is.na(v)), by = .(x, y, season)] %>% 
+   .[N > 10] %>% 
+   .[, FitLm(v/1000, PC1, PC2, se = TRUE), 
+     by = .(x, y, season)] %>% 
+   .[regressor != "mean"] %>% 
+   .[, significant := prob.t(estimate, se, df)]
 ```
 
-```{r}
-ice.drift.regr %>% 
-   dcast(x + y + season + regressor ~ variable, value.var = "estimate") %>% 
-   icemap[., on = c("x", "y")] %>% 
-   .[complete.cases(.)] %>% 
-   # saveRDS("~/data.Rds")
-ggplot(aes(x, -y)) +
-    geom_streamline(aes(dx = u*cos(lon*pi/180) + v*sin(lon*pi/180),
-                        dy = -u*sin(lon*pi/180) + v*cos(lon*pi/180),
-                        color = Mag(..dx.., ..dy..)),
-                    skip = 5, arrow.length = 0.1) +
-    scale_color_viridis_c() +
-    coord_equal() +
-    facet_grid(season ~ regressor)
+```{r circular_grid}
+rads <- suppressWarnings(proj4::project(list(0, seq(-90, -60, by = 10)),
+                                        proj)$y)
+
+circular_grid <- function(r = rads, by = 45, n = 40, 
+                          linetype = 2, 
+                          color = "gray30", size = 0.3){
+    list(
+       geom_path(data = MakeCircle(r, n = n), aes(x, y, group = r),
+                 linetype = linetype, color = color, size = size),
+       geom_spoke(data = data.frame(rad = max(r), x = 0, y = 0,
+                                    angle = pi/180*seq(0, 360, by = by)),
+                  aes(x, y, radius = rad, angle = angle),
+                   linetype = linetype, color = color, size = size)
+       )
+} 
 ```
+
+
+
+```{r ice.drift-regr, fig.cap = "Regression of sea ice motion on each PC. The regression of the meridional component of sea icea motion is shown in color in areas ."}
+ice.drift.regr %>% 
+   # .[regressor == "PC1" & season == "MJJASON"] %>%
+   .[, significant := prob.t(estimate, se, df)] %>% 
+   dcast(x + y + season + regressor ~ variable, 
+         value.var = c("estimate", "significant")) %>% 
+   icemap[., on = c("x", "y")] %>%
+   .[complete.cases(.)] %>%
+   ggplot(aes(x, y)) +
+   stat_subset(aes(subset = significant <= 0.025,
+                   fill = estimate),
+               geom = "raster", 
+               data = regr.v) +
+   geom_streamline(aes(dx = estimate_u, dy = estimate_v),
+                   alpha = 0.3, min.dist = 7,
+                   skip = 10, arrow.length = 0.4, L = 8e5) +
+   antarctica +
+   circular_grid() +
+   scale_fill_divergent("V", 
+                        limits = pm(0.025),
+                        oob = scales::squish,
+                        guide = guide_colorstrip_bottom()) +
+   scale_x_continuous("") + scale_y_continuous("") +
+   coord_equal() +
+   theme(panel.grid = element_blank(), axis.line = element_blank(),
+         axis.text = element_blank()) +
+   facet_grid(regressor ~ season)
+```
+
+
 
 
 ```{r read-sst}
@@ -984,7 +1038,9 @@ qs3[, .(time, PC1, PC2, amplitude)] %>%
 
 
 ```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours represent a smooth surface from data points b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude; line is a loess smooth."}
-quintiles <- quantile(qs3$amplitude, c(.05, 0.25, 0.5, 0.75, 0.95))
+
+quantiles <- c(.05, 0.25, 0.5, 0.75, 0.95)
+b <- quantile(qs3$amplitude, quantiles)
 
 quantile_breaks <- function(probs = seq(0, 1, 0.25), ...) {
    function(x) {
@@ -1001,12 +1057,12 @@ p1 <- ggplot(qs3, aes(PC1, PC2)) +
    stat_rasa(aes(z = amplitude, color = ..level..),
              fun = SmoothContour,
              geom = "contour2", smooth = 0.07,
-             breaks = quintiles) +
+             breaks = b) +
    # geom_contour(data = grid, aes(z = amplitude, color = ..level..),
    #              binwidth = 10) +
    geom_point(aes(color = amplitude), size = 0.4) +
-   scale_color_viridis_c(breaks = quintiles,
-                         limits = range(quintiles),
+   scale_color_viridis_c(breaks = b,
+                         limits = range(b),
                          guide = guide_colorstrip_bottom(10, 
                                                          inside = TRUE),
                          oob = scales::squish) +

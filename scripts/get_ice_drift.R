@@ -1,6 +1,7 @@
 library(data.table)
 library(magrittr)
 
+# http://nsidc.org/data/NSIDC-0116
 setwd("DATA/ice_drift")
 map <- fread("south_x_y_lat_lon.txt")
 colnames(map) <- c("x", "y", "lat", "lon")
