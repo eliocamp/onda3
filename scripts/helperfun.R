@@ -20,7 +20,7 @@ BuildMap <- function(res = 1, smooth = 1, pm = 180,
    # resolución para plotear más rápido.
    # Entra:
    #   res: resolución (cuantos puntos se eliminan entre los que quedan)
-   #   smooth: factor de suavizado (ventana del promedio corrido)
+   #   smooth: factor de suavifzado (ventana del promedio corrido)
    #   pm: longitud del meridiano central
    #   countries: ¿datos a nivel país?
    # Sale:
@@ -801,9 +801,8 @@ pm <- function(x) {
 }
 
 
-SmoothSen <- function(data) {
-   data$y <- predict(mblm::mblm(y ~ x, data = data))
-   data
+theilsen <- function(formula, data, repeated = TRUE, weights = NULL) {
+   mblm::mblm(formula, dataframe = data, repeated = repeated)
 }
 
 prob.t <- function(estimate, se, df) {

@@ -747,6 +747,7 @@ ice.sem[,
    ggplot(aes(East, West)) +
    geom_point() +
    geom_smooth(method = "lm") +
+   # geom_smooth(method = "theilsen", color = "red") +
    scale_x_continuous("Mean sea ice concentration \nbetween 90°O and 30°O") +
    scale_y_continuous("Mean sea ice concentration \nbetween 170°O and 90°O") +
    facet_wrap(~season)
@@ -1124,7 +1125,7 @@ qs3[, .(time, PC1, PC2, phase, A = Mag(PC2, PC1))] %>%
 
 ```{r phase-angle, fig.cap = "Relationship between wave 3 phase and angle between PC2 and PC1. Points to the left of the left dotted line are duplicates from the right of the right dotted line. Dashed line is the x = y line and solid line is a linear fit based on the Theil-Sen estimator."}
 shift <- 45
-qs3 %>% 
+qs3 %>% copy() %>% 
    .[, pc.angle := ConvertLongitude(atan2(PC2-cm$p2_0,
                                           PC1-cm$p1_0)*180/pi) + shift] %>% 
    .[, phase := phase*180*3/pi] %>% 
@@ -1135,9 +1136,7 @@ qs3 %>%
    ggplot(aes(pc.angle, phase)) + 
    geom_point(size = 0.4) +
    geom_abline(linetype = 2) +
-   stat_rasa(fun = SmoothSen, 
-             geom = "line") +
-   # geom_smooth(method = "lm") +
+   geom_smooth(method = "theilsen", color = "black") +
    geom_vline(xintercept = c(shift, 350), linetype = 3) +
    scale_y_continuous("Phase x 3 (degrees)") +
    scale_x_continuous(expression(tan^{-1}~((PC2-p2[0])/(PC1-p1[0])) + shift)) +
