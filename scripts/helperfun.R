@@ -210,11 +210,11 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 
 scale_x_longitude <- function(ticks = 60, xwrap = c(0, 360), ...) {
    b <- seq(min(xwrap), max(xwrap), by = ticks)
-   metR::scale_x_longitude(ticks = ticks, breaks = b ,...)
+   metR::scale_x_longitude(ticks = ticks, breaks = b, labels = LonLabel(b),...)
 }
 scale_s_map <- function(ylim = c(-90, -15), xlim = c(0, 360)) {
    list(scale_y_latitude(limits = ylim),
-        scale_x_longitude(limits = xlim, xwrap = xlim)) 
+        scale_x_longitude(xwrap = xlim)) 
 } 
 
 ggplot <- function(...) {

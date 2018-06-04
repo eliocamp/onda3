@@ -301,9 +301,8 @@ ggplot(qs.eof$right, aes(lon, lat)) +
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, -20)) +
    facet_wrap(~PC, ncol = 3, dir = "v", 
-              labeller = labeller(PC = pc.labeller(qs.eof))) ->g
+              labeller = labeller(PC = pc.labeller(qs.eof)))
 ```
-
 
 ```{r fourier-eof, fig.cap = "Fourier decomposition by latitude of each EOF."}
 qs.eof$right[, FitWave(gh, 2:4), by = .(lat, PC)]  %>%
