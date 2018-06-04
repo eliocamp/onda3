@@ -268,6 +268,7 @@ qs.eof$right[PC == "PC1", gh := -gh]
 qs.eof$left[PC == "PC1", gh := -gh]
 ```
 
+
 ```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa detrended geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out. Erros bars represent the 95% cuantile range estimated via bootstrap."}
 qs.eof$sdev %>% 
    ggplot(aes(as.numeric(PC), sd)) +
@@ -295,14 +296,14 @@ ggplot(qs.eof$right, aes(lon, lat)) +
                  breaks = AnchorBreaks(0, binwidth, 0)) +
    map.SH +
    geom_hline(yintercept = lats.eof, linetype = 2) +
-   scale_s_map(xlim = c(0, 360)) +
+   scale_s_map() +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), #) +
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, -20)) +
-   # coord_polar() +
    facet_wrap(~PC, ncol = 3, dir = "v", 
-              labeller = labeller(PC = pc.labeller(qs.eof)))
+              labeller = labeller(PC = pc.labeller(qs.eof))) ->g
 ```
+
 
 ```{r fourier-eof, fig.cap = "Fourier decomposition by latitude of each EOF."}
 qs.eof$right[, FitWave(gh, 2:4), by = .(lat, PC)]  %>%
@@ -926,9 +927,9 @@ sst.sem[eof.sem, on = c("season", "year")] %>%
 ```{r sst-regr, fig.cap = "Regression of standarized PC with SST."}
 ggplot(sst.regr, aes(lon, lat)) +
    geom_raster(aes(fill = estimate)) +
-   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > se*1.6)),
+   geom_contour3(aes(z = sign(estimate)*as.numeric(abs(estimate) > std.error*1.6)),
                  breaks = c(-0.5, 0.5), xwrap = c(0, 360)) +
-   stat_subset(aes(subset =  abs(estimate) > se*2), geom = "point",
+   stat_subset(aes(subset =  abs(estimate) > std.error*2), geom = "point",
                alpha = 0.5, color = "black", size = 0.05,
                data = sst.regr[lon %in% JumpBy(unique(lon), 4) &
                                   lat %in% JumpBy(unique(lat), 4)]) +
