@@ -695,9 +695,9 @@ Smooth2D <- function(formula, x.out = 64, y.out = 64, data = NULL, ...) {
 }
 
 
-seq_range <- function(x, n) {
+seq_range <- function(x, ...) {
    r <- range(x)
-   seq(r[1], r[2], length.out = n)
+   seq(r[1], r[2], ...)
 }
 
 fft2 <- function(x, k) {

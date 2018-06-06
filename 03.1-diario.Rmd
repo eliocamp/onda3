@@ -246,46 +246,123 @@ El autocorrelograma tiene una estructura de una onda propagante, aunque la ampli
 
 ```{r}
 lat0 <- -60
-lon0 <- 300
+lon0 <- 250
 
-max.cor <- function(x, y, lag.max = 10, dl = 1) {
+crosscor <- function(x, y, lags) {
    # lags <- seq(-lagmax, lagmax, by = dl)
-   cors <- ccf(x, y, na.action = na.pass, lag.max = lag.max, plot = FALSE)
+   cors <- ccf(x, y, na.action = na.pass, lag.max = max(lags), plot = FALSE)
    # cors <- vapply(lags, function(l) cor(x, shift2(y, l), use = "complete.obs"), 
                      # FUN.VALUE = 1)
    cor <- cors$acf[, 1, 1]
-   i <- JumpBy(seq_along(cor), by = dl)
+   i <- which(cors$lag %in% lags)
    return(list(cor = cor[i], lag = cors$lag[i, 1, 1]))
 }
 
-base <- gh[lat %~% lat0 & lon %~% lon0]$gh1
-gh[, max.cor(base, gh1, lag.max = 8, dl = 1), by = .(lon, lat)] -> cormap
-cormap[, lag := -lag]
+max.abs <- function(x) {
+   x[which.max(abs(x))]
+}
 
-cormap[, approx(lag, cor, xout = seq(-8, 8, by = 0.25)), by = .(lon, lat)] %>% 
+decrease <- function(x){
+   sapply(seq_along(x), function(i) min(x[seq_len(i)]))
+}
 
-ggplot(aes(lon, lat)) + 
-   geom_contour_fill(aes(z = y, frame = x, group = x), 
+
+base <- gh[lat %~% lat0 & lon %~% lon0][, month := month(time)]$gh1
+lags <- seq_range(pm(30), by = 1)
+gh[ , crosscor(gh1, base, lags), by = .(lon, lat)] -> cormap
+cormap[, cor.norm := cor/max(cor), by = .(lag)]
+
+decay <- cormap[lat %between% (-60 %pm% 15),
+                max(abs(cor)),
+                by = .(abs(lag))] %>% 
+   .[order(abs)] %>% 
+   .[, V1 := decrease(V1)]
+
+ggplot(cormap, aes(lon, lat)) +
+   geom_contour_fill(aes(z = cor.norm, frame = lag, group = lag),
                  breaks = AnchorBreaks(0, 0.1, 0), xwrap = c(0, 360)) +
    annotate("point", x = lon0, y = lat0) +
+   # geom_vline(aes(frame = lag,
+   #                xintercept = scales::rescale(lag, c(0, 360)))) +
    # geom_contour3(aes(z = lag)) +
    map.SH +
    scale_s_map(ylim = c(-90, -25)) +
-   coord_polar() +
+   # coord_polar() +
    scale_fill_divergent() -> g
 
-gganimate::gganimate(g, interval = 0.1, filename = "share/propagacion.gif")
+gganimate::gganimate(g, interval = 0.5, filename = "share/propagacion.gif")
 ```
 
 
 ```{r}
-cormap[, lag[which.max(cor)], by = .(lon, lat)] %>% 
-   .[lat == lat0] %>% 
-   ggplot(aes(lon, V1)) +
-   geom_line()
-   geom_raster(aes(fill = V1)) +
-   scale_fill_divergent()
+g <- g + facet_wrap(~lag) 
+g %+% cormap[lag %in% AnchorBreaks(0, 3)(pm(10))]
 ```
+
+
+```{r}
+g %+% cormap[lag == -7] + 
+   annotate("point", x = 122, y = -48) + 
+   annotate("point", x = 175, y = -56)
+```
+
+```{r}
+
+base <- gh[(lat %~% -48 & lon %~% 122) | (lat %~% -56 & lon %~% 175)] %>% 
+   dcast(time ~ lon + lat, value.var = "gh") %>% 
+   .[, dipo := `122.5_-47.5` - `175_-55`]
+
+gh[base[, .(time, dipo)], on = "time"] %>% 
+   .[, cor(gh, shift(dipo, 14), use = "complete.obs"), 
+     by = .(lon ,lat)] -> pred
+
+ggplot(pred, aes(lon, lat)) + 
+   geom_contour_fill(aes(z = V1)) +
+   map.SH
+```
+
+
+```{r}
+ 
+
+data.world[lat %between% (-60 %pm% 15)] %>% 
+   .[, lat := scales::rescale(lat, pm(10))] %>% 
+   geom_map2(color = "gray20") -> temp
+
+
+
+hov <- copy(cormap)[, abs := abs(lag)] %>% 
+   .[decay, on = "abs"] %>% 
+   .[, cor.norm := cor/V1]
+hov[, max.abs(cor.norm), 
+       by = .(lon, lag, month)] %>% 
+   ggplot(aes(lon, lag)) +
+   geom_raster(aes(fill = V1), interpolate = T) +
+   # geom_contour3(aes(z = V1), xwrap = c(0, 360)) +
+   annotate("point", x = lon0, y = 0) +
+   temp +
+   # geom_contour_fill(aes(z = V1)) +
+   scale_fill_divergent() +
+   facet_wrap(~ month)
+   # scale_y_continuous(limits = c(-30, 10)) #+
+   # coord_polar()
+```
+
+
+```{r}
+
+
+
+cormap[CutEOF(qs.eof$right, 1:2), on = c("lon", "lat"), 
+       allow.cartesian = TRUE] %>% 
+   .[, cor(cor, gh), by = .(PC, lag)] -> proj
+
+ggplot(proj, aes(lag, V1)) + 
+   geom_line(aes(color = factor(PC)))
+```
+
+
+
 
 ---
 
