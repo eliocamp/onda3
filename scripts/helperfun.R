@@ -466,17 +466,25 @@ geom_contour3 <- function(mapping = NULL, data = NULL,
    )
 }
 
-
-CutEOF <- function(eof, n) {
+cut.eof <- function(eof, n) {
    if (is.data.table(eof)) {
       eof[as.numeric(PC) %in% n]
    } else if (is.list(eof)) {
+      var <- attr(eof, "suffix")
       lapply(as.list(eof), function(x) {
-         x[as.numeric(PC) %in% n]
+         x[as.numeric(get(var)) %in% n]
       })
    }
 }
 
+screeplot.eof <- function(eof, n = "all") {
+   var <- attr(eof, "suffix")
+   r2 <- "r2"
+   if (n[1] == "all") n <- as.numeric(unique(eof$sdev[[var]]))
+   ggplot(eof$sdev[as.numeric(get(var)) %in% seq_along(n)], aes_(as.name(var), as.name(r2))) +
+      geom_point()
+}
+   
 PermTest <- function(y, ..., N = 10) {
    original <- FitLm(y, ..., se = FALSE)
    regressor <- original$regressor
@@ -496,9 +504,10 @@ PermTest <- function(y, ..., N = 10) {
 
 Detrend <- function(y, x) {
    nas <- is.na(y)
+   m <- mean(y, na.rm = TRUE)
    if (!hasArg(x)) x <- seq_along(y)
    y[!nas] <- .lm.fit(cbind(1, x[!nas]), y[!nas])$residuals
-   return(y)
+   return(y + m)
 }
 
 Jump <- function(x, by = 1) {

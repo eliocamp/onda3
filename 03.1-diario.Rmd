@@ -123,8 +123,8 @@ gh[, gh1roll := RcppRoll::roll_mean(gh1, 31, fill = NA), by = .(lon, lat)]
 
 qs.eof <- copy(gh[!is.na(gh1roll)])[ , gh := gh1roll*sqrt(cos(lat*pi/180))] %>%
    .[, gh := Detrend(gh), 
-     by = .(lon, lat, yday(time))]
-qs.eof <- EOF(data = qs.eof, gh ~ time | lon + lat, n = 1:10)
+     by = .(lon, lat, yday(time))] %>% 
+   EOF(data = ., gh ~ time | lon + lat, n = 1:10)
 ```
 
 ```{r}
@@ -152,51 +152,16 @@ qs.eof$left[, acf.sig(gh, lag.max = 60), by = .(PC)] %>%
 
 ```{r}
 qs.eof$left %>% 
-   CutEOF(1:2) %>%
+   cut.eof(1:2) %>%
    
    dcast(time ~ PC, value.var = "gh") %>% 
-   .[abs(PC1) > sd(PC1) | abs(PC2) > sd(PC2)] %>% 
+   # .[abs(PC1) > sd(PC1) | abs(PC2) > sd(PC2)] %>% 
    # .[year(time) == 1979] %>%
-   # .[] 
    ggplot(aes(PC1, PC2)) +
    geom_path(aes(color = yday(time)), alpha = 0.4) +
    geom_cross() +
    coord_equal()
 ```
-
-
-```{r}
-qs.eof$left %>% 
-   dcast(time ~ PC, value.var = "gh") %>% 
-   .[, angle := atan2(PC2, PC1)] -> angle
-
-gh[!is.na(gh1roll), angle := angle$angle*180/pi, by = .(lon, lat)]
-
-N <- 10
-
-plyr::round_any
-
-gh[, rangle := plyr::round_any(angle, 3)]
-
-gh[, .(gh = mean(gh1)), by = .(lon, lat, rangle)] %>% 
-   .[!is.na(rangle)] -> fields
-```
-
-```{r}
-binwidth <- 20
-ggplot(fields, aes(lon, lat)) +
-   geom_contour_fill(aes(z = gh, frame = factor(rangle)), circular = "x",
-                     breaks = AnchorBreaks(0, binwidth, 0))  +
-   geom_vline(aes(frame = factor(rangle), 
-                  xintercept = ConvertLongitude(rangle, 180))) +
-   map.SH +
-   scale_s_map(ylim = c(-90, -30)) +
-   scale_fill_divergent() +
-   coord_polar() -> g
-
-gganimate::gganimate(g, "angle.gif", interval = 0.2)
-```
-
 
 ```{r scree, fig.cap = "Valores principales"}
 n <- length(unique(gh$time))
@@ -224,7 +189,7 @@ ggplot(qs.eof$right, aes(lon, lat)) +
 ---
 
 ```{r cor, fig.cap = "Correlograma entre PC1 y PC2"}
-lags <- -60:60
+lags <- seq_range(pm(100))
 qs.eof$left %>% 
    dcast(time ~ PC, value.var = "gh") %>% 
    .[, lapply(lags, function(x) {
@@ -237,12 +202,47 @@ qs.eof$left %>%
    geom_line() +
    geom_hline(yintercept = 0) +
    scale_y_continuous("Correlation") +
-   scale_x_continuous("Lag (PC1 leads PC2)", JumpBy(lags, 10))
+   scale_x_continuous("Lag (PC1 leads PC2)")
 ```
 
 <div class = "notes"> 
 El autocorrelograma tiene una estructura de una onda propagante, aunque la amplitud de las correlaciones es muy baja. Si no se hace el promedio móvil de 30 días, también aparece, pero con más intensidad. 
 </div> 
+
+```{r}
+qs.eof$left %>% 
+   dcast(time ~ PC, value.var = "gh") %>% 
+   .[, lapply(lags, function(x) {
+      type <- ifelse(x > 0, "lead", "lag")
+      cor(PC1, shift(PC2, abs(x), type = type), 
+          use = "complete.obs")})] %>% 
+   melt() %>% 
+   .[, variable := lags] %>% 
+   .$value %>% 
+   fft() %>% 
+   .[1:100] %>% 
+   abs() %>% 
+   plot(type = "l") 
+```
+
+```{r}
+ks = 0:512
+N <- uniqueN(qs.eof$left$time)
+cut.eof(qs.eof$left, 1:2) %>% 
+   .[, c(list(k = N/ks), fft2(gh, ks)), by = PC] %>% 
+   ggplot(aes(k, Mag(R, I))) +
+   geom_line() +
+   geom_vline(xintercept = 365, linetype = 3) +
+   annotate("text", label = "22 días", x = 365, y = 0.006, hjust = -0.5) +
+   scale_x_log10() +
+   facet_wrap(~PC, ncol = 1) 
+```
+
+```{r}
+cut.eof(qs.eof$left, 1) %>% 
+   WaveletComp::analyze.wavelet(my.series = "gh") -> wv
+```
+
 
 ```{r}
 lat0 <- -60
@@ -353,7 +353,7 @@ hov[, max.abs(cor.norm),
 
 
 
-cormap[CutEOF(qs.eof$right, 1:2), on = c("lon", "lat"), 
+cormap[cut.eof(qs.eof$right, 1:2), on = c("lon", "lat"), 
        allow.cartesian = TRUE] %>% 
    .[, cor(cor, gh), by = .(PC, lag)] -> proj
 
@@ -399,9 +399,9 @@ remove(ncep)
 
 
 ```{r eof-compare, fig.cap = "Comparación de la PC utilizando datos diarios (negro) y utilizando datos mensuales (rojo). Ambas están estandarizadas por sus respectivos desvios estándar."}
-ggplot(CutEOF(qs.eof$left, 1:2)[, gh := gh/sd(gh), by = PC], aes(time, gh)) + 
+ggplot(cut.eof(qs.eof$left, 1:2)[, gh := gh/sd(gh), by = PC], aes(time, gh)) + 
    geom_line() +
-   geom_line(data = CutEOF(qs.eofm$left, 1:2)[, gh := gh/sd(gh), by = PC], color = "red") +
+   geom_line(data = cut.eof(qs.eofm$left, 1:2)[, gh := gh/sd(gh), by = PC], color = "red") +
    scale_x_datetime(limits = range(qs.eof$left$time)) +
    facet_wrap(~PC, ncol = 1)
 ```

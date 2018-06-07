@@ -282,7 +282,7 @@ qs.eof$sdev %>%
 ```
 
 ```{r spatial-eofs, fig.cap = "EOFs"}
-qs.eof <- CutEOF(qs.eof, 1:6)
+qs.eof <- cut(qs.eof, 1:6)
 pc.labeller <- function(qs.eof) {
    with(qs.eof$sdev, setNames(paste0(PC, " - ", scales::percent(r2)),
                               PC))
@@ -393,7 +393,7 @@ qs.eof$left %>%
 ```{r eof-boxplot, fig.cap = "Sesonal cycle of each PC"}
 qs.eof$left %>%
    .[qs.eof$sdev, on = "PC"] %>% 
-   CutEOF(1:2) %>% 
+   cut.eof(1:2) %>% 
    ggplot(aes(factor(month(time)), gh*sd)) +
    geom_hline(yintercept = 0) +
    geom_boxplot(aes(color = PC), fill = "gray80", alpha = 0.2) +
@@ -426,7 +426,7 @@ events <- qs.eof$left %>%
                     c("negative", "neutral", "positive" ))] %>% 
    .[, event := factor(event, ordered = TRUE,
                        levels = c("positive", "neutral", "negative"))] %>% 
-   CutEOF(1:2) %>% 
+   cut.eof(1:2) %>% 
    .[, .(time, PC, event)] 
 
 events.number <- events %>% 
@@ -493,7 +493,7 @@ qs.eof$left %>%
    .[, .(gh.eof = mean(gh.sd)), 
      by = .(PC, season = qs.sem(time), year(time))] %>% 
    .[!is.na(season)] %>% 
-   CutEOF(1:2) %>% 
+   cut.eof(1:2) %>% 
    dcast(year + season ~ PC, value.var = "gh.eof") -> eof.sem
 
 ncep[lev == 200, .(gh = mean(gh)), 
@@ -567,7 +567,7 @@ stream.sem[eof.sem, on = c("season", "year")] %>%
 
 # Regresión de PCs estandarizados con anomalía mensual, agregados
 # trimestralmente (~3 datos por año por trimestre)
-qs.eof$left %>% CutEOF(1:2) %>% 
+qs.eof$left %>% cut.eof(1:2) %>% 
    dcast(time ~ PC, value.var = "gh.sd") %>%
    .[stream, on = "time"] %>%
    .[, psi := Anomaly(psi), by = .(lon, lat, month(time))] %>% 
@@ -1008,7 +1008,7 @@ qs3 <- ncep.f(level = 200, lat = -65:-40) %>%
 qs3 <- qs.eof$left %>% 
    .[qs.eof$sdev[, .(PC, sd)], on = "PC"] %>% 
    .[, gh := gh*sd] %>% 
-   CutEOF(1:4) %>% 
+   cut.eof(1:4) %>% 
    dcast(time ~ PC, value.var = "gh") %>% 
    .[qs3, on = "time"]
 
@@ -1019,7 +1019,7 @@ compl <- ncep.f(level = 200, lat = -65:-40) %>%
 compl <- qs.eof$left %>% 
    .[qs.eof$sdev[, .(PC, sd)], on = "PC"] %>% 
    .[, gh := gh*sd] %>% 
-   CutEOF(1:4) %>% 
+   cut.eof(1:4) %>% 
    dcast(time ~ PC, value.var = "gh") %>% 
    .[compl, on = "time"]
 ```
