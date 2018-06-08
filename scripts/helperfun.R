@@ -818,6 +818,18 @@ prob.t <- function(estimate, se, df) {
    pt(abs(estimate)/se, df, lower.tail = FALSE)
 }
 
+cut_obs <- function(x, n, keep = "first") {
+   n_groups <- floor(length(x)/n)
+   groups <- rep(seq_len(n_groups), each = n)
+   nas_length <- length(x) - length(groups)
+   
+   if (keep == "first") {
+      groups <- c(groups, rep(NA, nas_length))
+   } else {
+      groups <- c(rep(NA, nas_length), groups)
+   }
+   return(groups)
+}
 
 MakeCircle <- function(r, x0 = 0, y0 = 0, n = 40) {
    data <- data.table(r = r, x0 = x0, y0 = y0)
@@ -832,3 +844,23 @@ MakeLine <- function(angle, r = 1) {
                yend = r[1]*sin(angle*pi/180))]
 }
 
+angle <- function(a, b) acos( sum(a*b) / ( sqrt(sum(a * a)) * sqrt(sum(b * b)) ) )
+
+angle2 <- function(M, N){
+   atan2(N[2], N[1]) - atan2(M[2], M[1]) 
+}
+
+
+
+dervangle <- function(x, y) {
+   N <- length(x)
+   a_prev <- atan2(y[c(N, 1:(N-1))],  x[c(N, 1:(N-1))])
+   a_next <- atan2(y[c(2:N, 1)], x[c(2:N, 1)])
+   
+   dxdy <- (a_next - a_prev)
+   dxdy[dxdy > pi] <- dxdy[dxdy > pi] - 2*pi
+   dxdy[dxdy < -pi] <- dxdy[dxdy < -pi] + 2*pi
+   dxdy <- dxdy/2
+   dxdy[c(1, N)] <- NA
+   dxdy
+}

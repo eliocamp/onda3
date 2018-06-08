@@ -153,15 +153,40 @@ qs.eof$left[, acf.sig(gh, lag.max = 60), by = .(PC)] %>%
 ```{r}
 qs.eof$left %>% 
    cut.eof(1:2) %>%
+   qs.eof$sdev[., on = "PC"] %>% 
+   .[, gh := gh*sd] %>% 
+   dcast(time ~ PC, value.var = c("gh")) %>% 
+   .[, c("v", "u") := .(metR:::.derv(PC1, 1:.N),
+                        metR:::.derv(PC2, 1:.N))] %>%  
+   .[, V := Mag(v, u)] -> sp
    
-   dcast(time ~ PC, value.var = "gh") %>% 
-   # .[abs(PC1) > sd(PC1) | abs(PC2) > sd(PC2)] %>% 
-   # .[year(time) == 1979] %>%
-   ggplot(aes(PC1, PC2)) +
-   geom_path(aes(color = yday(time)), alpha = 0.4) +
-   geom_cross() +
+ggplot(sp, aes(PC1, PC2)) +
+   stat_summary_hex(aes(z = V), bins = 50) +
    coord_equal()
 ```
+
+
+
+```{r}
+sp[, theta := atan2(PC2, PC1)]
+sp[, rho := Mag(PC2, PC1)]
+sp[, dtheta := u*cos(theta) - v*sin(theta)]
+
+sp[, theta.c := circular(theta, "angles", "radians", modulo = "2pi")]
+sp[, dtheta2 := metR:::.derv(theta, 1:.N, cyclical = FALSE)]
+sp[, dtheta2.c := as.numeric(metR:::.derv(theta.c, 1:.N, cyclical = FALSE))]
+sp[, dtheta3 := dervangle(PC1, PC2)]
+```
+
+```{r}
+ggplot(sp[rho > 800], aes(month(time), dtheta3)) +
+   geom_boxplot(aes(group = month(time))) 
+```
+
+```{r}
+
+```
+
 
 ```{r scree, fig.cap = "Valores principales"}
 n <- length(unique(gh$time))
