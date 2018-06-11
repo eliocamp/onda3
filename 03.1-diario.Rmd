@@ -533,3 +533,58 @@ enso %>%
    scale_color_brewer(palette = "Set1")
 ```
 
+
+
+Usando CEOF:
+
+```{r}
+lats.eof <- c(-80, -30)
+gh <- ReadNetCDF("DATA/hgt.daily_2000.nc", subset = list(lat = lats.eof),
+                 key = TRUE, vars = c(gh = "hgt"))
+setnames(gh, "level", "lev")
+gh[, gh1 := FilterWave(gh, 0:-1), by = .(time, lat)]
+
+gh[, c("R", "I") := ReIm(spectral::analyticFunction(gh1)),
+   by = .(time, lat)]
+gh[, H := complex(real = R, imaginary = I)]
+gh.ceof <- EOF(H ~ time | lon + lat, data = gh, n = 1:6, B = 1000)
+```
+
+```{r}
+screeplot(gh.ceof, var = "sd") +
+   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.5)
+```
+
+```{r}
+gh.ceof$right %>% 
+ggplot(aes(lon, lat)) +
+   geom_raster(aes(fill = Arg(H))) + 
+   geom_contour_fill(aes(z = Arg(H))) + 
+   geom_contour3(aes(z = Im(H))) +
+   # geom_contour(aes(z = abs(H))) +
+   map.SH +
+   scale_fill_gradientn(colours = c("black", "#4A8A2C" , 
+                                    "white", 
+                                    "#FFA500", "black")) +
+   scale_s_map(ylim = c(-90, -20)) +
+   facet_wrap(~PC)  +
+   coord_quickmap(ylim = c(-90, -20))
+```
+
+```{r}
+copy(gh.ceof$right)[, H := Re(H)] %>% 
+   .[, FitWave(H, k = 2:5), by = .(lat, PC)] %>% 
+   ggplot(aes(lat, amplitude)) +
+   geom_line(aes(color = factor(k))) +
+   facet_wrap(~PC)
+```
+
+
+```{r}
+cut(gh.ceof, 1:2)$left %>% 
+   # .[time %in% unique(time)[1:365]] %>% 
+   ggplot(aes(month(time), Mod(H))) +
+   geom_boxplot(aes(group = month(time))) 
+```
+
+

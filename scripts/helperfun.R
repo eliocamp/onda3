@@ -426,7 +426,8 @@ no.zero <- function(x) {
 
 
 StatContour3 <- ggplot2::ggproto("StatContour3", metR:::StatContour2,
-                                 default_aes = aes(order = calc(level), linetype = factor(-sign(calc(level))))
+                                 default_aes = aes(order = stat(level), 
+                                                   linetype = factor(-sign(stat(level))))
 )
 
 geom_contour3 <- function(mapping = NULL, data = NULL,
@@ -471,15 +472,18 @@ cut.eof <- function(eof, n) {
       eof[as.numeric(PC) %in% n]
    } else if (is.list(eof)) {
       var <- attr(eof, "suffix")
-      lapply(as.list(eof), function(x) {
+      structure(lapply(as.list(eof), function(x) {
          x[as.numeric(get(var)) %in% n]
-      })
+      }),
+      class = c("eof", "list"),
+      suffix = var,
+      valuev.var = attr(eof, "value.var"))
    }
 }
 
-screeplot.eof <- function(eof, n = "all") {
+screeplot.eof <- function(eof, n = "all", var = c("r2", "sd")) {
+   r2 <- var[1]
    var <- attr(eof, "suffix")
-   r2 <- "r2"
    if (n[1] == "all") n <- as.numeric(unique(eof$sdev[[var]]))
    ggplot(eof$sdev[as.numeric(get(var)) %in% seq_along(n)], aes_(as.name(var), as.name(r2))) +
       geom_point()
@@ -525,46 +529,73 @@ shiftcor <- function(x, y, lags) {
    vapply(lags, function(i) cor(x, shift2(y, i), use = "complete.obs"), 1)
 }
 
-BuildEOF <- function(formula, value.var = NULL, data = NULL, n = 1, 
-                     rotate = FALSE) {
+BuildEOF <- function(formula, value.var = NULL, data = NULL, n = 1, B = 0,
+                probs = c(lower = 0.025, mid = 0.5, upper = 0.975),
+                rotate = FALSE, suffix = "PC") {
    
    if (!is.null(value.var)) {
-      if (is.null(data)) stop("data must not be NULL if value.var is NULL",
-                              .call = FALSE)
+      if (is.null(data)) stop("data must not be NULL if value.var is NULL")
       data <- copy(data)
       f <- as.character(formula)
       f <- stringr::str_replace(f, "~", "\\|")
       formula <- Formula::as.Formula(paste0(value.var, " ~ ", f))
    }
    
-   if (is.null(data)) {
-      formula <- Formula::as.Formula(formula)
-      data <- as.data.table(eval(quote(model.frame(formula, data  = data))))
-   }
-   
    f <- as.character(formula)
    f <- stringr::str_split(f,"~", n = 2)[[1]]
-   dcast.formula <- stringr::str_squish(f[stringr::str_detect(f, "\\|")])
-   dcast.formula <- as.formula(stringr::str_replace(dcast.formula, "\\|", "~"))
    
    value.var <- stringr::str_squish(f[!stringr::str_detect(f, "\\|")])
    
-   g <- metR:::.tidy2matrix(data, dcast.formula, value.var)
+   matrix.vars <- f[stringr::str_detect(f, "\\|")]
+   matrix.vars <- stringr::str_split(matrix.vars,"\\|", n = 2)[[1]]
    
-   if (is.null(n)) n <- seq_len(min(ncol(g$matrix), nrow(g$matrix)))
+   row.vars <- stringr::str_squish(stringr::str_split(matrix.vars[1], "\\+")[[1]])
+   col.vars <- stringr::str_squish(stringr::str_split(matrix.vars[2], "\\+")[[1]])
+   
+   if (is.null(data)) {
+      formula <- Formula::as.Formula(formula)
+      data <- as.data.table(eval(quote(model.frame(formula, data  = data))))
+   } else {
+      # Check if columns are indata
+      all.cols <- c(value.var, row.vars, col.vars)
+      missing.cols <- all.cols[!(all.cols %in% colnames(data))]
+      if (length(missing.cols) != 0) {
+         stop(paste0("Columns not found in data: ", paste0(missing.cols, collapse = ", ")))
+      }
+      data <- setDT(data)[, (all.cols), with = FALSE]
+   }
+   
+   setDT(data)
+   
+   data[, row__ := .GRP, by = c(row.vars)]
+   data[, col__ := .GRP, by = c(col.vars)]
+   rowdims <- data[row__ == 1, (col.vars), with = FALSE]
+   coldims <- data[col__ == 1, (row.vars), with = FALSE]
+   
+   data <- Matrix::sparseMatrix(data[["row__"]],
+                                data[["col__"]],
+                                x = data[[value.var]])
+   
+   tall <- dim(data)[1] > dim(data)[2]
+   v.g  <- Matrix::norm(data, type = "F")
+   
+   if (is.null(n)) n <- seq_len(min(ncol(data), nrow(data)))
    
    if (requireNamespace("irlba", quietly = TRUE) &
-       max(n) < 0.5 *  min(ncol(g$matrix), nrow(g$matrix))) {
+       max(n) < 0.5 *  min(ncol(data), nrow(data))) {
       set.seed(42)
-      eof <- irlba::irlba(g$matrix, nv = max(n), nu = max(n), rng = runif)
+      eof <- irlba::irlba(data, nv = max(n), nu = max(n), rng = runif)
    } else {
-      eof <- svd(g$matrix, nu = max(n), nv = max(n))
+      eof <- svd(data, nu = max(n), nv = max(n))
       eof$d <- eof$d[1:max(n)]
    }
+   remove(data)
+   gc()
    eof$D <- diag(eof$d, ncol = max(n), nrow = max(n))
    
    if (rotate == TRUE & max(n) > 1) {
       # Rotation
+      
       loadings <- t(with(eof, D%*%t(v)))
       scores <- eof$u
       R <- varimax(loadings, normalize = FALSE)
@@ -578,7 +609,9 @@ BuildEOF <- function(formula, value.var = NULL, data = NULL, n = 1,
    }
    
    c(with(eof, u%*%D%*%t(v)))
+   
 }
+
 
 
 
@@ -716,6 +749,10 @@ fft2 <- function(x, k) {
                I = Im(f[k + 1])))
 }
 
+ReIm <- function(complex) {
+   list(Re = Re(complex), Im = Im(complex))
+}
+
 
 StatRasa <- ggplot2::ggproto("StatRasa", Stat,
                              compute_group = function(data, scales, fun, fun.args) {
@@ -787,9 +824,12 @@ SmoothContour <- function(data, nx = 64, ny = 64, breaks,
 
 
 
-notify <- function(title = "title", text = NULL, time = 2) {
+notify <- function(title = "title", text = NULL, time = 2, mobile = FALSE) {
    time <- time*1000
    system(paste0('notify-send "', title, '" "', text, '" -t ', time, ' -a rstudio'))
+   if (mobile) {
+      system(paste0('kdeconnect-cli -n motorola --ping-msg "', title, '"'))
+   }
 }
 
 notify_after <- function(expression, ...) {
