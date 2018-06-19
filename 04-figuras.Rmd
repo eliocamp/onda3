@@ -1,0 +1,572 @@
+---
+title: "04 - figuras"
+author: "Elio Campitelli"
+output: 
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 5
+        fig_width: 12
+        #reference_doc: ppttemplate2.pptx
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE, cache.lazy = TRUE,
+                      warning = FALSE)
+
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(metR) 
+library(circular)
+library(hrbrthemes)
+library(extrafont)
+library(patchwork)
+library(officer)
+
+knit_error <-  knitr::knit_hooks$get("error")
+knitr::knit_hooks$set(error = function(x, options) {
+   notify("Error knitting!", time = 5)
+   knit_error(x, options)
+})
+
+
+source("scripts/helperfun.R")
+# Plot thingys
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+
+pres <- ReadNetCDF("DATA/srfp.mon.mean.nc")
+pres.mean <- pres[, .(pres = median(pres)), by = lat]
+pres.mean <- rbind(data.table(lat = 0.0, pres = Inf), 
+                   pres.mean, 
+                   data.table(lat = -90.0, pres = Inf))
+surface <- geom_polygon(data = pres.mean, aes(y = pres), fill = "white", 
+                        alpha = 1, color = "gray30", size = 0.5)
+pres <- pres[, .(pres = mean(pres)), by = .(lon, lat)]
+
+# From https://github.com/hrbrmstr/hrbrthemes/issues/18
+d <- read.csv(extrafont:::fonttable_file(), stringsAsFactors = FALSE)
+d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
+write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
+extrafont::loadfonts()
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
+
+update_geom_defaults("contour2", list(color = "black"))
+update_stat_defaults("contour2", aes(linetype = factor(-sign(..level..))))
+
+options(ggplot2.continuous.fill = "viridis", 
+        ggplot2.continuous.color = "viridis")
+
+coord_quickmap <- function(..., ylim = c(-90, -15)) {
+   ggplot2::coord_quickmap(ylim = ylim, ...) 
+} 
+
+geom_contour_ <- function(..., gap = 0, rotate = FALSE) {
+   if (gap != 0) {
+      list(geom_contour2(..., gap = gap),
+           geom_text_contour(..., rotate = rotate))
+   } else {
+      geom_contour2(...)
+   }
+}
+
+# For vertical cross-sections
+coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
+coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
+
+lev.breaks <- c(10, 30, 100, 200, 500, 1000)
+
+season <- function(...) {
+   metR::season(..., lang = "en")
+}
+
+
+## Options for generating ppt output
+ppt <- FALSE
+pptfile <- "figuras.pptx"
+ppttemplate <- "ppttemplate.pptx"
+# Initial ppt
+if (ppt == TRUE){
+   my_pres <- read_pptx(ppttemplate)
+   print(my_pres, pptfile)   
+}
+
+# Add a plot to ppt 
+knit_plot <- knitr::knit_hooks$get("plot")
+
+# knitr::knit_hooks$set(plot = function(x, options) {
+#    if (ppt == TRUE) {
+#       # print(options)
+#       if (inherits(last_plot(), "gg")) {
+#          read_pptx(pptfile)  %>%
+#             add_slide(layout = "figure", master = "Office Theme") %>%
+#             ph_with_gg(last_plot(), type = "pic") %>%
+#             ph_with_text(options$fig.cap, type = "body") %>%
+#             print(pptfile)
+#          set_last_plot(NULL)   # remove last_plot()
+#       } else {
+#          read_pptx(pptfile ) %>%
+#             add_slide(layout = "figure", master = "Office Theme") %>%
+#             rvg::ph_with_vg(code = eval(parse(text = options$code)), 
+#                             type = "pic") %>%
+#             ph_with_text(options$fig.cap, type = "body") %>% 
+#             print(pptfile)
+#       }
+#    }
+#    knit_plot(x, options)
+# })
+
+# Turn off cache for figures
+knitr::opts_hooks$set(fig.cap = function(options) {
+   if (ppt == TRUE) options$cache <- FALSE
+   options
+})
+
+```
+
+# Persistencia y eventos.
+
+```{r read-ncep}
+ncep.f <- memoise::memoise(function(lat = -90:40, 
+                                    lon = 0:360,
+                                    time = lubridate::as_datetime(c("1979-12-01", "2015-12-01")),
+                                    level = 10:1000,
+                                    vars = "gh"){
+   subset <- list(lat = lat, lon = lon, level = level,
+                  time = time)
+   n <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+                   subset = subset) %>% 
+      setnames(., c("level"), c("lev"))
+   if ("u" %in% vars) {
+      n[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]] 
+   }
+   if ("v" %in% vars) {
+      n[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]]
+   }
+   n[, time := as.Date(time[1]), by = time]
+   return(n)
+}, cache = memoise::cache_filesystem(".rcache"))
+ncep <- ncep.f(level = 200)
+```
+
+
+```{r calc-qs.eof}
+# ncep <- ncep.f(level = 200)
+region <- expand.grid(lat = c(-65, -40),
+                      lev = c(100, 700))
+lats.eof <- c(-80, -30)
+qs.eof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
+   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat)] %>%
+   EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000)
+
+qs.eof$right[PC == "PC1", gh := -gh]
+qs.eof$left[PC == "PC1", gh := -gh]
+```
+
+```{r}
+ggplot(cut(qs.eof, 1:2)$right, aes(lon, lat)) +
+   geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, 0.01, 0)) +
+   map.SH +
+   scale_s_map() + 
+   scale_fill_divergent(guide= guide_colorstrip_bottom()) +
+   coord_quickmap() +
+   facet_wrap(~PC)
+```
+
+
+```{r calc-events}
+events <- cut(qs.eof, 1:2)$left %>%
+   .[, gh.norm := (gh - mean(gh))/sd(gh), by = PC] %>% 
+   .[, event := cut(gh.norm, c(-Inf, -0.5, 0.5, Inf), 
+                    c("negative", "neutral", "positive"),
+                    ordered_result = TRUE)] %>% 
+   # cut.eof(1:2) %>% 
+   .[, .(time, PC, event)] 
+
+events.number <- events %>% 
+   .[, .N, by = .(month(time), event, PC)] %>% 
+   tidyr::complete(month, PC, event, fill = list(N = 0)) %>% 
+   setDT() %>% 
+   .[event != "neutral"] %>% 
+   .[as.numeric(PC) %in% 1:2]
+
+g <- events %>%
+   .[ncep, on = c("time"), allow.cartesian = TRUE] %>%
+   .[, .(gh = mean(gh)), by = .(lon, lat, month(time), event, PC)] %>% 
+   dcast(lon + lat + month + PC ~ event, value.var = "gh") %>% 
+   .[, `:=`(positive = positive - neutral, 
+            negative = negative - neutral,
+            neutral = NULL)]  %>% 
+   melt(id.vars = c("lon", "lat", "month", "PC"), 
+        variable.name = "event") %>% 
+   .[events.number, on = c("month", "PC", "event")] %>% 
+   # .[PC == "PC1"] %>%
+   # .[month == 1] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = value), breaks = AnchorBreaks(0, 20, 0)) +
+   map.SH +
+   stat_subset(aes(subset = lon == 60 & lat == -20, 
+                   label = paste0("N = ", N)),
+               geom = "label", size = 2) +
+   scale_s_map() +
+   coord_quickmap() +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 20, 0),
+                        guide = guide_colorstrip_bottom())
+```
+
+```{r number-of-events, fig.cap = "Number of positive and negative events (+- 0.5 sigma) for each PC and each month."}
+ggplot(events.number, aes(month, N)) +
+   # geom_area(aes(ymax = N, fill = event), 
+   #           position = "dodge", alpha = 0.5) +
+   geom_line(aes(color = event)) +
+   scale_color_brewer(palette = "Set1") +
+   scale_x_continuous("Month", 1:12, labels = month.abb) +
+   scale_y_continuous("# of events", limits = c(0, NA)) +
+   facet_wrap(~PC, ncol = 1)
+```
+
+::: notes
+
+Se ve clarmaente un ciclo anual (que es obvio por las divisones anteriores). Lo importante es ver que hay muy pocos eventos en algunas categorías, como positivos en PC1 verano o negativos en PC2 invierno. 
+
+:::
+
+```{r comp-events-1, fig.cap = "Mean gh anomaly (positive - neutral; negative - neutral) for positive and negatives events for each PC and each month."}
+g + facet_grid_paginate(month ~ PC + event, ncol = 4, 
+                        nrow = 6, page = 1,
+                        labeller = labeller(month = month.abb))
+```
+
+```{r comp-events-2, fig.cap = "Mean gh anomaly (positive - neutral; negative - neutral) for positive and negatives events for each PC and each month. (continued)"}
+g + facet_grid_paginate(month ~ PC + event, ncol = 4, 
+                        nrow = 6, page = 2,
+                        labeller = labeller(month = month.abb))
+```
+
+```{r}
+oni <- fread("DATA/ONI_v5.csv") %>% 
+   set_colnames(c("year", 1:12)) %>% 
+   melt(id.vars = "year", variable.name = "month", value.name = "ENSO") %>% 
+   .[, time := as.Date(paste0(year, "-", month, "-01"))] %>% 
+   .[, c("year", "month") := NULL]
+
+# ENSO events: oni > 0.5
+oni[, enso.event := cut(ENSO, c(-Inf, -0.5, 0.5, Inf), c("negative", "neutral", "positive"))]
+
+oni[events, on = "time"] %>% 
+   .[complete.cases(.)]  %>%
+   {
+         chis <<- .[, broom::tidy(chisq.test(table(enso.event, event))), by = PC] 
+         .
+   }  %>% 
+   .[, .N, by = .(enso.event, event, PC)] %>% 
+   ggplot(aes(enso.event, event)) +
+   geom_raster(aes(fill= N)) +
+   geom_label(aes(label = N)) +
+   scale_y_discrete("PC event") + 
+   scale_x_discrete("ENSO event") +
+   facet_wrap(~PC)
+```
+
+```{r}
+knitr::kable(chis)
+```
+
+
+
+```{r}
+region <- expand.grid(lat = c(-65, -40),
+                      lev = c(100, 700))
+lats.eof <- c(-80, -30)
+i <- 1i
+qs.ceof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
+   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat)] %>%
+   .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
+     by = .(lat, time)] %>% 
+   .[, gh := R + I*i] %>% 
+   EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000, suffix = "cPC")
+```
+
+
+```{r}
+events <- cut(qs.ceof, 1)$left %>%
+   .[, gh := abs(gh)] %>% 
+   .[, gh.norm := (gh - mean(gh))/sd(gh), by = cPC] %>% 
+   .[, event := cut(gh.norm, c(-Inf, -0.5, 0.5, Inf), 
+                    c("negative", "neutral", "positive" ),
+                    ordered_result = TRUE)] %>%
+   .[, .(time, cPC, event)] 
+
+events.number <- events %>% 
+   .[, .N, by = .(month(time), event, cPC)] %>% 
+   tidyr::complete(month, cPC, event, fill = list(N = 0)) %>% 
+   setDT() %>% 
+   .[event != "neutral"] %>% 
+   .[as.numeric(cPC) %in% 1]
+```
+
+
+```{r number-of-events-c, fig.cap = "Number of positive and negative events (+- 0.5 sigma) for each PC and each month."}
+ggplot(events.number, aes(month, N)) +
+   # geom_area(aes(ymax = N, fill = event), 
+   #           position = "dodge", alpha = 0.5) +
+   geom_line(aes(color = event)) +
+   scale_color_brewer(palette = "Set1") +
+   scale_x_continuous("Month", 1:12, labels = month.abb) +
+   scale_y_continuous("# of events", limits = c(0, NA)) +
+   facet_wrap(~cPC, ncol = 1)
+```
+
+
+```{r}
+oni[events, on = "time"] %>% 
+   .[complete.cases(.)]  %>%
+   {
+         chis <<- .[, broom::tidy(chisq.test(table(enso.event, event))), by = cPC] 
+         .
+   }  %>% 
+   .[, .N, by = .(enso.event, event, cPC)] %>% 
+   ggplot(aes(enso.event, event)) +
+   geom_raster(aes(fill= N)) +
+   geom_label(aes(label = N)) +
+   scale_y_discrete("PC event") + 
+   scale_x_discrete("ENSO event") +
+   facet_wrap(~cPC)
+```
+
+```{r}
+knitr::kable(chis)
+```
+
+
+# Relación con QS3
+
+```{r calc-qs3eof}
+qs3 <- ncep.f(level = 200, lat = -65:-40) %>% 
+   .[, FitWave(gh, 3), by = .(time, lat)] %>% 
+   .[, .(amplitude = mean(amplitude),
+         phase = .SD[amplitude == max(amplitude)]$phase), 
+     by = .(time)]
+
+qs3 <- qs.eof$left %>% 
+   .[qs.eof$sdev[, .(PC, sd)], on = "PC"] %>% 
+   .[as.numeric(PC) %in% 1:4] %>% 
+   .[, gh := gh*sd] %>% 
+   # cut.eof(1:4) %>% 
+   dcast(time ~ PC, value.var = "gh") %>% 
+   .[qs3, on = "time"]
+
+compl <- ncep.f(level = 200, lat = -65:-40) %>% 
+   .[, fft2(gh, 3), by = .(time, lat)] %>% 
+   .[, .(R = mean(R), I = mean(I)), by = time]
+
+compl <- qs.eof$left %>% 
+   .[qs.eof$sdev[, .(PC, sd)], on = "PC"] %>% 
+   .[, gh := gh*sd] %>% 
+   .[as.numeric(PC) %in% 1:4] %>% 
+   dcast(time ~ PC, value.var = "gh") %>% 
+   .[compl, on = "time"]
+```
+
+
+```{r pc12-ampl, fig.cap = "Relationship between wave 3 amplitude and the first 2 principal components."}
+qs3[, .(time, PC1, PC2, amplitude)] %>% 
+   melt(id.vars = c("time", "amplitude"), variable.name = "PC") %>% 
+   ggplot(aes(amplitude, value)) +
+   geom_point(size = 0.5, alpha = 0.5) +
+   geom_smooth() + 
+   scale_color_brewer(palette = "Set1") +
+   scale_x_continuous("Wave 3 amplitude") + 
+   scale_y_continuous("PC Value") +
+   facet_wrap(~PC, ncol = 1)
+```
+
+::: notes
+
+La relación entre los PCs y la amplitud no es evidente así por separado. 
+
+:::
+
+```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours represent a smooth surface from data points b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude; line is a loess smooth."}
+quantiles <- c(.05, 0.25, 0.5, 0.75, 0.95)
+b <- quantile(qs3$amplitude, quantiles)
+
+quantile_breaks <- function(probs = seq(0, 1, 0.25), ...) {
+   function(x) {
+      quantile(x, probs, ...)
+   }
+}
+
+model <- nls(amplitude ~ a0 + a*sqrt((PC1 - p1_0)^2 + (PC2 - p2_0)^2), 
+             data = qs3) 
+cm <- as.list(coef(model)) 
+
+p1 <- ggplot(qs3, aes(PC1, PC2)) +
+   geom_cross(size = 0.2) +
+   stat_rasa(aes(z = amplitude, color = ..level..),
+             fun = SmoothContour,
+             geom = "contour2", smooth = 0.07,
+             breaks = b) +
+   # geom_contour(data = grid, aes(z = amplitude, color = ..level..),
+   #              binwidth = 10) +
+   geom_point(aes(color = amplitude), size = 0.4) +
+   scale_color_viridis_c(breaks = b,
+                         limits = range(b),
+                         guide = guide_colorstrip_bottom(10, 
+                                                         inside = TRUE),
+                         oob = scales::squish) +
+   scale_x_continuous(expand = c(0, 0)) + 
+   scale_y_continuous(expand = c(0, 0)) +
+   # coord_cartesian(ylim = c(-2000, 2000),
+   # xlim = c(-2000, 2000)) +
+   coord_equal() +
+   labs(tag = "a")  
+
+p2 <- ggplot(qs3, aes(sqrt(PC1^2 + PC2^2), amplitude)) +
+   geom_point(alpha = 0.5, size = 0.5) +
+   # geom_abline() +
+   geom_smooth(method = "loess", formula = y ~ x,
+               color = "black", se = T) +
+   # geom_line(data = grid) +
+   scale_x_continuous(expression(sqrt(PC1^2 + PC2^2))) +
+   scale_y_continuous("Wave 3 amplitude") +
+   labs(tag = "b") 
+p1 + p2
+set_last_plot(p1 + p2)
+```
+
+::: notes
+
+La relación conjunta entre las variables sí es muy fuerte. Claramente la amplitud de la onda 3 está asociada a la magnitud del vector (PC1, PC2)
+
+:::
+
+```{r phase-PCs, fig.cap = "Phase of zonal wave 3 and value of PCs 1 to 2. The line is a loess smooth."}
+smoothcircular <- function(data, range = c(0, 360), span = 0.75, n = 50) {
+   data <- rbindlist(list(left = data,
+                          mid = data,
+                          right = data), 
+                     idcol = "side")
+   
+   setDT(data)
+   data[side == "right", x := x + diff(range)]
+   data[side == "left", x := x - diff(range)]
+   
+   x <- seq(min(range), max(range), length.out = n)
+   if (max(x) != max(range)) x[n+1] <- max(range)
+   
+   grid <- data.frame(x = x)
+   grid$y <- predict(loess(y ~ x, data = data, span = span), grid)
+   grid
+}
+
+qs3[, .(time, PC1, PC2, phase, A = Mag(PC2, PC1))] %>% 
+   melt(id.vars = c("time", "phase", "A"), variable.name = "PC") %>% 
+   ggplot(aes(phase*180/pi, value, color = PC)) +
+   geom_point(size = 0.5, alpha = 0.5) +
+   # geom_smooth(span = 0.15*3) +
+   stat_rasa(fun = smoothcircular, geom = "line", span = 0.15,
+             range = c(0, 360/3)) +
+   scale_color_brewer(palette = "Set1") +
+   scale_x_continuous("Phase", 
+                      breaks = seq(0, 360/3, by = 15),
+                      limits = c(0, 360/3), 
+                      expand = c(0, 0)) +
+   scale_y_continuous("PC Value") #+ coord_polar() #+  facet_wrap(~PC)
+```
+
+::: notes
+
+PC1 y PC2 también tienen información sobre la fase de la onda 3.
+
+:::
+
+
+```{r phase-angle, fig.cap = "Relationship between wave 3 phase and angle between PC2 and PC1. Points to the left of the left dotted line are duplicates from the right of the right dotted line. Dashed line is the x = y line and solid line is a linear fit based on the Theil-Sen estimator."}
+qs3 %>% copy() %>% 
+   .[, pc.angle := ConvertLongitude(atan2(PC2,
+                                          PC1)*180/pi)] %>% 
+   .[, phase := phase*180*3/pi] %>% 
+   rbind(.,., idcol = TRUE) %>%
+   .[.id == 1, pc.angle := pc.angle-360] %>%
+   .[pc.angle %between% c(-10, 360)] %>%
+   .[, dupl := .id == 2] %>% 
+   ggplot(aes(pc.angle, phase)) + 
+   geom_point(size = 0.4) +
+   geom_abline(linetype = 2) +
+   geom_smooth(method = "theilsen", color = "black") +
+   geom_vline(xintercept = c(0, 350), linetype = 3) +
+   scale_y_continuous("Phase x 3 (degrees)") +
+   scale_x_continuous(expression(tan^{-1}~(PC2/PC1))) +
+   coord_equal()
+```
+
+::: notes
+
+The first two principal modes are closely related to the zonal wave 3. In fact, it can be shown that they define a rotation of the complex plane defined by the real an imaginary part of the wave3 fourier transform. 
+
+
+:::
+```{r angle-table}
+a1 <- coef(lm(PC1 ~ R + I -1, data = compl))
+a2 <- coef(lm(PC2 ~ R + I -1, data = compl))
+
+a1 <- coef(lm(R ~ PC1 + PC2 -1, data = compl))
+a2 <- coef(lm(I ~ PC1 + PC2 -1, data = compl))
+
+angles <- as.data.table(rbind(a1, a2))
+angles[, PC := c("PC1", "PC2")]
+angles[, PC := c("R", "I")]
+setcolorder(angles, c(3, 1:2))
+
+knitr::kable(angles)
+```
+
+```{r vectors, fig.cap = "Angle between PC1 and PC2 and Real and Imaginary part of wave 3"}
+ggplot(angles, aes(PC1, PC2)) +
+   geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+                arrow = grid::arrow()) +
+   coord_equal() 
+```
+

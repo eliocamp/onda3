@@ -177,7 +177,7 @@ ncep.f <- memoise::memoise(function(lat = -90:40,
    n[, time := as.Date(time[1]), by = time]
    return(n)
 }, cache = memoise::cache_filesystem(".rcache"))
-ncep <- ncep.f(level = 200)
+ncep <- ncep.f()
 ```
 
 # "Tradicional" analysis.
@@ -254,6 +254,7 @@ Now this has some problems... yada yada yada, alternative analysis.
 
 # New seasons
 ```{r calc-qs.eof}
+ncep <- ncep.f(level = 200)
 region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
@@ -262,11 +263,12 @@ qs.eof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
    .[, gh := Detrend(gh, time),
      by = .(lon, lat)] %>%
-   EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000)
+   EOF(data = ., gh ~ lon + time |  lat, n = 1:10, B = 5000)
 
 qs.eof$right[PC == "PC1", gh := -gh]
 qs.eof$left[PC == "PC1", gh := -gh]
 ```
+
 
 
 ```{r eof4-ncep, fig.cap = "First 4 EOFs derived from the 200hPa detrended geopotential zonal anomaly field between 30°S and 80°S with zonal wave 1 filtered out. Erros bars represent the 95% cuantile range estimated via bootstrap."}
@@ -510,7 +512,7 @@ gh.regr <- gh.sem[eof.sem,
                   allow.cartesian = TRUE] %>% 
    .[, FitLm(gh, PC1, PC2, se = TRUE), 
      by = .(lon, lat, season)] %>% 
-   .[regressor != "mean"]
+   .[term != "(intercept)"]
 
 # remove(ncep)
 ```
@@ -530,7 +532,7 @@ ggplot(gh.regr, aes(lon, lat)) +
                         guide = guide_colorstrip_bottom()) +
    scale_s_map() +
    coord_quickmap() +
-   facet_grid(regressor ~ season)
+   facet_grid(term ~ season)
 ```
 
 ```{r read-psi}
@@ -563,7 +565,7 @@ stream.sem[eof.sem, on = c("season", "year")] %>%
    .[complete.cases(.)] %>% 
    .[, FitLm(psi.a, PC1, PC2),
      by = .(lon, lat, season)] %>% 
-   .[regressor != "mean"] -> psi.regr
+   .[term != "(intercept)"] -> psi.regr
 
 # Regresión de PCs estandarizados con anomalía mensual, agregados
 # trimestralmente (~3 datos por año por trimestre)
@@ -574,7 +576,7 @@ qs.eof$left %>% cut.eof(1:2) %>%
    .[!is.na(qs.sem(time)),
      FitLm(psi, PC1, PC2),
      by = .(lon, lat, season = qs.sem(time))] %>% 
-   .[regressor != "mean"] -> psi.regr.month
+   .[term != "(intercept)"] -> psi.regr.month
 
 psi.regr <- rbindlist(list(point = psi.regr,
                            full = psi.regr.month),
@@ -582,7 +584,7 @@ psi.regr <- rbindlist(list(point = psi.regr,
                       idcol = "method") %>%  
    .[, psi.z := estimate] %>% 
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), 
-     by = .(regressor, season, method)] 
+     by = .(term, season, method)] 
 ```
 
 
@@ -604,7 +606,7 @@ ggplot(psi.regr, aes(lon, lat)) +
    scale_s_map(ylim = c(-90, 40)) +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                         guide = guide_colorstrip_bottom()) +
-   facet_grid(regressor + method  ~ season) +
+   facet_grid(term + method  ~ season) +
    coord_quickmap(ylim = c(-90, 20))
 ```
 
@@ -612,9 +614,9 @@ ggplot(psi.regr, aes(lon, lat)) +
 ```{r psi.regr2, fig.cap = "Zonal anomaly of regression between PCs and Psi."}
 binwidth <- 0.0015
 psi.regr %>% 
-   .[, psi.z := Anomaly(estimate), by = .(lat, regressor, method, season)] %>% 
+   .[, psi.z := Anomaly(estimate), by = .(lat, term, method, season)] %>% 
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), 
-     by = .(regressor, season, method)] 
+     by = .(term, season, method)] 
 ggplot(psi.regr, aes(lon, lat)) +
    geom_contour_fill(aes(z = psi.z*10^-9),
                      breaks = AnchorBreaks(0, binwidth, 0),
@@ -629,7 +631,7 @@ ggplot(psi.regr, aes(lon, lat)) +
    scale_s_map(ylim = c(-90, 40)) +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                         guide = guide_colorstrip_bottom()) +
-   facet_grid(regressor + method  ~ season) +
+   facet_grid(term + method  ~ season) +
    coord_quickmap(ylim = c(-90, 20))
 ```
 
@@ -660,7 +662,7 @@ ice.eof_time <- ice[!is.na(qs.sem(time)),
                     EOF(concentration ~ x + y | time, n = 1:2)$right,
                     by = .(season = qs.sem(time))]
 
-setnames(ice.eof, "PC", "regressor")
+setnames(ice.eof, "PC", "term")
 
 remove(ice)
 ice.sem[, concentration.a := Detrend(concentration), 
@@ -672,7 +674,7 @@ ice.sem[eof.sem, on = c("season", "year")] %>%
    .[complete.cases(.)] %>% 
    .[, FitLm(concentration.a, PC1, PC2, se = TRUE),
      by = .(lon, lat, season)] %>% 
-   .[regressor != "mean"] -> ice.regr
+   .[term != "(intercept)"] -> ice.regr
 ```
 
 ```{r read-slp}
@@ -688,7 +690,7 @@ eof.sem %>%
    slp.sem[., on = c("season", "year")] %>% 
    .[complete.cases(.)] %>% 
    .[, FitLm(slp.a, PC1, PC2, se = TRUE), by = .(lon, lat, season)] %>% 
-   .[regressor != "mean"] -> slp.regr
+   .[term != "(intercept)"] -> slp.regr
 ```
 
 
@@ -706,7 +708,7 @@ ggplot(ice.regr[lat < -55], aes(lon, lat)) +
    scale_s_map(ylim = c(-90, -40)) +
    coord_polar() +
    # coord_quickmap(ylim = c(-90, -55)) +
-   facet_grid(regressor ~ season)
+   facet_grid(term ~ season)
 ```
 
 ```{r ice-eof, fig.cap = "First 2 EOFs of antarctic sea ice concentration for each season (shaded) and regression of standarized PC (of geopotential) with 200hPa geopotential height (contours)" }
@@ -732,7 +734,7 @@ ice.eof[lat < -55] %>%
                          guide = guide_colorstrip_bottom()) +
    scale_s_map(ylim = c(-90, -55)) +
    coord_polar() +
-   facet_grid(regressor~season)
+   facet_grid(term~season)
 ```
 
 ```{r ice-east-west, fig.cap = "Mean sea ice concentration at the east of 90°W vs. at the west."}
@@ -838,7 +840,7 @@ ice.drift.regr <- ice.drift.sem %>%
    .[N > 10] %>% 
    .[, FitLm(value/1000, PC1, PC2, se = TRUE), 
      by = .(x, y, season, variable)] %>% 
-   .[regressor != "mean"]
+   .[term != "(intercept)"]
 
 regr.v <- ice.drift.sem %>% 
    icemap[., on = c("x", "y")] %>% 
@@ -848,8 +850,8 @@ regr.v <- ice.drift.sem %>%
    .[N > 10] %>% 
    .[, FitLm(v/1000, PC1, PC2, se = TRUE), 
      by = .(x, y, season)] %>% 
-   .[regressor != "mean"] %>% 
-   .[, significant := prob.t(estimate, se, df)]
+   .[term != "(intercept)"] %>% 
+   .[, significant := prob.t(estimate, std.error, df)]
 ```
 
 ```{r circular_grid}
@@ -874,9 +876,9 @@ circular_grid <- function(r = rads, by = 45, n = 40,
 
 ```{r ice.drift-regr, fig.cap = "Regression of sea ice motion on each PC. The regression of the meridional component of sea icea motion is shown in color in areas ."}
 ice.drift.regr %>% 
-   # .[regressor == "PC1" & season == "MJJASON"] %>%
-   .[, significant := prob.t(estimate, se, df)] %>% 
-   dcast(x + y + season + regressor ~ variable, 
+   # .[term == "PC1" & season == "MJJASON"] %>%
+   .[, significant := prob.t(estimate, std.error, df)] %>% 
+   dcast(x + y + season + term ~ variable, 
          value.var = c("estimate", "significant")) %>% 
    icemap[., on = c("x", "y")] %>%
    .[complete.cases(.)] %>%
@@ -898,10 +900,8 @@ ice.drift.regr %>%
    coord_equal() +
    theme(panel.grid = element_blank(), axis.line = element_blank(),
          axis.text = element_blank()) +
-   facet_grid(regressor ~ season)
+   facet_grid(term ~ season)
 ```
-
-
 
 
 ```{r read-sst}
@@ -920,7 +920,7 @@ sst.sem[eof.sem, on = c("season", "year")] %>%
    .[complete.cases(.)] %>% 
    .[, FitLm(sst.a, PC1, PC2, se = TRUE),
      by = .(lon, lat, season)] %>% 
-   .[regressor != "mean"] -> sst.regr
+   .[term != "(intercept)"] -> sst.regr
 ```
 
 ```{r sst-regr, fig.cap = "Regression of standarized PC with SST."}
@@ -937,7 +937,7 @@ ggplot(sst.regr, aes(lon, lat)) +
                         breaks = AnchorBreaks(0, 0.5, 0)) +
    scale_s_map(ylim = c(-90, 30)) +
    coord_quickmap(ylim = c(-90, 30)) +
-   facet_grid(season ~ regressor)
+   facet_grid(season ~ term)
 ```
 
 
@@ -1039,7 +1039,6 @@ qs3[, .(time, PC1, PC2, amplitude)] %>%
 
 
 ```{r qs3-eof, fig.cap = "Relationship between 2 first EOFs and amplitude of wave 3. a) Monthly mean wave 3 amplitude as a function of PC1 and PC2; contours represent a smooth surface from data points b) Amplitude of monthly mean wave 3 amplitude as a function of PC1 and PC2 magnitude; line is a loess smooth."}
-
 quantiles <- c(.05, 0.25, 0.5, 0.75, 0.95)
 b <- quantile(qs3$amplitude, quantiles)
 
@@ -1124,7 +1123,7 @@ qs3[, .(time, PC1, PC2, phase, A = Mag(PC2, PC1))] %>%
 
 
 ```{r phase-angle, fig.cap = "Relationship between wave 3 phase and angle between PC2 and PC1. Points to the left of the left dotted line are duplicates from the right of the right dotted line. Dashed line is the x = y line and solid line is a linear fit based on the Theil-Sen estimator."}
-shift <- 45
+shift <- 0
 qs3 %>% copy() %>% 
    .[, pc.angle := ConvertLongitude(atan2(PC2-cm$p2_0,
                                           PC1-cm$p1_0)*180/pi) + shift] %>% 
