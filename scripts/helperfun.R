@@ -488,6 +488,10 @@ screeplot.eof <- function(eof, n = "all") {
       geom_point()
 }
 
+autoplot.eof <- function(eof, n = "all") {
+   screeplot(eof, n)
+}
+
 predict.eof <- function(eof, n = NULL) {
    ` %>% ` <- magrittr::`%>%`
    if (!inherits(eof, "eof")) {
@@ -499,7 +503,7 @@ predict.eof <- function(eof, n = NULL) {
    value.var <- attr(eof, "value.var")
    pc <- attr(eof, "suffix")
    
-   right.vars <- colnames(qs.eof$right)[seq_len(which(colnames(eof$right) == pc) - 1)]
+   right.vars <- colnames(eof$right)[!(colnames(eof$right) %in% c(pc, value.var))]
    right.formula <- as.formula(paste0(pc, " ~ ", paste0(right.vars, collapse = "+")))
    
    right <- eof$right %>% 
@@ -507,7 +511,7 @@ predict.eof <- function(eof, n = NULL) {
       .[, (value.var) := get(value.var)*sd] %>% 
       metR:::.tidy2matrix(right.formula, value.var)
    
-   left.vars <- colnames(qs.eof$left)[seq_len(which(colnames(eof$left) == pc) - 1)]
+   left.vars <- colnames(eof$left)[!(colnames(eof$left) %in% c(pc, value.var))]
    left.formula <- as.formula(paste0(pc, " ~ ", paste0(left.vars, collapse = "+")))
    left <- metR:::.tidy2matrix(eof$left, left.formula, value.var)
    
@@ -525,6 +529,14 @@ predict.eof <- function(eof, n = NULL) {
       r <- as.data.table(lapply(dt, rep, each = each))
    }
    r
+}
+
+labeller <- function(...) {
+   UseMethod("labeller")
+}
+
+labeller.default <- function(...) {
+   ggplot2::labeller(...)
 }
 
 labeller.eof <- function(eof, sep = " - ") {
@@ -919,3 +931,6 @@ ReIm <- function(complex) {
    list(R = Re(complex), I = Im(complex))
 }
 
+clusters <- function(data, k) {
+   kmeans(data, k)$cluster
+}

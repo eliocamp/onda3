@@ -363,7 +363,7 @@ ggplot(events.number, aes(month, N)) +
 oni[events, on = "time"] %>% 
    .[complete.cases(.)]  %>%
    {
-         chis <<- .[, broom::tidy(chisq.test(table(enso.event, event))), by = cPC] 
+         chisc <<- .[, broom::tidy(chisq.test(table(enso.event, event))), by = cPC] 
          .
    }  %>% 
    .[, .N, by = .(enso.event, event, cPC)] %>% 
@@ -376,7 +376,8 @@ oni[events, on = "time"] %>%
 ```
 
 ```{r}
-knitr::kable(chis)
+
+knitr::kable(chisc)
 ```
 
 

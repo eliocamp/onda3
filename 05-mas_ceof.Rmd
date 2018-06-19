@@ -1,0 +1,371 @@
+---
+title: "0r - Más CEOF"
+author: "Elio Campitelli"
+output: 
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 5
+        fig_width: 12
+        #reference_doc: ppttemplate2.pptx
+---
+
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE, cache.lazy = TRUE,
+                      warning = FALSE)
+
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(metR) 
+library(circular)
+library(hrbrthemes)
+library(extrafont)
+library(patchwork)
+library(officer)
+
+knit_error <-  knitr::knit_hooks$get("error")
+knitr::knit_hooks$set(error = function(x, options) {
+   notify("Error knitting!", time = 5)
+   knit_error(x, options)
+})
+
+
+source("scripts/helperfun.R")
+# Plot thingys
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+
+pres <- ReadNetCDF("DATA/srfp.mon.mean.nc")
+pres.mean <- pres[, .(pres = median(pres)), by = lat]
+pres.mean <- rbind(data.table(lat = 0.0, pres = Inf), 
+                   pres.mean, 
+                   data.table(lat = -90.0, pres = Inf))
+surface <- geom_polygon(data = pres.mean, aes(y = pres), fill = "white", 
+                        alpha = 1, color = "gray30", size = 0.5)
+pres <- pres[, .(pres = mean(pres)), by = .(lon, lat)]
+
+# From https://github.com/hrbrmstr/hrbrthemes/issues/18
+d <- read.csv(extrafont:::fonttable_file(), stringsAsFactors = FALSE)
+d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
+write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
+extrafont::loadfonts()
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
+
+update_geom_defaults("contour2", list(color = "black"))
+update_stat_defaults("contour2", aes(linetype = factor(-sign(..level..))))
+
+options(ggplot2.continuous.fill = "viridis", 
+        ggplot2.continuous.color = "viridis")
+
+coord_quickmap <- function(..., ylim = c(-90, -15)) {
+   ggplot2::coord_quickmap(ylim = ylim, ...) 
+} 
+
+geom_contour_ <- function(..., gap = 0, rotate = FALSE) {
+   if (gap != 0) {
+      list(geom_contour2(..., gap = gap),
+           geom_text_contour(..., rotate = rotate))
+   } else {
+      geom_contour2(...)
+   }
+}
+
+# For vertical cross-sections
+coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
+coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
+
+lev.breaks <- c(10, 30, 100, 200, 500, 1000)
+
+season <- function(...) {
+   metR::season(..., lang = "en")
+}
+
+
+## Options for generating ppt output
+ppt <- FALSE
+pptfile <- "04-ceof.pptx"
+ppttemplate <- "ppttemplate.pptx"
+# Initial ppt
+if (ppt == TRUE){
+   my_pres <- read_pptx(ppttemplate)
+   print(my_pres, pptfile)   
+}
+
+# Add a plot to ppt 
+knit_plot <- knitr::knit_hooks$get("plot")
+# 
+# knitr::knit_hooks$set(plot = function(x, options) {
+#    if (ppt == TRUE) {
+#       # print(options)
+#       if (inherits(last_plot(), "gg")) {
+#          read_pptx(pptfile)  %>%
+#             add_slide(layout = "figure", master = "Office Theme") %>%
+#             ph_with_gg(last_plot(), type = "pic") %>%
+#             ph_with_text(options$fig.cap, type = "body") %>%
+#             print(pptfile)
+#          set_last_plot(NULL)   # remove last_plot()
+#       } else {
+#          read_pptx(pptfile ) %>%
+#             add_slide(layout = "figure", master = "Office Theme") %>%
+#             rvg::ph_with_vg(code = eval(parse(text = options$code)), 
+#                             type = "pic") %>%
+#             ph_with_text(options$fig.cap, type = "body") %>% 
+#             print(pptfile)
+#       }
+#    }
+#    knit_plot(x, options)
+# })
+
+# Turn off cache for figures
+knitr::opts_hooks$set(fig.cap = function(options) {
+   if (ppt == TRUE) options$cache <- FALSE
+   options
+})
+
+```
+
+```{r read-ncep}
+ncep.f <- memoise::memoise(function(lat = -90:40, 
+                                    lon = 0:360,
+                                    time = lubridate::as_datetime(c("1979-12-01", "2015-12-01")),
+                                    level = 10:1000,
+                                    vars = "gh"){
+   subset <- list(lat = lat, lon = lon, level = level,
+                  time = time)
+   n <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+                   subset = subset) %>% 
+      setnames(., c("level"), c("lev"))
+   if ("u" %in% vars) {
+      n[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]] 
+   }
+   if ("v" %in% vars) {
+      n[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]]
+   }
+   n[, time := as.Date(time[1]), by = time]
+   return(n)
+}, cache = memoise::cache_filesystem(".rcache"))
+ncep <- ncep.f(level = 200)
+```
+
+# Usando Complex EOF.
+
+La idea de CEOF es capturar patrones propaganes mediante EOF. Se convierte una serie x en X + iH(x) donde H(x) es la transformada de Hilbert, esencialmente la serie original corrida en 90° en el espacio de Fourier.  
+
+El resultado es un EOF con valores complejos a partir del cual se puede calcular magnitud y fase. 
+
+```{r}
+region <- expand.grid(lat = c(-65, -40),
+                      lev = c(100, 700))
+lats.eof <- c(-80, -30)
+qs.ceof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
+   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat)] %>%
+   .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
+     by = .(lat, time)] %>% 
+   .[, gh := R + I*1i] %>% 
+   EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000, suffix = "cPC")
+```
+
+```{r}
+m <- with(qs.ceof$sdev, sd^2/r2)[1]
+g <- qs.ceof$sdev %>% 
+   ggplot(aes(as.numeric(cPC), r2)) +
+   # stat_subset(aes(label = round(r2, 2), subset = r2 > 0.1), geom = "text", 
+   #             color = "red") +
+   # geom_text(aes(label = round(r2, 2)), nudge_x = 0.4,
+   #           data = cut.eof(qs.ceof, 1:3)$sdev) +
+   geom_col(width = 0.15, fill = "gray40") +
+   geom_point(aes(y = cumsum(r2))) +
+   geom_line(aes(y = cumsum(r2))) +
+   geom_errorbar(aes(ymin = lower^2/m, ymax = upper^2/m),
+                 width = 0.3) +
+   scale_x_continuous("cPC", 
+                      breaks = 1:20, minor_breaks = NULL) +
+   scale_y_continuous("R2")
+```
+
+```{r spatial-eofs, fig.cap = "Real (shading) and imaginary (contours) parts of the first 6 CEOFs."}
+qs.ceof <- cut(qs.ceof, 1:6)
+
+binwidth <- 0.01
+ggplot(qs.ceof$right, aes(lon, lat)) +
+   geom_contour_fill(aes(z = Re(gh)), xwrap = c(0, 360),
+                     breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour3(aes(z = Im(gh)), xwrap = c(0, 360),
+                 breaks = AnchorBreaks(0, binwidth, 0)) +
+   map.SH +
+   geom_hline(yintercept = lats.eof, linetype = 2) +
+   scale_s_map() +
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), #) +
+                        guide = guide_colorstrip_bottom()) +
+   coord_quickmap(ylim = c(-90, -20)) +
+   facet_wrap(~cPC, ncol = 3, dir = "h", 
+              labeller = labeller(cPC = labeller.eof(qs.ceof)))
+```
+
+```{r refactor-eof}
+ceof <- copy(qs.ceof)
+ceof$right <- ceof$right[, c("R", "I") := ReIm(gh)] %>% 
+   melt(id.vars = c("lon", "lat", "cPC"), measure.vars = c("R", "I"), 
+        variable.name = "part", value.name = "gh") 
+   
+ceof$left <- ceof$left[, c("R", "I") := ReIm(gh)] %>% 
+   .[, I := I] %>% 
+   melt(id.vars = c("time", "cPC"), measure.vars = c("R", "I"), 
+        variable.name = "part", value.name = "gh") 
+```
+
+
+```{r fourier-eof, fig.cap = "Fourier decomposition by latitude of each cEOF."}
+ceof$right %>% 
+   .[part == "R"] %>% 
+   .[, FitWave(gh, 2:5), by = .(lat, cPC)]  %>%
+   ggplot(aes(amplitude, lat)) +
+   geom_path(aes(color = paste0("QS", k))) +
+   scale_y_latitude(ticks = 15) +
+   scale_x_continuous() +
+   scale_color_brewer(palette = "Set1") +
+   coord_fixed(1/900) +
+   facet_wrap(~cPC, labeller = labeller(cPC = labeller(qs.ceof, "\n")))
+```
+
+
+```{r PC1-PC2-trim, fig.cap = "Monthly mean values for each PC. Colors and shapes divide months into 5 'seasons'."}
+meaneof <- cut(ceof, 1)$left %>% 
+   .[, .(gh = mean(gh)), by = .(part, month(time))] %>% 
+   dcast(month ~ part, value.var = "gh") 
+meaneof %>% 
+   ggplot(aes(R, I)) +
+   xlab("cPC1_r") + ylab("cPC1_i") +
+   geom_cross(color = "gray50") +
+   # geom_path() +
+   ggforce::geom_link2(aes(color = factor(kmeans(data.frame(R, I), 4)$cluster),
+                           group = 1),
+                       alpha = 0.5) +
+   geom_point(aes(color = factor(kmeans(data.frame(R, I), 4)$cluster), 
+                  shape = factor(kmeans(data.frame(R, I), 4)$cluster)),
+              size = 3)+
+   ggrepel::geom_text_repel(aes(label = month.abb[month])) +
+   scale_color_brewer(palette = "Set1", na.translate = F) +
+   ggthemes::scale_shape_circlefill() +
+   guides(color = "none", shape = "none") 
+``` 
+
+
+```{r cluster-sd, fig.cap = "Hierarchical clustering of the months of the year according to the standard deviation of each PC scaled by it's variance."}
+setorder(meaneof, month)
+meaneof[, -1] %>% 
+   dist() %>% 
+   hclust() %>% 
+   plot(labels = month.abb, hang = -1) 
+```
+
+
+```{r calc-events}
+events <- cut(ceof, 1)$left %>%
+   .[, gh.norm := (gh - mean(gh))/sd(gh), by = .(part)] %>% 
+   .[, event := cut(gh.norm, c(-Inf, -0.5, 0.5, Inf), ordered_result = TRUE, 
+                    c("negative", "neutral", "positive" ))] %>% 
+   # .[, event := factor(event, ordered = TRUE,
+                       # levels = c("positive", "neutral", "negative"))] %>% 
+   # cut.eof(1:2) %>% 
+   .[, .(time, part, event)] 
+
+events.number <- events %>% 
+   .[, .N, by = .(month(time), event, part)] %>% 
+   tidyr::complete(month, part, event, fill = list(N = 0)) %>% 
+   setDT()
+# %>% 
+#    setDT() %>% 
+#    .[event != "neutral"]
+
+g <- events %>%
+   .[ncep, on = c("time"), allow.cartesian = TRUE] %>%
+   .[, .(gh = mean(gh)), by = .(lon, lat, month(time), event, part)] %>% 
+   dcast(lon + lat + month + part ~ event, value.var = "gh") %>% 
+   .[, `:=`(positive = positive - neutral, 
+            negative = negative - neutral,
+            neutral = NULL)]  %>% 
+   melt(id.vars = c("lon", "lat", "month", "part"), 
+        variable.name = "event") %>% 
+   .[events.number, on = c("month", "PC", "event")] %>% 
+   # .[PC == "PC1"] %>%
+   # .[month == 1] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = value), breaks = AnchorBreaks(0, 20, 0)) +
+   map.SH +
+   stat_subset(aes(subset = lon == 60 & lat == -20, 
+                   label = paste0("N = ", N)),
+               geom = "label", size = 2) +
+   scale_s_map() +
+   coord_quickmap() +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 20, 0),
+                        guide = guide_colorstrip_bottom())
+```
+
+```{r number-of-events, fig.cap = "Number of positive and negative events (+- 0.5 sigma) for each PC and each month."}
+ggplot(events.number, aes(month, N)) +
+   # geom_area(aes(ymax = N, fill = event), 
+   #           position = "dodge", alpha = 0.5) +
+   geom_col(aes(fill = event), position = "dodge") +
+   scale_fill_manual(values = c("#c6262e", "#7e8087", "#0d52bf")) +
+   scale_x_continuous("Month", 1:12, labels = month.abb) +
+   scale_y_continuous("# of events", limits = c(0, NA)) +
+   facet_wrap(~part, ncol = 1)
+```
+
+
+
+```{r}
+events %>% 
+   dcast(time ~ part, value.var = "event") %>%
+   .[, .N, by = .(month(time), R, I)] %>% 
+   {
+      chis <<- .[, broom::tidy(chisq.test(table(R, I))), by = month] 
+      .
+   } %>% 
+   # .[, interaction := interaction(R, I)] %>% 
+ggplot(aes(R, I)) +
+   geom_raster(aes(fill = N)) +
+   geom_text(aes(label = N), color = "white") +
+   facet_wrap(~month, labeller = labeller(month = month.abb))
+```
+
