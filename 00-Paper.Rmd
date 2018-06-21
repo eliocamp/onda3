@@ -253,6 +253,7 @@ ggplot(qs3[lat %between% cutlats, .(gh = mean(gh)), by = .(lon, lev, season)],
 Now this has some problems... yada yada yada, alternative analysis. 
 
 # New seasons
+
 ```{r calc-qs.eof}
 ncep <- ncep.f(level = 200)
 region <- expand.grid(lat = c(-65, -40),
@@ -713,8 +714,8 @@ ggplot(ice.regr[lat < -55], aes(lon, lat)) +
 
 ```{r ice-eof, fig.cap = "First 2 EOFs of antarctic sea ice concentration for each season (shaded) and regression of standarized PC (of geopotential) with 200hPa geopotential height (contours)" }
 ice.eof[, y1 := as.numeric(-y + max(y))]
-ice.eof[, x1 := - 3950*1000 + 2*3950*1000*x/316]
-ice.eof[, y1 := - 3950*1000 + (4350+3950)*1000*y/332]
+ice.eof[, x1 := - 3950*1000 + 25000*x]
+ice.eof[, y1 := - 3950*1000 + 25000*y]
 proj <- "+proj=stere +lat_0=-90 +lat_ts=-70 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs"
 ice.eof[, c("lon", "lat") := proj4::project(list(x1, y1), proj = proj, 
                                             inverse = TRUE)] -> ice.eof

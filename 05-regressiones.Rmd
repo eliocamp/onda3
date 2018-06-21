@@ -1,0 +1,350 @@
+---
+title: "05 - Regressiones"
+author: "Elio Campitelli"
+output: 
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 5
+        fig_width: 11
+        reference_doc: ppttemplate.pptx
+---
+
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE, cache.lazy = TRUE,
+                      warning = FALSE)
+
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(metR) 
+library(circular)
+library(hrbrthemes)
+library(extrafont)
+library(patchwork)
+library(officer)
+
+knit_error <-  knitr::knit_hooks$get("error")
+knitr::knit_hooks$set(error = function(x, options) {
+   notify("Error knitting!", time = 5)
+   knit_error(x, options)
+})
+
+
+source("scripts/helperfun.R")
+# Plot thingys
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+
+pres <- ReadNetCDF("DATA/srfp.mon.mean.nc")
+pres.mean <- pres[, .(pres = median(pres)), by = lat]
+pres.mean <- rbind(data.table(lat = 0.0, pres = Inf), 
+                   pres.mean, 
+                   data.table(lat = -90.0, pres = Inf))
+surface <- geom_polygon(data = pres.mean, aes(y = pres), fill = "white", 
+                        alpha = 1, color = "gray30", size = 0.5)
+pres <- pres[, .(pres = mean(pres)), by = .(lon, lat)]
+
+# From https://github.com/hrbrmstr/hrbrthemes/issues/18
+d <- read.csv(extrafont:::fonttable_file(), stringsAsFactors = FALSE)
+d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
+write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
+extrafont::loadfonts()
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
+
+update_geom_defaults("contour2", list(color = "black"))
+update_stat_defaults("contour2", aes(linetype = factor(-sign(..level..))))
+
+options(ggplot2.continuous.fill = "viridis", 
+        ggplot2.continuous.color = "viridis")
+
+coord_quickmap <- function(..., ylim = c(-90, -15)) {
+   ggplot2::coord_quickmap(ylim = ylim, ...) 
+} 
+
+geom_contour_ <- function(..., gap = 0, rotate = FALSE) {
+   if (gap != 0) {
+      list(geom_contour2(..., gap = gap),
+           geom_text_contour(..., rotate = rotate))
+   } else {
+      geom_contour2(...)
+   }
+}
+
+# For vertical cross-sections
+coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
+coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
+
+lev.breaks <- c(10, 30, 100, 200, 500, 1000)
+
+season <- function(...) {
+   metR::season(..., lang = "en")
+}
+
+
+## Options for generating ppt output
+ppt <- FALSE
+pptfile <- "04-ceof.pptx"
+ppttemplate <- "ppttemplate.pptx"
+# Initial ppt
+if (ppt == TRUE){
+   my_pres <- read_pptx(ppttemplate)
+   print(my_pres, pptfile)   
+}
+
+# Add a plot to ppt 
+knit_plot <- knitr::knit_hooks$get("plot")
+# 
+# knitr::knit_hooks$set(plot = function(x, options) {
+#    if (ppt == TRUE) {
+#       # print(options)
+#       if (inherits(last_plot(), "gg")) {
+#          read_pptx(pptfile)  %>%
+#             add_slide(layout = "figure", master = "Office Theme") %>%
+#             ph_with_gg(last_plot(), type = "pic") %>%
+#             ph_with_text(options$fig.cap, type = "body") %>%
+#             print(pptfile)
+#          set_last_plot(NULL)   # remove last_plot()
+#       } else {
+#          read_pptx(pptfile ) %>%
+#             add_slide(layout = "figure", master = "Office Theme") %>%
+#             rvg::ph_with_vg(code = eval(parse(text = options$code)), 
+#                             type = "pic") %>%
+#             ph_with_text(options$fig.cap, type = "body") %>% 
+#             print(pptfile)
+#       }
+#    }
+#    knit_plot(x, options)
+# })
+
+# Turn off cache for figures
+knitr::opts_hooks$set(fig.cap = function(options) {
+   if (ppt == TRUE) options$cache <- FALSE
+   options
+})
+
+```
+
+```{r read-ncep}
+ncep.f <- memoise::memoise(function(lat = -90:40, 
+                                    lon = 0:360,
+                                    time = lubridate::as_datetime(c("1979-12-01", "2015-12-01")),
+                                    level = 10:1000,
+                                    vars = "gh"){
+   subset <- list(lat = lat, lon = lon, level = level,
+                  time = time)
+   n <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+                   subset = subset) %>% 
+      setnames(., c("level"), c("lev"))
+   if ("u" %in% vars) {
+      n[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]] 
+   }
+   if ("v" %in% vars) {
+      n[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]]
+   }
+   n[, time := as.Date(time[1]), by = time]
+   return(n)
+}, cache = memoise::cache_filesystem(".rcache"))
+ncep <- ncep.f(level = 200)
+```
+
+
+```{r}
+region <- expand.grid(lat = c(-65, -40),
+                      lev = c(100, 700))
+lats.eof <- c(-80, -30)
+ceof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
+   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat)] %>%
+   .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
+     by = .(lat, time)] %>% 
+   .[, gh := R + I*1i] %>% 
+   EOF(data = ., gh ~ time | lon + lat, n = 1, suffix = "cPC")
+
+ceof$right[, c("R", "I") := ReIm(gh)] #%>% 
+# melt(id.vars = c("lon", "lat", "cPC"), measure.vars = c("R", "I"), 
+#      variable.name = "part", value.name = "gh") 
+
+ceof$left[, c("R", "I") := ReIm(gh)] #%>% 
+# melt(id.vars = c("time", "cPC"), measure.vars = c("R", "I"), 
+#      variable.name = "part", value.name = "gh") 
+
+
+```
+
+```{r}
+ceofdata <- ceof$left[, .(time, R, I)]
+make.regr <- function(data1, var, data2 = ceofdata, on = "time", coord = c("lon", "x")) {
+   coord <- coord[1]
+   if (missing(var)) stop("no var")
+   
+   if (coord == "x") {
+      coord <- c("x", "y")
+   } else {
+      coord <- c("lon", "lat")
+   }
+data <-  data1[data2, on = on] %>% 
+      .[complete.cases(.)] %>% 
+      .[, c("year") := .(year(time[1])), by = time]
+
+  rbindlist(list(
+   season = data %>% 
+      .[, season := season(time[1]), by = time] %>% 
+      .[, lapply(.SD, mean), by = c("year", "season", coord)] %>% 
+      .[, FitLm(get(var), R, I, se = TRUE), by = c("season", coord)],
+   trim = data %>% 
+      .[, season := qs.trim(time[1]), by = time] %>% 
+      .[, lapply(.SD, mean), by = c("year", "season", coord)] %>% 
+      .[, FitLm(get(var), R, I, se = TRUE), by = c("season", coord)]),
+   idcol = "type") %>% 
+   .[term != "(Intercept)"] %>% 
+   .[, p.val := pt(abs(estimate)/std.error, df, lower.tail = FALSE)]
+}
+```
+
+```{r}
+regr.gh <- make.regr(ncep, "gh")
+   # rbindlist(list(
+   # season = ncep[ceof$left[, .(time, R, I)], on = "time"] %>% 
+   #    .[, lapply(.SD, mean), by = .(year(time), lon, lat, season(time))] %>% 
+   #    .[, FitLm(gh, R, I, se = TRUE), by = .(lon, lat, season)],
+   # trim = ncep[ceof$left[, .(time, R, I)], on = "time"] %>% 
+   #    .[, lapply(.SD, mean), by = .(year(time), lon, lat, season = qs.trim(time))] %>% 
+   #    .[, FitLm(gh, R, I, se = TRUE), by = .(lon, lat, season)]),
+   # idcol = "type") %>% 
+   # .[term != "(Intercept)"] %>% 
+   # .[, p.val := pt(abs(estimate)/std.error, df, lower.tail = FALSE)]
+```
+
+```{r}
+splitg <- function(g, data) {
+   (g %+% data[type == "season"] +
+       guides(fill = "none",
+              color = "none")) +
+      (g %+% data[type == "trim"]) +
+      plot_layout(ncol = 1)
+}
+
+```
+
+```{r}
+g <- ggplot(mapping = aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, 500, 0)) +
+   # stat_subset(aes(subset = p.val < 0.05), geom = "point", size = 0.05, alpha = 0.5) +
+   map.SH +
+   scale_s_map() +
+   scale_fill_divergent(limits = pm(3800), 
+                        breaks = AnchorBreaks(0, 500, 0),
+                        guide = guide_colorstrip_bottom()) +
+   coord_quickmap() +
+   facet_grid(term ~ season)
+   
+splitg(g, regr.gh)
+```
+
+::: notes
+No hay *mucha* diferencia entre ambos agrupamientos. La mayor diferencia está en la respuesta tipo SAM que desaparece entre DJF y JFM y que awparece en JAS y no está en JJA. Esta respuesta yo ya sé que está sólo en Julio y Diciembre, por lo que cualquier cosa se puede aclarar en el texto. 
+:::
+
+
+```{r read-sst}
+sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")
+sst[, time := as.Date(time[1]), by = time]
+
+regr.sst <- make.regr(sst, "sst")
+```
+
+```{r}
+ggplot(mapping = aes(lon, lat)) +
+   geom_raster(aes(fill = estimate)) +
+   # stat_subset(aes(subset = p.val < 0.05), geom = "point", size = 0.01, alpha = 0.5) +
+   map.SH +
+   scale_s_map(ylim = c(-90, 40)) +
+   scale_fill_divergent(limits = pm(55), 
+                        breaks = AnchorBreaks(0, 20, 0),
+                        guide = guide_colorstrip_bottom()) +
+   coord_quickmap(ylim = c(-90, 40)) +
+   facet_grid(term ~ season) -> g
+
+splitg(g, regr.sst)
+```
+
+::: notes
+
+En la regresión con sst sí hay mucha diferencia. Especialmente en DFJ -> JFM. En el primerno la relación es muy pequeña e incluso estadísticamente no significativa. 
+
+:::
+
+```{r, cache = FALSE}
+ice <- readRDS("DATA/seaice.Rds")
+# ice.mask <- readRDS("DATA/landmask.Rds")
+# ice.mask <- setDT(tidyr::complete(ice.mask, x, y, 
+#                                   fill = list(concentration = 0)))
+setnames(ice, "date", "time")
+```
+
+```{r}
+regr.ice <- make.regr(ice, "concentration", coord = "x")
+
+# regr.ice[, c("lon", "lat") := xy2lonlat(x, y)]
+```
+
+
+```{r}
+binwidth <- 5
+
+g <- ggplot(mapping = aes(lon, lat)) +
+   geom_point(aes(color = estimate), size = 0.05) +
+   # geom_contour3(data = slp.regr, aes(z = estimate),
+                 # breaks = AnchorBreaks(0, 1, 0), xwrap = c(0, 360)) +
+   map.SH +
+   scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
+                         # limits = c(-25, 25),
+                         guide = guide_colorstrip_bottom()) +
+   scale_s_map(ylim = c(-90, -55)) +
+   coord_polar() +
+   # coord_quickmap(ylim = c(-90, -55)) +
+   facet_grid(term ~ season)
+
+splitg(g, regr.ice)
+```
+
+
+

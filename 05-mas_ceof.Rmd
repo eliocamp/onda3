@@ -1,12 +1,12 @@
 ---
-title: "0r - Más CEOF"
+title: "05 - Más CEOF"
 author: "Elio Campitelli"
 output: 
    powerpoint_presentation:
     # ioslides_presentation:
         fig_height: 5
-        fig_width: 12
-        #reference_doc: ppttemplate2.pptx
+        fig_width: 11
+        reference_doc: ppttemplate.pptx
 ---
 
 
@@ -183,11 +183,12 @@ ncep.f <- memoise::memoise(function(lat = -90:40,
 ncep <- ncep.f(level = 200)
 ```
 
-# Usando Complex EOF.
+### Usando Complex EOF.
 
 La idea de CEOF es capturar patrones propaganes mediante EOF. Se convierte una serie x en X + iH(x) donde H(x) es la transformada de Hilbert, esencialmente la serie original corrida en 90° en el espacio de Fourier.  
 
 El resultado es un EOF con valores complejos a partir del cual se puede calcular magnitud y fase. 
+
 
 ```{r}
 region <- expand.grid(lat = c(-65, -40),
@@ -303,13 +304,12 @@ meaneof[, -1] %>%
 events <- cut(ceof, 1)$left %>%
    .[, gh.norm := (gh - mean(gh))/sd(gh), by = .(part)] %>% 
    .[, event := cut(gh.norm, c(-Inf, -0.5, 0.5, Inf), ordered_result = TRUE, 
-                    c("negative", "neutral", "positive" ))] %>% 
-   # .[, event := factor(event, ordered = TRUE,
-                       # levels = c("positive", "neutral", "negative"))] %>% 
+                    c("negative", "neutral", "positive" ))] 
    # cut.eof(1:2) %>% 
-   .[, .(time, part, event)] 
+   # .[, .(time, part, event)] 
 
-events.number <- events %>% 
+
+events.number <- events[, .(time, part, event)] %>% 
    .[, .N, by = .(month(time), event, part)] %>% 
    tidyr::complete(month, part, event, fill = list(N = 0)) %>% 
    setDT()
@@ -326,7 +326,7 @@ g <- events %>%
             neutral = NULL)]  %>% 
    melt(id.vars = c("lon", "lat", "month", "part"), 
         variable.name = "event") %>% 
-   .[events.number, on = c("month", "PC", "event")] %>% 
+   .[events.number, on = c("month", "part", "event")] %>% 
    # .[PC == "PC1"] %>%
    # .[month == 1] %>%
    ggplot(aes(lon, lat)) +
@@ -352,20 +352,54 @@ ggplot(events.number, aes(month, N)) +
    facet_wrap(~part, ncol = 1)
 ```
 
+```{r}
+mean.event <- cut(ceof, 1)$left[events, on = c("part", "time")] %>% 
+   .[, .(gh = mean(gh)), by = .(part, event, month(time))] %>% 
+   dcast(month ~ event + part, value.var = "gh")
+
+cut(ceof, 1)$left %>% dcast(time ~ part, value.var = "gh")
+
+events %>% 
+    dcast(time ~ part, value.var = "event") %>% 
+   .[cut(ceof, 1)$left]
+```
 
 
 ```{r}
-events %>% 
-   dcast(time ~ part, value.var = "event") %>%
-   .[, .N, by = .(month(time), R, I)] %>% 
+gdata <- events %>% 
+   dcast(time ~ part, value.var = c("event", "gh")) %>%
+   .[, .(N = .N, gh_R = mean(gh_R), gh_I = mean(gh_I)), 
+         by = .(month(time), event_R, event_I)] %>% 
    {
-      chis <<- .[, broom::tidy(chisq.test(table(R, I))), by = month] 
+      chis <<- .[, broom::tidy(chisq.test(table(event_R, event_I))), 
+                 by = month] 
       .
-   } %>% 
-   # .[, interaction := interaction(R, I)] %>% 
-ggplot(aes(R, I)) +
+   } 
+
+ggplot(gdata, aes(event_R, event_I)) +
    geom_raster(aes(fill = N)) +
    geom_text(aes(label = N), color = "white") +
+   facet_wrap(~month, labeller = labeller(month = month.abb)) 
+```
+
+```{r}
+setorder(gdata, event_R, event_I)  %>% 
+   ggplot(aes(gh_R, gh_I)) +
+   # geom_point(aes(size = N)) +
+   geom_path(aes(group = event_I)) +
+   geom_path(aes(group = event_R)) +
+   geom_label(aes(label = N)) +
    facet_wrap(~month, labeller = labeller(month = month.abb))
 ```
+
+```{r}
+events %>% 
+   dcast(time ~ part, value.var = "event") %>% 
+   ggplot(aes(year(time), month(time))) +
+   geom_point(aes(color = R), position = position_nudge(y = 0.15)) +
+   geom_point(aes(color = I), position = position_nudge(y = -0.15)) +
+   scale_color_brewer(palette = "RdBu") +
+   scale_y_continuous(breaks = 1:12)
+```
+
 

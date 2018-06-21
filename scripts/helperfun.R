@@ -377,14 +377,14 @@ qs.trim <- function(month) {
    if (metR:::.is.somedate(month)) month <- lubridate::month(month)
    
    qs.seasons <- factor(c(rep("JFM", 3),
-                          rep(NA, 1),
-                          rep("MJJ", 3),
-                          rep("ASO", 3),
-                          rep("ND", 2)))
+                          rep("AMJ", 3),
+                          rep("JAS", 3),
+                          rep("OND", 3)))
    
-   return(factor(qs.seasons[month], levels = c("JFM", "MJJ",
-                                               "ASO", "ND")))
+   return(factor(qs.seasons[month], levels = c("JFM", "AMJ",
+                                               "JAS", "OND")))
 }
+
 qs.sem <- qs.trim
 
 
@@ -856,3 +856,22 @@ ReIm <- function(complex) {
 clusters <- function(data, k) {
    kmeans(data, k)$cluster
 }
+
+
+xy2lonlat <- function(x, y) {
+   data <- data.table(x, y)
+   
+   data[, y1 := as.numeric(-y + max(y))]
+   data[, y1 := - 3950*1000 + 25000*y]
+   data[, x1 := - 3950*1000 + 25000*x]
+   
+   datau <- unique(data)
+   
+   proj <- "+proj=stere +lat_0=-90 +lat_ts=-70 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs"
+   datau[, c("lon", "lat") := proj4::project(list(x1, y1), proj = proj, 
+                                               inverse = TRUE)]
+   datau[, lon := ConvertLongitude(lon, from = 180)]
+   
+   as.list(datau[data, on = c("x", "y")][, .(lon, lat)])
+}
+
