@@ -194,11 +194,13 @@ El resultado es un EOF con valores complejos a partir del cual se puede calcular
 region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
-qs.ceof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+qs.ceof <-  copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
    .[, gh := Detrend(gh, time),
-     by = .(lon, lat)] %>%
+     by = .(lon, lat, month(time))] %>%
+   .[, gh := Anomaly(gh), 
+     by = .(lon, lat, month(time))] %>% 
    .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
      by = .(lat, time)] %>% 
    .[, gh := R + I*1i] %>% 

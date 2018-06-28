@@ -42,8 +42,8 @@ ReadSeaIceBIN <- function(file, out = c("data", "land")) {
 xy2lonlat <- function(x, y) {
    data <- data.table(x, y)
    
-   # data[, y1 := as.numeric(-y + max(y))]
-   data[, y1 := - 3950*1000 + 25000*y]
+   data[, y1 := as.numeric(-y + max(y))]
+   data[, y1 := - 3950*1000 + 25000*y1]
    data[, x1 := - 3950*1000 + 25000*x]
    
    datau <- unique(data)

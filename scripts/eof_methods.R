@@ -53,6 +53,34 @@ predict.eof <- function(eof, n = NULL) {
    return(dt)
 }
 
+
+as.data.table.eof <- function(x, keep.rownames = FALSE, n = NULL, ...) {
+   ` %>% ` <- magrittr::`%>%`
+   if (!inherits(x, "eof")) {
+      stop("eof must be an EOF object")
+   }
+   
+   if(!is.null(n)) x <- cut(x, n)
+   
+   value.var <- attr(x, "value.var")
+   pc <- attr(x, "suffix")
+   
+   right.vars <- colnames(x$right)[!(colnames(x$right) %in% c(pc, value.var))]
+   left.vars <- colnames(x$left)[!(colnames(x$left) %in% c(pc, value.var))]
+   
+   setnames(x$right, value.var, "right")
+   setnames(x$left, value.var, "left")
+   
+   eof <- x$right %>% 
+      .[x$sdev, on = pc] %>% 
+      .[x$left, on = pc, allow.cartesian = TRUE] 
+   
+   setcolorder(eof, c(right.vars, left.vars, pc, "left", "sd", "r2", "right"))
+   attr(eof, value.var) <- value.var
+   
+   return(eof)
+}
+
 .extend.dt <- function(dt, n = NULL, each = NULL) {
    if (!is.null(n)) {
       r <- as.data.table(lapply(dt, rep, n = n))
@@ -85,19 +113,19 @@ print.eof <- function(eof) {
    print(eof$sdev)
 }
 
-`[.eof` <- function(x, left, right, PC) {
-   if (!missing(PC)) {
-      x <- cut(x, PC)
-   }
-   if (!missing(left)) {
-      left <- substitute(left)   
-      x$left <- x$left[eval(left), ]
-   }
-   if (!missing(right)) {
-      right <- substitute(right)   
-      x$right <- x$right[eval(right), ]
-   }
-   
-   x
-}
+# `[.eof` <- function(x, left, right, PC) {
+#    if (!missing(PC)) {
+#       x <- cut(x, PC)
+#    }
+#    if (!missing(left)) {
+#       left <- substitute(left)   
+#       x$left <- x$left[eval(left), ]
+#    }
+#    if (!missing(right)) {
+#       right <- substitute(right)   
+#       x$right <- x$right[eval(right), ]
+#    }
+#    
+#    x
+# }
 

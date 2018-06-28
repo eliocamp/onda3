@@ -184,7 +184,7 @@ ncep <- ncep.f(level = 200)
 ```
 
 
-```{r}
+```{r calc-ceof}
 region <- expand.grid(lat = c(-65, -40),
                       lev = c(100, 700))
 lats.eof <- c(-80, -30)
@@ -192,25 +192,22 @@ ceof <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
    .[, gh := Detrend(gh, time),
-     by = .(lon, lat)] %>%
+     by = .(lon, lat, month(time))] %>%
+   .[, gh := Anomaly(gh), 
+     by = .(lon, lat, month(time))] %>% 
+   .[, gh := gh/sd(gh), by = .(lon, lat, month(time))] %>% 
    .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
      by = .(lat, time)] %>% 
    .[, gh := R + I*1i] %>% 
-   EOF(data = ., gh ~ time | lon + lat, n = 1, suffix = "cPC")
+   EOF(data = ., gh ~ time | lon + lat, n = 1:6, suffix = "cPC")
 
-ceof$right[, c("R", "I") := ReIm(gh)] #%>% 
-# melt(id.vars = c("lon", "lat", "cPC"), measure.vars = c("R", "I"), 
-#      variable.name = "part", value.name = "gh") 
-
-ceof$left[, c("R", "I") := ReIm(gh)] #%>% 
-# melt(id.vars = c("time", "cPC"), measure.vars = c("R", "I"), 
-#      variable.name = "part", value.name = "gh") 
-
-
+ceof$right[, c("R", "I") := ReIm(gh)] 
+ceof$left[, c("R", "I") := ReIm(gh)] 
 ```
 
-```{r}
-ceofdata <- ceof$left[, .(time, R, I)]
+```{r define-make.regr}
+ceofdata <- ceof$left[, .(time, R, I)] %>% 
+   .[, c("R", "I") := .((R - mean(R))/sd(R), (I - mean(I))/sd(I))]
 make.regr <- function(data1, var, data2 = ceofdata, on = "time", coord = c("lon", "x")) {
    coord <- coord[1]
    if (missing(var)) stop("no var")
@@ -220,40 +217,32 @@ make.regr <- function(data1, var, data2 = ceofdata, on = "time", coord = c("lon"
    } else {
       coord <- c("lon", "lat")
    }
-data <-  data1[data2, on = on] %>% 
+   
+   data <-  data1[data2, on = on] %>% 
       .[complete.cases(.)] %>% 
       .[, c("year") := .(year(time[1])), by = time]
-
-  rbindlist(list(
-   season = data %>% 
-      .[, season := season(time[1]), by = time] %>% 
-      .[, lapply(.SD, mean), by = c("year", "season", coord)] %>% 
-      .[, FitLm(get(var), R, I, se = TRUE), by = c("season", coord)],
-   trim = data %>% 
-      .[, season := qs.trim(time[1]), by = time] %>% 
-      .[, lapply(.SD, mean), by = c("year", "season", coord)] %>% 
-      .[, FitLm(get(var), R, I, se = TRUE), by = c("season", coord)]),
-   idcol = "type") %>% 
-   .[term != "(Intercept)"] %>% 
-   .[, p.val := pt(abs(estimate)/std.error, df, lower.tail = FALSE)]
+   
+   rbindlist(list(
+      season = data %>% 
+         .[, season := season(time[1]), by = time] %>% 
+         .[, lapply(.SD, mean), by = c("year", "season", coord)] %>% 
+         .[, FitLm(get(var), R, I, se = TRUE), by = c("season", coord)],
+      trim = data %>% 
+         .[, season := qs.trim(time[1]), by = time] %>% 
+         .[, lapply(.SD, mean), by = c("year", "season", coord)] %>% 
+         .[, FitLm(get(var), R, I, se = TRUE), by = c("season", coord)]),
+      idcol = "type") %>% 
+      .[term != "(Intercept)"] %>% 
+      .[, p.val := pt(abs(estimate)/std.error, df, lower.tail = FALSE)]
 }
+
 ```
 
-```{r}
+```{r calc-regr.gh}
 regr.gh <- make.regr(ncep, "gh")
-   # rbindlist(list(
-   # season = ncep[ceof$left[, .(time, R, I)], on = "time"] %>% 
-   #    .[, lapply(.SD, mean), by = .(year(time), lon, lat, season(time))] %>% 
-   #    .[, FitLm(gh, R, I, se = TRUE), by = .(lon, lat, season)],
-   # trim = ncep[ceof$left[, .(time, R, I)], on = "time"] %>% 
-   #    .[, lapply(.SD, mean), by = .(year(time), lon, lat, season = qs.trim(time))] %>% 
-   #    .[, FitLm(gh, R, I, se = TRUE), by = .(lon, lat, season)]),
-   # idcol = "type") %>% 
-   # .[term != "(Intercept)"] %>% 
-   # .[, p.val := pt(abs(estimate)/std.error, df, lower.tail = FALSE)]
 ```
 
-```{r}
+```{r define-splitg}
 splitg <- function(g, data) {
    (g %+% data[type == "season"] +
        guides(fill = "none",
@@ -261,26 +250,33 @@ splitg <- function(g, data) {
       (g %+% data[type == "trim"]) +
       plot_layout(ncol = 1)
 }
-
 ```
 
-```{r}
+
+###
+
+###
+
+
+```{r gh-regr}
 g <- ggplot(mapping = aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, 500, 0)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, 20, 0)) +
    # stat_subset(aes(subset = p.val < 0.05), geom = "point", size = 0.05, alpha = 0.5) +
    map.SH +
    scale_s_map() +
-   scale_fill_divergent(limits = pm(3800), 
-                        breaks = AnchorBreaks(0, 500, 0),
+   scale_fill_divergent(limits = pm(130), 
+                        breaks = AnchorBreaks(0, 20, 0),
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap() +
    facet_grid(term ~ season)
-   
+
 splitg(g, regr.gh)
 ```
 
 ::: notes
-No hay *mucha* diferencia entre ambos agrupamientos. La mayor diferencia está en la respuesta tipo SAM que desaparece entre DJF y JFM y que awparece en JAS y no está en JJA. Esta respuesta yo ya sé que está sólo en Julio y Diciembre, por lo que cualquier cosa se puede aclarar en el texto. 
+
+No hay mucha diferencia entre ambos agrupamientos. La mayor diferencia está en la respuesta tipo SAM que desaparece entre DJF y JFM y que awparece en JAS y no está en JJA. Esta respuesta yo ya sé que está sólo en Julio y Diciembre, por lo que cualquier cosa se puede aclarar en el texto. 
+
 :::
 
 
@@ -291,14 +287,14 @@ sst[, time := as.Date(time[1]), by = time]
 regr.sst <- make.regr(sst, "sst")
 ```
 
-```{r}
+```{r sst-regr, fig.cap = "Regresión con altura geopotencial"}
 ggplot(mapping = aes(lon, lat)) +
    geom_raster(aes(fill = estimate)) +
    # stat_subset(aes(subset = p.val < 0.05), geom = "point", size = 0.01, alpha = 0.5) +
    map.SH +
    scale_s_map(ylim = c(-90, 40)) +
-   scale_fill_divergent(limits = pm(55), 
-                        breaks = AnchorBreaks(0, 20, 0),
+   scale_fill_divergent(limits = pm(2), 
+                        breaks = AnchorBreaks(0, 0.25, 0),
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, 40)) +
    facet_grid(term ~ season) -> g
@@ -312,39 +308,101 @@ En la regresión con sst sí hay mucha diferencia. Especialmente en DFJ -> JFM. 
 
 :::
 
-```{r, cache = FALSE}
+
+```{r read-pp}
+pp <- ReadNetCDF("DATA/precip.mon.mean.nc")
+pp[, time := as.Date(time[1]), by = time]
+```
+
+```{r calc-regr.pp}
+lons <- ConvertLongitude(c(-90, -30))
+lats <- c(-60, 20)
+regr.pp <- make.regr(pp[lon %between% lons & lat %between% lats], "precip")
+```
+
+```{r pp-regr, fig.cap = "Regresión con precipitación"}
+ggplot(mapping = aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, 0.25, 0)) +
+   # stat_subset(aes(subset = p.val < 0.05), geom = "point", size = 0.01, alpha = 0.5) +
+   map.SH +
+   scale_fill_divergent(limits = pm(3), 
+                        low = "#8C510A", high = "#01665E",
+                        oob = scales::squish,
+                        breaks = AnchorBreaks(0, 0.25, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map(ylim = lats, xlim = lons) +
+   coord_quickmap(ylim = lats, xlim = lons) +
+   facet_grid(term ~ season) -> g
+
+splitg(g, regr.pp)
+```
+
+::: notes
+
+Hay algunas diferencias. La relación se da más en los meses cálidos y ahí JFM tiene una forma más consistente. Pero luego en MAM vs AMJ, MAM muestra un patrón más intenso. 
+
+:::
+
+```{r calc-regr.t2}
+t2 <- ReadNetCDF("DATA/air.2m.mon.mean.nc", vars = "air")
+t2[, time := as.Date(time[1]), by = time]
+regr.t2 <- make.regr(t2[lat %between% lats & lon %between% lons], "air")
+```
+
+```{r t2-regr, fig.cap = "Regresión con temperatura a 2m."}
+ggplot(mapping = aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, 0.25, 0)) +
+   # stat_subset(aes(subset = p.val < 0.05), geom = "point", size = 0.01, alpha = 0.5) +
+   map.SH +
+   scale_fill_divergent(limits = pm(3), 
+                        oob = scales::squish,
+                        breaks = AnchorBreaks(0, 0.25, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map(ylim = lats, xlim = lons) +
+   coord_quickmap(ylim = lats, xlim = lons) +
+   facet_grid(term ~ season) -> g
+
+splitg(g, regr.t2)
+```
+
+::: notes
+
+Las diferencias en el primer trimestre son bastante fuertes. En JFM aparecen intensas correlaciones negativas al noroeste del continente que no están en DJF. 
+
+:::
+
+```{r read-ice}
 ice <- readRDS("DATA/seaice.Rds")
-# ice.mask <- readRDS("DATA/landmask.Rds")
-# ice.mask <- setDT(tidyr::complete(ice.mask, x, y, 
-#                                   fill = list(concentration = 0)))
-setnames(ice, "date", "time")
+regr.ice <- make.regr(ice, "concentration", coord = "x") %>% 
+   .[!is.na(std.error)]
+remove(ice)
 ```
 
-```{r}
-regr.ice <- make.regr(ice, "concentration", coord = "x")
-
-# regr.ice[, c("lon", "lat") := xy2lonlat(x, y)]
-```
-
-
-```{r}
-binwidth <- 5
+```{r ice-regr, fig.cap = "Regresión con concentración de hielo marino."}
+binwidth <- 0.05
+regr.ice[, c("lon", "lat") := xy2lonlat(x, y)]
 
 g <- ggplot(mapping = aes(lon, lat)) +
    geom_point(aes(color = estimate), size = 0.05) +
    # geom_contour3(data = slp.regr, aes(z = estimate),
-                 # breaks = AnchorBreaks(0, 1, 0), xwrap = c(0, 360)) +
+   # breaks = AnchorBreaks(0, 1, 0), xwrap = c(0, 360)) +
    map.SH +
    scale_color_divergent(breaks = AnchorBreaks(0, binwidth, 0),
                          # limits = c(-25, 25),
                          guide = guide_colorstrip_bottom()) +
    scale_s_map(ylim = c(-90, -55)) +
-   coord_polar() +
+   # coord_polar() +
    # coord_quickmap(ylim = c(-90, -55)) +
    facet_grid(term ~ season)
 
 splitg(g, regr.ice)
 ```
+
+::: notes
+
+La relación en verano no es my importante. Hay poco hielo y hay más ruido que otra cosa, me parece. Acá lo más importante es invierno y primavera y ambos son parecidos, aunque con un poco más de intensidad en JJA vs JAS. 
+
+:::
 
 
 
