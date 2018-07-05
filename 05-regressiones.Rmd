@@ -51,7 +51,7 @@ source("scripts/helperfun.R")
 
 data.world <- BuildMap(res = 1, smooth = 1)
 map.world <- geom_map2(data.world)
-map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+map.SH <- geom_map2(data.world[lat %between% c(-90, 20)], color = "gray20")
 
 
 pres <- ReadNetCDF("DATA/srfp.mon.mean.nc")
@@ -243,12 +243,12 @@ regr.gh <- make.regr(ncep, "gh")
 ```
 
 ```{r define-splitg}
-splitg <- function(g, data) {
+splitg <- function(g, data, ncol = 1) {
    (g %+% data[type == "season"] +
        guides(fill = "none",
               color = "none")) +
       (g %+% data[type == "trim"]) +
-      plot_layout(ncol = 1)
+      plot_layout(ncol = ncol)
 }
 ```
 
@@ -334,7 +334,7 @@ ggplot(mapping = aes(lon, lat)) +
    coord_quickmap(ylim = lats, xlim = lons) +
    facet_grid(term ~ season) -> g
 
-splitg(g, regr.pp)
+splitg(g, regr.pp, ncol = 2)
 ```
 
 ::: notes
@@ -362,7 +362,7 @@ ggplot(mapping = aes(lon, lat)) +
    coord_quickmap(ylim = lats, xlim = lons) +
    facet_grid(term ~ season) -> g
 
-splitg(g, regr.t2)
+splitg(g, regr.t2, ncol = 2)
 ```
 
 ::: notes

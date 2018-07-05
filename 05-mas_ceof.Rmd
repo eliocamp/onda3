@@ -51,7 +51,7 @@ source("scripts/helperfun.R")
 
 data.world <- BuildMap(res = 1, smooth = 1)
 map.world <- geom_map2(data.world)
-map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+map.SH <- geom_map2(data.world[lat %between% c(-90, 20)], color = "gray20")
 
 
 pres <- ReadNetCDF("DATA/srfp.mon.mean.nc")
@@ -199,8 +199,8 @@ qs.ceof <-  copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
    .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
    .[, gh := Detrend(gh, time),
      by = .(lon, lat, month(time))] %>%
-   .[, gh := Anomaly(gh), 
-     by = .(lon, lat, month(time))] %>% 
+   # .[, gh := Anomaly(gh), 
+   #   by = .(lon, lat, month(time))] %>% 
    .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
      by = .(lat, time)] %>% 
    .[, gh := R + I*1i] %>% 
@@ -348,7 +348,7 @@ ggplot(events.number, aes(month, N)) +
    # geom_area(aes(ymax = N, fill = event), 
    #           position = "dodge", alpha = 0.5) +
    geom_col(aes(fill = event), position = "dodge") +
-   scale_fill_manual(values = c("#c6262e", "#7e8087", "#0d52bf")) +
+   scale_fill_manual(values = c("#0d52bf", "#7e8087", "#c6262e")) +
    scale_x_continuous("Month", 1:12, labels = month.abb) +
    scale_y_continuous("# of events", limits = c(0, NA)) +
    facet_wrap(~part, ncol = 1)
@@ -358,25 +358,20 @@ ggplot(events.number, aes(month, N)) +
 mean.event <- cut(ceof, 1)$left[events, on = c("part", "time")] %>% 
    .[, .(gh = mean(gh)), by = .(part, event, month(time))] %>% 
    dcast(month ~ event + part, value.var = "gh")
-
-cut(ceof, 1)$left %>% dcast(time ~ part, value.var = "gh")
-
-events %>% 
-    dcast(time ~ part, value.var = "event") %>% 
-   .[cut(ceof, 1)$left]
 ```
 
 
 ```{r}
 gdata <- events %>% 
    dcast(time ~ part, value.var = c("event", "gh")) %>%
+   { 
+       chis <<- .[, broom::tidy(chisq.test(table(event_R, event_I),
+                                           simulate.p.value = TRUE)), 
+                 by = month(time)] 
+       .
+   } %>% 
    .[, .(N = .N, gh_R = mean(gh_R), gh_I = mean(gh_I)), 
-         by = .(month(time), event_R, event_I)] %>% 
-   {
-      chis <<- .[, broom::tidy(chisq.test(table(event_R, event_I))), 
-                 by = month] 
-      .
-   } 
+         by = .(month(time), event_R, event_I)]
 
 ggplot(gdata, aes(event_R, event_I)) +
    geom_raster(aes(fill = N)) +
@@ -391,6 +386,8 @@ setorder(gdata, event_R, event_I)  %>%
    geom_path(aes(group = event_I)) +
    geom_path(aes(group = event_R)) +
    geom_label(aes(label = N)) +
+   scale_x_continuous("Parte Real") +
+   scale_y_continuous("Parte Imaginaria") +
    facet_wrap(~month, labeller = labeller(month = month.abb))
 ```
 
@@ -400,8 +397,9 @@ events %>%
    ggplot(aes(year(time), month(time))) +
    geom_point(aes(color = R), position = position_nudge(y = 0.15)) +
    geom_point(aes(color = I), position = position_nudge(y = -0.15)) +
-   scale_color_brewer(palette = "RdBu") +
-   scale_y_continuous(breaks = 1:12)
+   scale_color_brewer(palette = "RdBu", direction = -1) +
+   scale_y_continuous(breaks = 1:12) 
 ```
+
 
 

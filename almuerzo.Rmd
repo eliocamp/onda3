@@ -1,0 +1,320 @@
+---
+title: "EOF compleja"
+subtitle: "$\\mathbb{C}$ es mejor que  $\\mathbb{R}$"
+author: "Elio"
+date: ""
+classoption: "aspectratio=169"
+output: 
+   beamer_presentation:
+      theme: "metropolis"  
+      fig_height: 4.5
+      fig_caption: true
+---
+
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+# 160 × 90 mm
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE, cache.lazy = TRUE,
+                      warning = FALSE)
+
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(metR) 
+library(circular)
+library(hrbrthemes)
+library(extrafont)
+library(patchwork)
+library(officer)
+
+knit_error <-  knitr::knit_hooks$get("error")
+knitr::knit_hooks$set(error = function(x, options) {
+   notify("Error knitting!", time = 5)
+   knit_error(x, options)
+})
+
+source("scripts/helperfun.R")
+# Plot thingys
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %between% c(-90, 20)], color = "gray20")
+
+
+# From https://github.com/hrbrmstr/hrbrthemes/issues/18
+d <- read.csv(extrafont:::fonttable_file(), stringsAsFactors = FALSE)
+d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
+write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
+extrafont::loadfonts()
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
+
+update_geom_defaults("contour2", list(color = "black"))
+update_stat_defaults("contour2", aes(linetype = factor(-sign(..level..))))
+
+options(ggplot2.continuous.fill = "viridis", 
+        ggplot2.continuous.color = "viridis")
+
+coord_quickmap <- function(..., ylim = c(-90, -15)) {
+   ggplot2::coord_quickmap(ylim = ylim, ...) 
+} 
+
+geom_contour_ <- function(..., gap = 0, rotate = FALSE) {
+   if (gap != 0) {
+      list(geom_contour2(..., gap = gap),
+           geom_text_contour(..., rotate = rotate))
+   } else {
+      geom_contour2(...)
+   }
+}
+
+# For vertical cross-sections
+coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
+coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
+
+lev.breaks <- c(10, 30, 100, 200, 500, 1000)
+
+season <- function(...) {
+   metR::season(..., lang = "en")
+}
+
+```
+
+## Ejemplo
+
+```{r, echo = FALSE}
+prop <- as.data.table(expand.grid(x = seq(0, 360, length.out = 30), 
+                                  t = seq(1, 10, length.out = 30)))
+set.seed(42)
+prop[, wave := 10*(1 + sin(t/10*2*pi)^2)*cos(x*pi/180*3 - t/10*2*pi) + rnorm(.N)]
+```
+
+```{r, echo = FALSE, fig.cap = "Hovmoller de una onda propagante con amplitud modulada."}
+ggplot(prop, aes(x, t)) + 
+   geom_contour_fill(aes(z = wave)) +
+   scale_fill_divergent() +
+   scale_y_continuous("Tiempo") +
+   scale_x_longitude(name = "Longitud") 
+```
+
+## EOF de toda la vida
+
+```{r, echo = TRUE, fig.height=4, fig.cap = "Screeplot de Componentes Principales."}
+wave.eof <- EOF(wave ~ x | t, data = prop, n = 1:10)
+screeplot(wave.eof) 
+```
+
+## EOF de toda la vida
+
+```{r fig.cap = "Componete principal espacial."}
+wave.eof <- cut(wave.eof, 1:2)
+ggplot(wave.eof$left, aes(x, wave, color = PC)) +
+   geom_line() +
+   scale_y_continuous("Valor PC") +
+   scale_x_longitude(name = "Longitud") +
+   scale_color_brewer(palette = "Set1")
+```
+
+## EOF de toda la vida
+
+```{r, fig.cap = "Serie temporal de cada componente principal."}
+ggplot(wave.eof$right, aes(t, wave, color = PC)) +
+   geom_line() +
+   scale_y_continuous("Valor PC") +
+   scale_x_continuous("Tiempo") +
+   scale_color_brewer(palette = "Set1")
+```
+
+## Hilbert
+
+```{r}
+i <- 1i
+prop[, c("R", "I") := ReIm(spectral::analyticFunction(wave)), by = .(t)]
+prop <- prop[, H := R + I*i]
+```
+
+
+```{r, fig.height=4, fig.cap = "Parte real (sombreado) y parte imaginaria de la transformada de Hilbert."}
+ggplot(prop, aes(x, t)) +
+   geom_contour_fill(aes(z = R)) +
+   geom_contour2(aes(z = I)) +
+   scale_y_continuous("Tiempo") +
+   scale_x_longitude(name = "Longitud") +
+   scale_fill_divergent()
+```
+
+## EOF Complejo
+
+```{r, fig.cap = "Screeplot the Componentes Principales Complejas"}
+wave.ceof <- EOF(H ~ x | t, data = prop, n = 1:10, suffix = "cPC")
+screeplot(wave.ceof)
+```
+
+
+## EOF Complejo
+
+```{r, fig.width=14*0.48, out.width="0.48\\textwidth", fig.subcap = c("Parte rael e imaginaria de la Componente principal espacial", "Serie temporal de la parte real e imaginaria de la componente principal."), fig.show = "h"}
+wave.ceof <- cut(wave.ceof, 1)
+wave.ceof$left %>% 
+   .[, c(.(x = x, cPC = cPC), ReIm(H))] %>% 
+   melt(id.vars = c("x", "cPC"), value.name = "H", variable.name = "parte") %>% 
+   ggplot(aes(x, H, color = parte)) +
+   geom_line() +
+   scale_x_longitude(name = "Longitud") +
+   scale_y_continuous("Valor cPC") +
+   scale_color_brewer(palette = "Set1")
+
+wave.ceof$right %>% 
+   .[, c(.(t = t, cPC = cPC), ReIm(H))] %>% 
+   melt(id.vars = c("t", "cPC"), value.name = "H", variable.name = "parte") %>% 
+   ggplot(aes(t, H, color = parte)) +
+   geom_line() +
+   scale_x_continuous("Tiempo") +
+   scale_y_continuous("Valor cPC") +
+   scale_color_brewer(palette = "Set1")
+```
+
+
+## EOF Complejo
+
+```{r, fig.cap = "Serie temporal del módulo de la primera Componente Principal Compleja."}
+ggplot(wave.ceof$right, aes(t, Mod(H))) +
+   geom_line() +
+   scale_y_continuous("Módulo de H") +
+   scale_x_continuous("Tiempo")
+```
+
+
+## EOF Complejo
+
+```{r fig.cap = "Serie temporal del argumento de la primera componente principal compleja."}
+ggplot(wave.ceof$right, aes(t, Arg(H))) +
+   geom_line() +
+   scale_x_continuous("Tiempo") +
+   scale_y_continuous("Argumento de H")
+```
+
+## Para qué lo uso
+
+```{r read-ncep}
+ncep.f <- memoise::memoise(function(lat = -90:40, 
+                                    lon = 0:360,
+                                    time = lubridate::as_datetime(c("1979-12-01", "2015-12-01")),
+                                    level = 10:1000,
+                                    vars = "gh"){
+   subset <- list(lat = lat, lon = lon, level = level,
+                  time = time)
+   n <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+                   subset = subset) %>% 
+      setnames(., c("level"), c("lev"))
+   if ("u" %in% vars) {
+      n[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]] 
+   }
+   if ("v" %in% vars) {
+      n[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
+                          subset = subset)[[1]]]
+   }
+   n[, time := as.Date(time[1]), by = time]
+   return(n)
+}, cache = memoise::cache_filesystem(".rcache"))
+ncep <- ncep.f(level = 200)
+```
+
+```{r}
+lats.eof <- c(-80, -30)
+i <- 1i
+eof.data <- copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
+   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat)] %>%
+   .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
+     by = .(lat, time)] %>% 
+   .[, ghi := R + I*i]
+
+ncep.eof <- EOF(gh ~ time | lon + lat, data = eof.data, n = 1:6)
+ncep.ceof <- EOF(ghi ~ time | lon + lat, data = eof.data, n = 1:6, suffix = "cPC")
+```
+
+```{r, fig.cap = "Componentes principales de campo de geopotencial en 200hPa (filtrado)."}
+ggplot(ncep.eof$right, aes(lon, lat)) +
+   geom_contour_fill(aes(z = gh), breaks = AnchorBreaks(0, 0.01, 0)) +
+   map.SH +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 0.01, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map() +
+   coord_quickmap() +
+   facet_wrap(~ PC)
+```
+
+## Para qué lo uso
+
+```{r, fig.cap = '"Módulo" usando las primeras dos componentes princiales.'}
+cut(ncep.eof, 1:2)$right %>% 
+   dcast(lon + lat ~ PC, value.var = "gh") %>% 
+ggplot( aes(lon, lat)) +
+   geom_contour_fill(aes(z = sqrt(PC1^2 + PC2^2)), breaks = AnchorBreaks(0, 0.01, 0)) +
+   map.SH +
+   scale_fill_viridis_c(breaks = AnchorBreaks(0, 0.01, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map() +
+   coord_quickmap() 
+```
+
+## Para qué lo uso
+
+```{r, fig.cap = "Parte real (sombreado) e imaginaria (contornos) de las componentes principales complejas."}
+ggplot(ncep.ceof$right, aes(lon, lat)) +
+   geom_contour_fill(aes(z = Re(ghi)), breaks = AnchorBreaks(0, 0.01, 0)) +
+   geom_contour2(aes(z = Im(ghi)), breaks = AnchorBreaks(0, 0.01, 0)) +
+   map.SH +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 0.01, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map() +
+   coord_quickmap() +
+   facet_wrap(~ cPC)
+```
+
+## Para qué lo uso
+
+```{r, fig.cap = "Módulo de las componentes principales complejas."}
+ggplot(ncep.ceof$right, aes(lon, lat)) +
+   geom_contour_fill(aes(z = Mod(ghi)), breaks = AnchorBreaks(0, 0.01, 0)) +
+   map.SH +
+   scale_fill_viridis_c(breaks = AnchorBreaks(0, 0.01, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map() +
+   coord_quickmap() +
+   facet_wrap(~ cPC)
+```
+

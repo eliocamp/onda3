@@ -1,57 +1,57 @@
 ## Methos for EOF
+# 
+# cut.eof <- function(eof, n) {
+#    var <- attr(eof, "suffix")
+#    value.var <- attr(eof, "value.var")
+#    return(structure(lapply(as.list(eof), function(x) {
+#       x[as.numeric(get(var)) %in% n]
+#    }),
+#    class = c("eof", "list"),
+#    suffix = var,
+#    value.var = value.var))
+# }
 
-cut.eof <- function(eof, n) {
-   var <- attr(eof, "suffix")
-   value.var <- attr(eof, "value.var")
-   return(structure(lapply(as.list(eof), function(x) {
-      x[as.numeric(get(var)) %in% n]
-   }),
-   class = c("eof", "list"),
-   suffix = var,
-   value.var = value.var))
-}
-
-screeplot.eof <- function(eof, n = "all") {
-   var <- attr(eof, "suffix")
-   r2 <- "r2"
-   if (n[1] == "all") n <- as.numeric(unique(eof$sdev[[var]]))
-   ggplot(eof$sdev[as.numeric(get(var)) %in% seq_along(n)], aes_(as.name(var), as.name(r2))) +
-      geom_point()
-}
-
-autoplot.eof <- function(eof, n = "all") {
-   screeplot(eof, n)
-}
-
-predict.eof <- function(eof, n = NULL) {
-   ` %>% ` <- magrittr::`%>%`
-   if (!inherits(eof, "eof")) {
-      stop("eof must be an EOF object")
-   }
-   
-   if(!is.null(n)) eof <- cut(eof, n)
-   
-   value.var <- attr(eof, "value.var")
-   pc <- attr(eof, "suffix")
-   
-   right.vars <- colnames(eof$right)[!(colnames(eof$right) %in% c(pc, value.var))]
-   right.formula <- as.formula(paste0(pc, " ~ ", paste0(right.vars, collapse = "+")))
-   
-   right <- eof$right %>% 
-      .[eof$sdev, on = pc] %>% 
-      .[, (value.var) := get(value.var)*sd] %>% 
-      metR:::.tidy2matrix(right.formula, value.var)
-   
-   left.vars <- colnames(eof$left)[!(colnames(eof$left) %in% c(pc, value.var))]
-   left.formula <- as.formula(paste0(pc, " ~ ", paste0(left.vars, collapse = "+")))
-   left <- metR:::.tidy2matrix(eof$left, left.formula, value.var)
-   
-   dt <- cbind(.extend.dt(left$coldims, each = nrow(right$coldims)),
-               .extend.dt(right$coldims, n = nrow(left$coldims)),
-               c(t(right$matrix)%*%left$matrix))
-   colnames(dt)[length(colnames(dt))] <- value.var
-   return(dt)
-}
+# screeplot.eof <- function(eof, n = "all") {
+#    var <- attr(eof, "suffix")
+#    r2 <- "r2"
+#    if (n[1] == "all") n <- as.numeric(unique(eof$sdev[[var]]))
+#    ggplot(eof$sdev[as.numeric(get(var)) %in% seq_along(n)], aes_(as.name(var), as.name(r2))) +
+#       geom_point()
+# }
+# 
+# autoplot.eof <- function(eof, n = "all") {
+#    screeplot(eof, n)
+# }
+# 
+# predict.eof <- function(eof, n = NULL) {
+#    ` %>% ` <- magrittr::`%>%`
+#    if (!inherits(eof, "eof")) {
+#       stop("eof must be an EOF object")
+#    }
+#    
+#    if(!is.null(n)) eof <- cut(eof, n)
+#    
+#    value.var <- attr(eof, "value.var")
+#    pc <- attr(eof, "suffix")
+#    
+#    right.vars <- colnames(eof$right)[!(colnames(eof$right) %in% c(pc, value.var))]
+#    right.formula <- as.formula(paste0(pc, " ~ ", paste0(right.vars, collapse = "+")))
+#    
+#    right <- eof$right %>% 
+#       .[eof$sdev, on = pc] %>% 
+#       .[, (value.var) := get(value.var)*sd] %>% 
+#       metR:::.tidy2matrix(right.formula, value.var)
+#    
+#    left.vars <- colnames(eof$left)[!(colnames(eof$left) %in% c(pc, value.var))]
+#    left.formula <- as.formula(paste0(pc, " ~ ", paste0(left.vars, collapse = "+")))
+#    left <- metR:::.tidy2matrix(eof$left, left.formula, value.var)
+#    
+#    dt <- cbind(.extend.dt(left$coldims, each = nrow(right$coldims)),
+#                .extend.dt(right$coldims, n = nrow(left$coldims)),
+#                c(t(right$matrix)%*%left$matrix))
+#    colnames(dt)[length(colnames(dt))] <- value.var
+#    return(dt)
+# }
 
 
 as.data.table.eof <- function(x, keep.rownames = FALSE, n = NULL, ...) {
@@ -81,14 +81,14 @@ as.data.table.eof <- function(x, keep.rownames = FALSE, n = NULL, ...) {
    return(eof)
 }
 
-.extend.dt <- function(dt, n = NULL, each = NULL) {
-   if (!is.null(n)) {
-      r <- as.data.table(lapply(dt, rep, n = n))
-   } else {
-      r <- as.data.table(lapply(dt, rep, each = each))
-   }
-   r
-}
+# .extend.dt <- function(dt, n = NULL, each = NULL) {
+#    if (!is.null(n)) {
+#       r <- as.data.table(lapply(dt, rep, n = n))
+#    } else {
+#       r <- as.data.table(lapply(dt, rep, each = each))
+#    }
+#    r
+# }
 
 labeller <- function(...) {
    UseMethod("labeller")
@@ -104,14 +104,14 @@ labeller.eof <- function(eof, sep = " - ") {
                            get(var)))
 }
 
-print.eof <- function(eof) {
-   cat("right:\n")
-   print(eof$right)
-   cat("\nleft:\n")
-   print(eof$left)
-   cat("\nsdev:\n")
-   print(eof$sdev)
-}
+# print.eof <- function(eof) {
+#    cat("right:\n")
+#    print(eof$right)
+#    cat("\nleft:\n")
+#    print(eof$left)
+#    cat("\nsdev:\n")
+#    print(eof$sdev)
+# }
 
 # `[.eof` <- function(x, left, right, PC) {
 #    if (!missing(PC)) {
