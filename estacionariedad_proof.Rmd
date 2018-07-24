@@ -1,0 +1,134 @@
+---
+title: "estacionariedad"
+author: "Elio"
+date: "July 20, 2018"
+output: pdf_document
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      cache = TRUE,
+                      cache.path = "cache/estacionariedad_proof/",
+                      fig.path = "fig/estacionariedad_proof/")
+```
+
+# Demostración matemática de las propiedades de la estacionariedad
+
+La idea es tener un fundamento matemático robusto para la medida de estacionariedad que estoy usando. La medida es la razón entre el promedio de la amplitud de las ondas 3 mensuales (AM) y la amplitud de la onda 3 del promedio las ondas mensuales (MA). Es decir, si la amplitud de una onda $w_i$ es $A(w_i)$, se tiene que 
+
+$$
+\begin{aligned}
+\overline{A(w_i)} &= \frac{1}{N}\sum_{i=1}^{N}A(w_i) \\
+A(\overline{w_i}) &= A \left ( \frac{1}{N}\sum_{i=1}^{N}w_i\right) 
+\end{aligned}
+$$
+
+La primera expresión no tiene demasiada complicación, pero la segunda hay que desarrollarla. 
+
+Empecemos con el caso $N = 2$. Se tiene entonces que 
+
+$$
+w_1  = A_1\cos(k(\phi - \alpha_1)) \quad
+w_2 = A_2\cos(k(\phi - \alpha_2)) 
+$$
+
+La suma de las ondas será una tecer onda con igual período pero distinta amplitud y fase. [Se puede demostrar](http://scipp.ucsc.edu/~haber/ph5B/addsine.pdf) que la amplitud $A_3$ de dicha suma es 
+
+$$A(w_1 + w_2) = A_3 = \sqrt{A_1^2 + A_2^2 + 2A_1A_2\cos(\alpha_1 - \alpha_2)}$$
+
+En el caso de ondas perfectamente estacionarias se tiene que $\alpha_1 = \alpha_2 = \alpha_i = \alpha_0$ (o equivalentemente, $\alpha_i \ne \alpha_0 \rightarrow  A_i = 0$) de manera que $A_3 = A_1 + A_2$ y generalizando a la suma en $N$, se llega a que
+
+$$
+\begin{aligned}
+A \left ( \frac{1}{N}\sum_{i=1}^{N}w_i\right)  &=  \frac{1}{N}\sum_{i=1}^{N}A(w_i) \\
+A(\overline{w_i})& = \overline{A(w_i)} 
+\end{aligned}
+$$
+
+Es decir, para ondas perfectamente estacionarias, $AM/MA = 1$. 
+
+Para ondas con fase completamente aleatoria... ???
+
+ok, acá se me acaba la matemática pura y viene la parte empírica. Para distintos valores de $N$, calculo la amplitud de la suma de $N$ ondas con amplitud constante (2, en este caso) y fase aleatoria ($\alpha \sim U(-\pi, \pi)$). Repito eso 1000 veces y calculo el promedio. Esto me da una estimación de la esperanza matemática de $A(\overline{w_i})$ para distintos tamaños muestrales.
+
+```{r sim-fun, include=FALSE}
+sumwaves <- function(amplitudes, phases) {
+   amplitude_sum <- amplitudes[1]
+   phase_sum <- phases[1]
+   for (i in seq_along(amplitudes)[-1]) {
+      phase_dif <- phase_sum - phases[i]
+      amplitude_sum <- sqrt(amplitude_sum^2 + amplitudes[i]^2 + 
+                               2*amplitude_sum*amplitudes[i]*cos(phase_dif))
+      phase_sum <- suppressWarnings(asin(amplitudes[i]*sin(phase_dif)/amplitude_sum))
+      if (!is.finite(phase_sum)) phase_sum <- 0
+   }
+   amplitude_sum
+}
+
+amplsum <- function(N = 2, A = 2) {
+   amplitudes <- rep(A, N)
+   phases <-  runif(N, -pi, pi)
+   sumwaves(amplitudes, phases)
+}
+```
+
+
+```{r calc-sim, include=FALSE}
+library(data.table)
+library(ggplot2)
+
+B <- 1000
+trials <- data.table(t = seq(2, 1000, by = 10))
+set.seed(42)
+trials[, ampl := mean(sapply(1:B, function(x) amplsum(t))), by = t]
+               
+trials[, mean := ampl/t] 
+trials[, mean(mean*sqrt(t), na.rm = TRUE)] -> k
+```
+
+```{r sim, echo=FALSE, fig.cap="Amplitud del promedio de N ondas con amplitud = 2. La línea roja es la línea $y = \\sqrt{\\frac{\\pi}{x}}$.", out.extra = "", fig.height=3}
+ggplot(trials, aes(t, mean)) +
+   geom_line(size = 1.3) +
+   stat_function(fun = function(x) 1/2*2*sqrt(pi/x), color = "red") +
+   scale_y_continuous("Amplitud") +
+   scale_x_continuous("N") 
+```
+
+Se puede ver en la Figura \ref{fig:sim} que $\lim_{N\rightarrow \infty} A(\overline{w_i})= 0$ y que va como $\sim N^{-1/2}$ aunque con una constante multiplicativa que en este caso es $k = `r round(k, 3)`$. La parte más empírica viene ahora, porque *jugando* con este y otros casos, se puede ver que esa contante es $k = \frac{\overline{A}}{2}\sqrt{\frac{\pi}{N}}$. De manera que, *empíricamente* se puede ver que en el caso de ondas con fase totalmente aleatorias 
+
+
+$$
+A(\overline{w_i}) = \overline{A(w_i)} \frac{1}{2}\sqrt{\frac{\pi}{N}}
+$$
+
+Poniendo todo en limpio, se demostró (con una mezcla de teoría y práctica), que si se define $S = \frac{A(\overline{w_i})}{\overline{A(w_i)}}$ como medida de estacionariedad, se tiene que 
+
+$$
+\frac{1}{2}\sqrt{\frac{\pi}{N}} \le S \le 1
+$$
+
+y que las igualdades izquierda y derecha valen para el caso de pura inestacionariedad y pura estacionariedad respectivamente. 
+
+
+
+# Otras posibles medidas de estacionariedad 
+
+# Desvió estándar de la amplitud
+
+Una forma intuitiva de media la estacionariedad es simplemente ver la variabilidad en la fase. Una onda perfectamente estacionaria debería tener nula variabilidad en la fase mientras que una onda totalmente "antiestacionaria" tendría variabilidad ¿infinita?
+
+El problema de esta medida es que no tiene en cuenta lo que sucede con la fase. Puede darse el caso de fase con variabilidad infinita pero donde la amplitud es función de la fase. Es decir, que la onda tenga amplitud máxima para una fase determinada. En ese caso, es válido hablar de que la onda tiene un nivel de estacionariedad y se vería así en los promedios. 
+
+## Correlación entre fase y amplitud
+
+Siguiendo el razonamiento anterior, es posible pensar en utilizar la correlación entre la amplitud y la desviación absoluta entre la fase y la fase media. Una correlación negativa sería entonces indicio de estacionariedad ya que indicaría que si la onda está lejos de la fase media, la amplitud debería ser pequeña. 
+
+Es una medida que funciona relativamente bien (basado en probarlo en datos reales) pero es bastante más ruidosa. Además, al usar la correlación se elimina el efecto de la variabilidad en la fase; dos grupos de ondas pueden tener la misma correlación entre fase y amplitud pero si uno tiene mayor variabilidad en la fase, implicaría menor estacionariedad. 
+
+Por otro lado, es difícil interpretar correlaciones positivas. 
+
+## Covarianza entre fase y amplitud
+
+Una alternativa a la medida anterior. En principio tiene el mismo problema que la correlación, pero además se mezcla la magnitud de la variabildiad de la amplitud. Regiones con pequeña varianza en la amplitud de las ondas (como en los trópicos) van a tener valores pequeños de covarianza aún cuando las ondas sean perfectamente estacionarias. 
+
