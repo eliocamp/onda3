@@ -15,6 +15,8 @@ enableJIT(0)
 
 source("scripts/eof_methods.R")
 
+`%b%` <- function(x, y) data.table::`%between%`(x, y) 
+
 # Mapa
 BuildMap <- function(res = 1, smooth = 1, pm = 180,
                      countries = FALSE, ...) {
@@ -875,3 +877,22 @@ xy2lonlat <- function(x, y) {
    as.list(datau[data, on = c("x", "y")][, .(lon, lat)])
 }
 
+meanfun <- function(x, group, fun, ...) {
+   dt <- data.table(x, group)
+   dt[, group2 := seq_len(.N), by = group]
+   
+   mf <- dt[, .(f = fun(x, ...)), by = group][, .(mf = mean(f, na.rm = TRUE))]$mf
+   fm <- dt[, .(m = mean(x, na.rm = TRUE)), by = group2][, .(fm = fun(m, ...))]$fm
+   
+   return(list(mean.fun = mf, fun.mean = fm))
+}
+
+
+qs3.index <- function(gh, lat, lev, lats.index =  c(-65, -40), levs.index = c(100, 700)) {
+   dt <- data.table(gh, lat, lev)
+   dt[lat %between% lats.index & 
+      lev %between% levs.index][
+      , FitWave(gh, 3), by = .(lat, lev)][
+      , phase := circular(phase*3, modulo = "2pi")][
+      , .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
+}

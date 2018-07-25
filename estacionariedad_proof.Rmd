@@ -7,10 +7,39 @@ urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
+knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
+                      warning = FALSE,
                       cache.path = "cache/estacionariedad_proof/",
                       fig.path = "fig/estacionariedad_proof/")
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(metR)
+library(magrittr)
+library(circular)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
 ```
 
 # Demostración matemática de las propiedades de la estacionariedad
@@ -114,7 +143,7 @@ y que las igualdades izquierda y derecha valen para el caso de pura inestacionar
 
 # Otras posibles medidas de estacionariedad 
 
-# Desvió estándar de la amplitud
+## Desvió estándar de la fase
 
 Una forma intuitiva de media la estacionariedad es simplemente ver la variabilidad en la fase. Una onda perfectamente estacionaria debería tener nula variabilidad en la fase mientras que una onda totalmente "antiestacionaria" tendría variabilidad ¿infinita?
 
@@ -132,3 +161,68 @@ Por otro lado, es difícil interpretar correlaciones positivas.
 
 Una alternativa a la medida anterior. En principio tiene el mismo problema que la correlación, pero además se mezcla la magnitud de la variabildiad de la amplitud. Regiones con pequeña varianza en la amplitud de las ondas (como en los trópicos) van a tener valores pequeños de covarianza aún cuando las ondas sean perfectamente estacionarias. 
 
+
+## Desvío estándar de la fase pesado por la amplitud
+
+La primer alternativa tiene el problema que no tiene en cuenta lo que sucede con la amplitud en relación a la fase. Una posible forma de corregirlo sería la de pesar la fase por la amplitud. De esta manera, una onda con fase muy distinta a la media pero con poca amplitud, contribuye poco a la variabilidad. 
+
+
+```{r read-data}
+meanfun <- function(x, group, fun, ...) {
+   dt <- data.table(x, group)
+   dt[, group2 := seq_len(.N), by = group]
+   
+   mf <- dt[, .(f = fun(x, ...)), by = group][, .(mf = mean(f, na.rm = TRUE))]$mf
+   fm <- dt[, .(m = mean(x, na.rm = TRUE)), by = group2][, .(fm = fun(m, ...))]$fm
+   
+   return(list(mean.fun = mf, fun.mean = fm))
+}
+
+
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
+                   subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01",
+                                                                           "2015-12-01"))))
+setnames(ncep, "level", "lev")
+
+ncep[, FitWave(gh, 3), by = .(lat, lev, time)] %>% 
+   .[, phase := circular(phase*3, modulo = "2pi")] %>% 
+   .[, amplitude := amplitude/sum(amplitude), by = .(lat, lev, season(time))] %>% 
+   .[, {
+          wm <- mean.circular(phase)
+          sqrt(sum(amplitude * (phase - wm)^2))
+   }  , by = .(lat, lev, season(time))] -> p
+
+ncep.qs <- ncep[ , meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
+                by = .(lat, lev, season(time))]
+remove(ncep)
+```
+
+
+
+```{r scatter, fig.cap = "Relación entre SD y AM/MA", fig.height=3}
+p[ncep.qs, on = c("lat", "lev", "season")] %>% 
+   ggplot(aes(fun.mean/mean.fun, V1)) +
+   geom_point(alpha = 0.4, size = 0.5) +
+   scale_x_continuous("AM/MA") +
+   scale_y_continuous("SD")  
+```
+
+```{r plots, fig.cap = "Desvío estándar pesado de la fase en color, amplitud de la media sobre media de la amplitud en contornos"}
+binwidth.stat <- 0.15
+binwidth.ampl <- 10
+ggplot(ncep.qs, aes(lat, lev)) +
+   geom_contour_fill(aes(z = V1), data = p[lat < 0], binwidth = 0.4) + 
+   geom_contour_tanaka(aes(z =fun.mean/mean.fun), breaks = MakeBreaks(binwidth.stat),
+                       na.rm = TRUE) +
+   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
+                        option = "D",
+                        breaks = MakeBreaks(1)) +
+   scale_y_level() +
+   scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
+   # coord_latlev() +
+   facet_wrap( ~ season) 
+```
+
+Por lo que estuve viendo, esta métrica sirve bastante bien aunque tiene un problema en que no es una medida necesariamente lineal, como se muestra en la Figura 2. Además, si bien una onda perfectamente estacionaria tendría un sd nulo, una no estacionaria alcanzaría un máximo que no conozco. 
+
+Tendría que ver qué propiedades tiene. 

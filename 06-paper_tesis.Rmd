@@ -201,7 +201,10 @@ rect.annotation <- data.frame(latmin = -65, latmax = -40,
 gh.season <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(time))]  
 ncep.qs <- ncep[, meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
                 by = .(lat, lev, season(time))]
+
 ```
+
+
 
 ```{r ampl-ncep, fig.cap = "Stationarity of QS3 (shaded, defined in text) and fourier amplitude of geopotential height (contours)."}
 binwidth.ampl <- 10
@@ -234,9 +237,8 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
 ```{r calc-index}
 lats.index <- c(-65, -40)
 levs.index <- c(100, 700)
-index <- ncep[lat %b% lats.index & lev %b% levs.index,
-              qs3.index(gh, lat, lev), 
-              by = time]
+
+index <- ncep[, qs3.index(gh, lat, lev), by = time]
 ```
 
 
@@ -249,6 +251,41 @@ The amplitude of wave 3 can be computed via Fourier decomposition of the mean se
 The amplitude of QS3 achieves it's maximum at near 200hPa and 50°S in all seasons but with important changes in it's vertical extent. During austral winter and autum, wave 3 amplitude extends up to the higest model levels while it remains restricted to the stratosphere during spring and summer. In general, the high amplitudes are colocated with areas of high stationarity, although this metric is maximized at lower levels with the exception of spring. While the mean wave amplitude during this season is high (not shown), stationarity is low in the midlatitudes and specially in the high stratosphere. This is due primarily by the behaviour during november, when high phase variance means that wave 3 cannot be considered stationary. 
 
 :::
+
+```{r}
+binwidth.ampl <- 10
+binwidth.stat <- 0.1
+ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
+   geom_contour_fill(aes(z = fun.mean/mean.fun), breaks = MakeBreaks(binwidth.stat),
+                     na.rm = TRUE) + 
+   geom_contour2(aes(z = fun.mean/mean.fun), breaks = 0.5, linetype = 2) +
+   geom_contour2(aes(z = mean.fun), binwidth = binwidth.ampl) +
+   geom_text_contour(aes(z = mean.fun), color = "black", 
+                     binwidth = binwidth.ampl,
+                     stroke.color = "#2B828C", stroke = 0.15) +
+   surface +
+   geom_index.region(rect.annotation) +
+   # scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
+   #                      trans = "log2",
+   #                      breaks = breaks,
+   #                      labels = round(breaks, 1),
+   #                      guide = guide_colorstrip_bottom(),
+   #                      option = "D") +
+   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
+                        option = "D",
+                        breaks = MakeBreaks(binwidth.stat)) +
+   scale_y_level(breaks = lev.breaks) +
+   scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
+   coord_latlev() +
+   facet_wrap( ~ season) 
+```
+
+::: notes
+
+Esta figura es igual que la anterior pero en contornos pone la media de la amplitud en vez de la amplitud de la onda media. No sé cuál de las dos poner. 
+
+:::
+
 
 ```{r destructive}
 copy(index) %>% 
@@ -319,6 +356,7 @@ Taken together, this suggests a mix of baroclinic and barotropic processes relat
 
 
 ```{r boxplot-index, fig.cap = "Seasonal cicle of QS3 index."}
+set.seed(42)
 ggplot(index, aes(factor(month(time)), amplitude)) +
    # geom_violin() +
    geom_boxplot(outlier.alpha = 0, fill = "gray95") +
@@ -330,7 +368,9 @@ ggplot(index, aes(factor(month(time)), amplitude)) +
 
 ::: notes
 
-ZW3 activiy exhibits a clear anual cycle with higher amplitude during the austral winter months and lower amplitude during the summer months.
+ZW3 activiy exhibits a clear annual cycle with higher amplitude during the austral winter months and lower amplitude during the summer months. This annual cycle is consistent with previous work [@Loon1972; @Karoly1985; @Raphael2004]. 
+
+As suggested previously, the low amplitude of QS3 wave in spring is not due to a reduction in the amplitude of the planetary wave 3 but to its reduced stationarity. 
 
 :::
 
@@ -396,3 +436,14 @@ ggplot(gh.g, aes(lon, lat)) +
     theme(panel.spacing.y = unit(0, "lines"))
 ```
 
+::: notes
+
+All months show evidence of planetary wave 3 activity, but with considerable heterogeneity in its characteristics. In months, like January, September and December, zonal wave 3 is related to a wave train emanating from the tropical western Pacific and 
+
+
+
+En la \autoref{fig:regr-gh-ncep} se muestra la regresión del campo de Z en 300hPa con $A_3$ para los doce meses del año. Si bien todos presentan evidencias visibles de la actividad de la QS3, presentan también mucha heterogeneidad en las características observadas en los distintos meses. 
+
+En enero, se observa un patrón hemisférico de onda 3, con un centro anómalamente negativo importante en el Pacífico sudeste, embebido además en un tren de ondas extendido entre el este de Nueva Zelanda, y Sudamérica. En febrero, la estructura se mantiene similar, pero con menor evidencia de propagación meridional, y el centro anticiclónico en Sudamérica intensificado y un debilitamiento de aquel ubicado al sur del Índico. En marzo, la estructura de onda 3 exhibe mínima variación meridional y ocupa todo el círculo de latitud entre 60°S y 45°S. Abril es similar a marzo, pero sin centros ciclónicos significativos. En mayo, se distingue nuevamente un tren de ondas con propagación meridional, emanando desde Australia, pero con evidencias de reflexión en el Mar de Weddell. Junio, al igual que marzo, presenta una estructura de QS3 zonal, pero menos definida y, consistente con el corrimiento de la fase observado (\autoref{fase}), con los centros ciclónicos y anticiclónicos desplazados hacia el oeste.
+
+:::
