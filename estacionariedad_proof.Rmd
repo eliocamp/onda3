@@ -9,7 +9,7 @@ urlcolor: blue
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      warning = FALSE,
+                      warning = FALSE, message = FALSE,
                       cache.path = "cache/estacionariedad_proof/",
                       fig.path = "fig/estacionariedad_proof/")
 
@@ -19,6 +19,7 @@ library(ggplot2)
 library(metR)
 library(magrittr)
 library(circular)
+library(patchwork)
 
 theme_elio <- theme_minimal(base_size = 11) +
    theme(
@@ -179,6 +180,10 @@ meanfun <- function(x, group, fun, ...) {
 }
 
 
+r_z <- function(x, n = 108) {
+   tanh(mean(atanh(x)))
+}
+
 ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
                    subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01",
                                                                            "2015-12-01"))))
@@ -194,6 +199,24 @@ ncep[, FitWave(gh, 3), by = .(lat, lev, time)] %>%
 
 ncep.qs <- ncep[ , meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
                 by = .(lat, lev, season(time))]
+
+# cormap <- copy(ncep)[, qs3 := FilterWave(gh, 3), by = .(lat, lev, time)] %>% 
+#    .[, qs3.mean := mean(qs3), by = .(lon, lat, lev, season(time))] %>% 
+#    .[, .(cor = cor(qs3, qs3.mean)), by = .(lat, lev, season(time))]
+ncep[, qs3 := FilterWave(gh, 3), by = .(lat, lev, time)] %>%
+   .[, qs3.mean := mean(qs3), by = .(lon, lat, lev, season(time))]
+
+cors <- ncep[, .(cor = cor(qs3, qs3.mean), n = .N), by = .(lat, lev, time)]
+
+cormap <- cors[, 
+               .(r = mean(cor),
+                 r_z = r_z(cor, n)), 
+               by = .(lat, lev, season(time))] 
+
+copy(cors)[, mean.cor := RcppRoll::roll_mean(cor, 12, fill = NA), 
+           by = .(lat, lev)] %>% 
+   .[lat %between% c(-65, -40) & lev %between% c(100, 700), 
+     .(mean.cor = mean(cor)), by = .(time)] -> ts
 remove(ncep)
 ```
 
@@ -215,7 +238,7 @@ ggplot(ncep.qs, aes(lat, lev)) +
    geom_contour_tanaka(aes(z =fun.mean/mean.fun), breaks = MakeBreaks(binwidth.stat),
                        na.rm = TRUE) +
    scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
-                        option = "D",
+                        option = "D", direction = -1,
                         breaks = MakeBreaks(1)) +
    scale_y_level() +
    scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
@@ -226,3 +249,50 @@ ggplot(ncep.qs, aes(lat, lev)) +
 Por lo que estuve viendo, esta métrica sirve bastante bien aunque tiene un problema en que no es una medida necesariamente lineal, como se muestra en la Figura 2. Además, si bien una onda perfectamente estacionaria tendría un sd nulo, una no estacionaria alcanzaría un máximo que no conozco. 
 
 Tendría que ver qué propiedades tiene. 
+
+
+## Correlación media entre la onda 3 mensual y la onda 3 media
+
+Otra medida posible es la correlación media entre la onda 3 de cada mes y la onda 3 media. Un pequeño detalle es que algunos autores recomiendan primero transformar los valores usando la transformada de Fischer, promediar esos valores y luego hacer la transformación inversa.
+Para evaluar ambos, llamo $r$ a la correalción media y $r_z$ a la inversa de la correlación media transformada. 
+
+```{r cor-am, fig.cap = "Relación entre la correlación media sin transformar y las otras dos medidas", fig.height=4}
+ncep.qs[cormap, on = c("lat", "lev", "season")] %>% 
+   .[, am.ma := fun.mean/mean.fun] %>% 
+   .[, .(lat, lev, season, r, r_z, am.ma)] %>% 
+   melt(id.vars = c("lat", "lev", "season", "am.ma")) %>% 
+   ggplot(aes(am.ma, value, color = variable)) +
+   geom_smooth(size = 0.5) +
+   geom_point(alpha = 0.2, size = 0.1) +
+   # geom_hex(color = NA) +
+   stat_subset(aes(subset = value < 0), color = "black", size = 0.5) +
+   geom_abline(linetype = 3) +
+   scale_color_brewer(palette = "Set1") +
+   scale_y_continuous("Correlación") +
+   scale_x_continuous("AM/MA") +
+   coord_equal() 
+```
+
+Como se ve en la Figura 4, donde se muestran las dos medidas de correlación en función de AM/MA, $r$ tiene una relación más lineal con AM/MA y además es más similar (más cercana a la línea punteada) que $r_z$. En comparación a AM/MA, $r_z$ tiende a sobreestimar la estacionariedad mientras que $r$ tiende a subestimarla, aunque en menor medida. 
+
+En principio hablar de sub o sobreestimar no es del todo correcto, ya que, en principio, también podría decirse que tanto $r$ como AM/MA sobreestiman la estacionariedad en comparación a $r_z$. Sin emabrgo, en la literatura dice que $r$ tiende a subestimar la correlación poblacional mientras que $r_z$ tiende a sobreestimarla, algo que es consistente con lo que se observa en la Figura 4. Sin embargo, la literatura dice que el sesgo de $r_z$ es *menor* que el sesgo de $r$ y esto no se cumple en este caso *asumiento que AM/MA representa la correlación verdadera*.
+
+Un problema es que, a diferencia de AM/MA que es no negativa por construcción, tanto $r$ como $r_z$ puede tomar valores negativos (marcados con puntos negros en la Figura 4) que no son fáciles de interpretar. La interpretación más consistente, en mi opinión, es que se trata de correlaciones poblacionales nulas o muy pequeñas que son negativas por variabilidad en el sampleo. 
+
+Observando los campos (Figura 5), es notable que $r_z$ es más *ruidoso* que $r_z$, especialmente en reciones con baja estacionariedad. Supuestamente esto también está reflejado en la literatura, que dice que $r_z$ tiene mayor varianza. 
+
+```{r cormap, fig.cap = "$r$ en color, $r_z$ en contornos"}
+ggplot(cormap, aes(lat, lev)) +
+   geom_contour_fill(aes(z = r), breaks = MakeBreaks(binwidth.stat)) +
+   geom_contour_tanaka(aes(z = r_z), breaks = MakeBreaks(binwidth.stat), linetype = 1) +
+   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
+                        option = "D",
+                        breaks = MakeBreaks(binwidth.stat)) +
+   scale_y_level() +
+   scale_x_latitude(trans = "reverse") +
+   facet_wrap(~season)
+```
+
+
+
+

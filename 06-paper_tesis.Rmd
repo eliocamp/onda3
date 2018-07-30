@@ -438,7 +438,7 @@ ggplot(gh.g, aes(lon, lat)) +
 
 ::: notes
 
-All months show evidence of planetary wave 3 activity, but with considerable heterogeneity in its characteristics. In months, like January, September and December, zonal wave 3 is related to a wave train emanating from the tropical western Pacific and 
+All months show evidence of planetary wave 3 activity, but with considerable heterogeneity in its characteristics. In months, like January, September and December, zonal wave 3 is related to a wave train emanating from the tropical western Pacific and propagating to the southeast and then turning to the northeast. 
 
 
 
