@@ -786,7 +786,9 @@ notify_after <- function(expression, ...) {
 # Plus-minus functions
 pm <- function(x) {
    x <- abs(x)
-   c(-x, x)
+   x <- x[!duplicated(x)]
+   x <- sort(x)
+   c(-x[x != 0], x)
 }
 
 
@@ -896,3 +898,11 @@ qs3.index <- function(gh, lat, lev, lats.index =  c(-65, -40), levs.index = c(10
       , phase := circular(phase*3, modulo = "2pi")][
       , .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
 }
+
+cor.wave <- function(x, y, k = 3) {
+   x <- fft(x)[k+1]
+   y <- fft(y)[k+1]
+   
+   cos(Arg(x) - Arg(y))
+}
+

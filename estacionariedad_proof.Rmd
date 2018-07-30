@@ -21,6 +21,8 @@ library(magrittr)
 library(circular)
 library(patchwork)
 
+source("scripts/helperfun.R")
+
 theme_elio <- theme_minimal(base_size = 11) +
    theme(
       # text = element_text(family = font_rc),
@@ -148,7 +150,7 @@ y que las igualdades izquierda y derecha valen para el caso de pura inestacionar
 
 Una forma intuitiva de media la estacionariedad es simplemente ver la variabilidad en la fase. Una onda perfectamente estacionaria debería tener nula variabilidad en la fase mientras que una onda totalmente "antiestacionaria" tendría variabilidad ¿infinita?
 
-El problema de esta medida es que no tiene en cuenta lo que sucede con la fase. Puede darse el caso de fase con variabilidad infinita pero donde la amplitud es función de la fase. Es decir, que la onda tenga amplitud máxima para una fase determinada. En ese caso, es válido hablar de que la onda tiene un nivel de estacionariedad y se vería así en los promedios. 
+El problema de esta medida es que no tiene en cuenta lo que sucede con la amplitud. Puede darse el caso de fase con variabilidad infinita pero donde la amplitud es función de la fase. Es decir, que la onda tenga amplitud máxima para una fase determinada. En ese caso, es válido hablar de que la onda tiene un nivel de estacionariedad y se vería así en los promedios. 
 
 ## Correlación entre fase y amplitud
 
@@ -180,7 +182,7 @@ meanfun <- function(x, group, fun, ...) {
 }
 
 
-r_z <- function(x, n = 108) {
+r_z <- function(x) {
    tanh(mean(atanh(x)))
 }
 
@@ -200,23 +202,28 @@ ncep[, FitWave(gh, 3), by = .(lat, lev, time)] %>%
 ncep.qs <- ncep[ , meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
                 by = .(lat, lev, season(time))]
 
-# cormap <- copy(ncep)[, qs3 := FilterWave(gh, 3), by = .(lat, lev, time)] %>% 
-#    .[, qs3.mean := mean(qs3), by = .(lon, lat, lev, season(time))] %>% 
-#    .[, .(cor = cor(qs3, qs3.mean)), by = .(lat, lev, season(time))]
-ncep[, qs3 := FilterWave(gh, 3), by = .(lat, lev, time)] %>%
-   .[, qs3.mean := mean(qs3), by = .(lon, lat, lev, season(time))]
+cors <- ncep[, qs3 := FilterWave(gh, 3), by = .(lat, lev, time)] %>%
+   .[, qs3.mean := mean(qs3), by = .(lon, lat, lev, month(time))] %>% 
+   .[, .(cor = cor.wave(qs3, qs3.mean)), by = .(lat, lev, time)]
 
-cors <- ncep[, .(cor = cor(qs3, qs3.mean), n = .N), by = .(lat, lev, time)]
+regr.month <- cors[is.finite(atanh(cor)), 
+                         FitLm(atanh(cor), year = year(time), se = TRUE), 
+                         by = .(lat, lev, month(time))] 
 
-cormap <- cors[, 
-               .(r = mean(cor),
-                 r_z = r_z(cor, n)), 
-               by = .(lat, lev, season(time))] 
+cors.season <- ncep[, qs3.mean := mean(qs3), by = .(lon, lat, lev, season(time))] %>% 
+   .[, .(cor = cor.wave(qs3, qs3.mean)), by = .(lat, lev, time)] 
+cormap <- cors.season[, .(r = mean(cor), r_z = r_z(cor)), by = .(lat, lev, season(time))] 
 
-copy(cors)[, mean.cor := RcppRoll::roll_mean(cor, 12, fill = NA), 
-           by = .(lat, lev)] %>% 
-   .[lat %between% c(-65, -40) & lev %between% c(100, 700), 
-     .(mean.cor = mean(cor)), by = .(time)] -> ts
+regr.season <- cors.season[, .(r = r_z(cor)), 
+                           by = .(lat, lev, year(time), season(time))] %>% 
+   .[is.finite(atanh(r)), FitLm(r, year, se = TRUE), by = .(lat, lev, season)]
+
+cor.ts <- cors[lat %between% c(-65, -40) & lev %between% c(100, 700),
+               .(cor.z = mean(atanh(cor)),
+                 cor.z.max = max(atanh(cor))), 
+               by = .(time)] %>% 
+   .[, cor.z.roll := RcppRoll::roll_mean(cor.z, 12*5, fill = NA)]
+
 remove(ncep)
 ```
 
@@ -279,7 +286,7 @@ En principio hablar de sub o sobreestimar no es del todo correcto, ya que, en pr
 
 Un problema es que, a diferencia de AM/MA que es no negativa por construcción, tanto $r$ como $r_z$ puede tomar valores negativos (marcados con puntos negros en la Figura 4) que no son fáciles de interpretar. La interpretación más consistente, en mi opinión, es que se trata de correlaciones poblacionales nulas o muy pequeñas que son negativas por variabilidad en el sampleo. 
 
-Observando los campos (Figura 5), es notable que $r_z$ es más *ruidoso* que $r_z$, especialmente en reciones con baja estacionariedad. Supuestamente esto también está reflejado en la literatura, que dice que $r_z$ tiene mayor varianza. 
+Observando los campos (Figura 5), es notable que $r_z$ es más *ruidoso* que $r_z$, especialmente en regiones con baja estacionariedad. Supuestamente esto también está reflejado en la literatura, que dice que $r_z$ tiene mayor varianza. 
 
 ```{r cormap, fig.cap = "$r$ en color, $r_z$ en contornos"}
 ggplot(cormap, aes(lat, lev)) +
@@ -294,5 +301,42 @@ ggplot(cormap, aes(lat, lev)) +
 ```
 
 
+Lo bueno de esta medida es que puede aplicarse a meses individuales y analizar la variabilidad temporal. Por ejemplo, la tendencia lineal (Figura 6 y Figura 7).
+
+```{r cor-ts, fig.cap = "Mean correlation for latitude between 65°S and 40°S and level between 100hPa 700hPa.", fig.height=3}
+ggplot(cor.ts, aes(time, tanh(cor.z))) + 
+   geom_hline(yintercept = 0, size = 0.5) +
+   geom_line(color = "gray") + 
+   # geom_line(aes(y = tanh(cor.z.max)), color = "red") +
+   geom_smooth(span = 0.25, se = F, color = "black") +
+   geom_smooth(method = "lm") +
+   scale_y_continuous("Stationarity", trans = "atanh",
+                      breaks = pm(c(seq(0, 1, by = 0.2), 0.9, 0.95, 0.99, 0.99))) 
+```
 
 
+```{r regr-cor, fig.cap = "Linear regression estimate for stationarity (correlation per decade)."}
+rect.annotation <- data.frame(latmin = -65, latmax = -40,
+                              levmin = 100, levmax = 700, 
+                              k = 3)
+regr.season[term == "year"] %>% 
+   ggplot(aes(lat, lev)) + 
+   geom_contour_fill(aes(z = tanh(estimate)), breaks = AnchorBreaks(0, 0.01, 0)) +
+   geom_index.region(rect.annotation) +
+   # geom_contour2(aes(z = tanh(estimate))) +
+   stat_subset(aes(subset = abs(estimate)/std.error > 1.96), geom = "point",
+               size = 0.2) +
+   scale_y_level() + 
+   scale_fill_divergent(trans = "atanh", breaks = AnchorBreaks(0, 0.01, 0),
+                        guide = guide_colorstrip_bottom()) + 
+   scale_x_latitude(trans = "reverse") + 
+   facet_wrap(~season)
+```
+
+### Adendum: 
+
+¿Se puede usar a escala mensual como estacionariedad? En bruto, lo que estoy viendo es la correlación de la onda 3 con la onda 3 media de todo el período. Un corrimiento de fase gradual podría verse como un cambio en esta variable aún cuando "localmente" la onda siga siendo relativaemnte estacionaria. 
+
+### Para hacer:
+
+* Fijarse haciendo la correlación del campo tridimensional en vez de promediar tridimensionalmente la correlación por cada nivel y círculo de latitud. 
