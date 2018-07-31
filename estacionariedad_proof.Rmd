@@ -19,7 +19,7 @@ library(ggplot2)
 library(metR)
 library(magrittr)
 library(circular)
-library(patchwork)
+library(RcppRoll)
 
 source("scripts/helperfun.R")
 
@@ -169,8 +169,14 @@ Una alternativa a la medida anterior. En principio tiene el mismo problema que l
 
 La primer alternativa tiene el problema que no tiene en cuenta lo que sucede con la amplitud en relación a la fase. Una posible forma de corregirlo sería la de pesar la fase por la amplitud. De esta manera, una onda con fase muy distinta a la media pero con poca amplitud, contribuye poco a la variabilidad. 
 
-
 ```{r read-data}
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
+                   subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01",
+                                                                           "2015-12-01"))))
+setnames(ncep, "level", "lev")
+```
+
+```{r calc-data}
 meanfun <- function(x, group, fun, ...) {
    dt <- data.table(x, group)
    dt[, group2 := seq_len(.N), by = group]
@@ -182,14 +188,10 @@ meanfun <- function(x, group, fun, ...) {
 }
 
 
-r_z <- function(x) {
-   tanh(mean(atanh(x)))
+r_z <- function(x, w = NULL, ...) {
+   if (is.null(w)) w <- rep(1/length(x), length(x))
+   tanh(weighted.mean(atanh(x), w, ...))
 }
-
-ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
-                   subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01",
-                                                                           "2015-12-01"))))
-setnames(ncep, "level", "lev")
 
 ncep[, FitWave(gh, 3), by = .(lat, lev, time)] %>% 
    .[, phase := circular(phase*3, modulo = "2pi")] %>% 
@@ -204,15 +206,21 @@ ncep.qs <- ncep[ , meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
 
 cors <- ncep[, qs3 := FilterWave(gh, 3), by = .(lat, lev, time)] %>%
    .[, qs3.mean := mean(qs3), by = .(lon, lat, lev, month(time))] %>% 
-   .[, .(cor = cor.wave(qs3, qs3.mean)), by = .(lat, lev, time)]
+   .[, .(cor = cor(qs3, qs3.mean), amplitude = FitWave(qs3, 3)$amplitude), 
+     by = .(lat, lev, time)]
 
 regr.month <- cors[is.finite(atanh(cor)), 
                          FitLm(atanh(cor), year = year(time), se = TRUE), 
                          by = .(lat, lev, month(time))] 
 
 cors.season <- ncep[, qs3.mean := mean(qs3), by = .(lon, lat, lev, season(time))] %>% 
-   .[, .(cor = cor.wave(qs3, qs3.mean)), by = .(lat, lev, time)] 
-cormap <- cors.season[, .(r = mean(cor), r_z = r_z(cor)), by = .(lat, lev, season(time))] 
+   .[, .(cor = cor(qs3, qs3.mean), amplitude = FitWave(qs3, 3)$amplitude), 
+     by = .(lat, lev, time)]
+
+cormap <- cors.season[, 
+                      .(r = mean(cor), 
+                        r_z = r_z(cor)), 
+                      by = .(lat, lev, season(time))] 
 
 regr.season <- cors.season[, .(r = r_z(cor)), 
                            by = .(lat, lev, year(time), season(time))] %>% 
@@ -223,8 +231,6 @@ cor.ts <- cors[lat %between% c(-65, -40) & lev %between% c(100, 700),
                  cor.z.max = max(atanh(cor))), 
                by = .(time)] %>% 
    .[, cor.z.roll := RcppRoll::roll_mean(cor.z, 12*5, fill = NA)]
-
-remove(ncep)
 ```
 
 
@@ -333,10 +339,87 @@ regr.season[term == "year"] %>%
    facet_wrap(~season)
 ```
 
-### Adendum: 
+#### Críticas ex post facto
 
-¿Se puede usar a escala mensual como estacionariedad? En bruto, lo que estoy viendo es la correlación de la onda 3 con la onda 3 media de todo el período. Un corrimiento de fase gradual podría verse como un cambio en esta variable aún cuando "localmente" la onda siga siendo relativaemnte estacionaria. 
+Pensándo sobre esto, ¿tiene sentido usar la correlación como medida de estacionariedad a nivel mensual? Lo que estoy haciendo es básicamente comparando qué tan parecida es la onda mensual con la onda media de todo el período, pero no me dice si durante ese mes o los meses cercanos la onda se movió mucho o no. Aún una onda totalmente estacionaria "localmente" (en el tiempo) aparece como poco estacionaria si la onda medio de ese período está ubicada en un lugar distinto al promedio de todo el período general. 
 
-### Para hacer:
+### Correlación media pesada por la amplitud
 
-* Fijarse haciendo la correlación del campo tridimensional en vez de promediar tridimensionalmente la correlación por cada nivel y círculo de latitud. 
+Luego de reflexionarlo un poco más, me parece que la correlación media entre las ondas y la onda media tiene problemas conceptuales como medida de estacionariedad. Se puede demostrar matemáticamente que la correlación entre dos ondas con igual frecuencia es idéntica al coseno de la diferencia entre las fases. De ahí que esta medida tampoco esté teniendo en cuenta la relación entre amplitud y fase. Una onda de muy baja amplitud pero corrida 180° en fase con respecto a la onda media tiene la misma magnitud de correlación que una de alta amplitud y completamente en fase con la onda media y, por tanto, pesa lo mismo cuando se promedia. 
+
+Una forma de corregir eso es hacer un promedio pesado por la amplitud de la onda. Y ahora viene el chiste: hacer eso es idéntico a calcular AM/MA (queda en deuda la demostración matemática, pero se ve "empíricamente"). 
+
+Con esto, creo que se justifica la decisión del AM/MA de forma más sólida y que es un muy buen candidato para la estacionariedad. 
+
+
+
+### Yapa: S a lo largo del tiempo
+
+Concluyo que la estacionariedad no puede estar definida para un mes en particular sino que sólo se define con respecto a un intervalo de tiempo sobre el cual se hace el promedio que se correlaciona con las ondas individuales. Lo más directo es usar todo el período, pero si interesa saber el nivel de estacionariedad en una década determinada, por ejemplo, se debe usar el promedio de esa década. Más aún, la correlación de cada campo mensual debe hacerse con el promedio del período *de ese mes* para que el ciclo anual no aparezca como una no estacionariedad.
+
+El procedimiento para calcular la estacionariedad es calcular la onda media de cada mes durnate el período, calcular la correlación[^1] de cada onda con su promedio correspondiente y finalmente hacer un promedio pesado por la amplitud de cada onda. Para obtener una serie temporal se aplica este procedimiento con una ventana de tiempo móvil (por ejemplo, de 5 años).
+
+[^1]: Es computacionalmente más eficiente y exacto calcular el coseno de la diferencia de fase en vez de la correlación de campos. 
+
+```{r}
+sum.waves <- function(amplitudes, phases, k = 1) {
+   phases <- -k[1]*phases + pi/2
+   i <- 1i
+   waves <- sum(amplitudes*exp(i*phases))
+   amplitude <- Mod(waves)
+   phase <- -(Arg(waves) - pi/2)/k[1]
+   
+   return(list(amplitude = amplitude,
+     phase = phase,
+     k = k[1]))
+}
+
+mean.waves <- function(amplitudes, phases, k = 3) {
+   wave <- sum.waves(amplitudes, phases, k)
+   wave$amplitude <- wave$amplitude/length(amplitudes)
+   wave
+}
+```
+
+```{r}
+wave.stationarity <- function(waves, group = 1, method = c("AM/MA")) {
+   # waves es una lista con amplitudes, phases, y kes
+   # method AM/MA
+   waves <- transpose(waves)
+   names(waves) <- c("amplitude", "phase", "k")
+   waves <- as.data.table(waves)
+   
+   if (length(group) == 1) group <- rep(group, nrow(waves))
+   waves[, group := group]
+   
+   waves[, phase_of_mean := mean.waves(amplitude, phase, k[1])$phase, 
+      by = group]
+   
+   waves[, cor := cor.waves(phase, phase_of_mean, k)]
+   waves[, weighted.mean(cor, amplitude)]
+}
+```
+
+Eso es lo que se muestra en la Figura 8 para 55°S y 200hPa. Es intersante que a pesar de usar definiciones ligeramente distintas y tener los cuidados mecionados en los párrafos anteriores, se consigue un patrón muy similar al de la línea suave de la Figura 6 (que se muestra en gris en la Figura 8). Una tendencia a la baja con mínimos locales en los 90, mediados de 2010 y máximo a principios de los 2000. 
+
+```{r amma, fig.cap = "Stationarity (mean wigthed correlation) computed in a 5 year rolling window (black) and smoothed correlation (gray)."}
+qswaves <- ncep[, FitWave(gh, 3), by = .(lat, time, lev)] 
+qswaves[, wave := transpose(list(amplitude = amplitude, 
+                                    phase = phase, 
+                                    k = k))]
+w <- 12*5 + 1 
+m <- rep(1:12, length.out = 61)
+S <- qswaves %>% 
+   # .[lat %between% c(-65, 40) & lev %between% c(100, 700)] %>%
+    .[lat == -55 & lev == 200] %>%
+   .[, S := listapply(wave, w, wave.stationarity, group = m), 
+        by = .(lat, lev)]
+
+ggplot(S, aes(time, S)) +
+   geom_smooth(aes(y = tanh(cor.z)), size = 0.5, span = 0.25, 
+               se = F, color = "gray", data = cor.ts) +
+   geom_line()  +
+   geom_smooth(method = "lm", color = "black") +
+   scale_y_continuous(trans = "atanh")
+```
+

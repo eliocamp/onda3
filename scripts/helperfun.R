@@ -899,10 +899,66 @@ qs3.index <- function(gh, lat, lev, lats.index =  c(-65, -40), levs.index = c(10
       , .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
 }
 
-cor.wave <- function(x, y, k = 3) {
-   x <- fft(x)[k+1]
-   y <- fft(y)[k+1]
-   
-   cos(Arg(x) - Arg(y))
+
+slide_apply <- function (data, window, step = 1, fun) 
+{
+   fun <- match.fun(fun)
+   total <- length(data)
+   window <- abs(window)
+   spots <- seq(from = 1, to = (total - window + 1), by = abs(step))
+   result <- rep(NA, length(spots))
+   for (i in 1:length(spots)) {
+      result[window + i - 1] <- fun(data[spots[i]:(spots[i] + 
+                                                      window - 1)])
+   }
+   return(result)
 }
 
+cor.waves <- function(phi1, phi2, k = 3) {
+   a1 <- -phi1*k 
+   a2 <- -phi2*k 
+   
+   cos(a1 - a2)
+}
+
+sum.waves <- function(amplitudes, phases, k = 1) {
+   phases <- -k[1]*phases + pi/2
+   i <- 1i
+   waves <- sum(amplitudes*exp(i*phases))
+   amplitude <- Mod(waves)
+   phase <- -(Arg(waves) - pi/2)/k[1]
+   
+   return(list(amplitude = amplitude,
+               phase = phase,
+               k = k[1]))
+}
+
+mean.waves <- function(amplitudes, phases, k = 3) {
+   wave <- sum.waves(amplitudes, phases, k)
+   wave$amplitude <- wave$amplitude/length(amplitudes)
+   wave
+}
+
+wave.stationarity <- function(waves, method = c("AM/MA")) {
+   # waves es una lista con amplitudes, phases, y kes
+   # method AM/MA
+   waves <- transpose(waves)
+   names(waves) <- c("amplitude", "phase", "k")
+   AM <- with(waves, mean.waves(amplitude, phase, k[1]))$amplitude
+   MA <- mean(waves$amplitude) 
+   AM/MA
+}
+
+listapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
+   FUN <- match.fun(FUN)
+   if (is.null(by)) by <- width
+   if (width %% 2 == 0) stop("width must be odd")
+   
+   lenX <- length(x)
+   SEQ1 <- seq(1, lenX - width + 1, by = by)
+   SEQ2 <- lapply(SEQ1, function(x) x:(x + width - 1))
+   
+   OUT <- lapply(SEQ2, function(a) FUN(x[a], ...))
+   OUT <- base:::simplify2array(OUT, higher = TRUE)
+   return(c(rep(fill, w/2), OUT, rep(fill, w/2)))
+}
