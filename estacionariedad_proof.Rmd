@@ -1,5 +1,5 @@
 ---
-title: "estacionariedad"
+title: "Estacionariedad"
 author: "Elio"
 date: "July 20, 2018"
 output: pdf_document
@@ -10,6 +10,7 @@ urlcolor: blue
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
                       warning = FALSE, message = FALSE,
+                      out.extra = "", 
                       cache.path = "cache/estacionariedad_proof/",
                       fig.path = "fig/estacionariedad_proof/")
 
@@ -45,20 +46,118 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 
 ```
 
-# Demostración matemática de las propiedades de la estacionariedad
+```{r read-data}
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
+                   subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01",
+                                                                           "2015-12-01"))))
+setnames(ncep, "level", "lev")
+```
 
-La idea es tener un fundamento matemático robusto para la medida de estacionariedad que estoy usando. La medida es la razón entre el promedio de la amplitud de las ondas 3 mensuales (AM) y la amplitud de la onda 3 del promedio las ondas mensuales (MA). Es decir, si la amplitud de una onda $w_i$ es $A(w_i)$, se tiene que 
+# Concepto básico
+
+Antes de poder tener una medida de la *estacionariedad* de un conjunto de ondas tengo que entender qué quiero decir con ondas estacionarias. 
+
+Primero, la estacionariedad no es una propiedad de una onda sino de un conjunto de ondas. Para ser más preciso, la estacionariedad es la propiedad de la *población* de ondas generadas a partir de un proceso (físico o estadíco) y lo que voy a hacer ahora es estimarla a partir de las propiedade de una *muestra* de ondas. 
+
+Segundo, un conjunto de ondas perfectamente estacionario tiene fase constante, mientras que la amplitud puede variar como quiera. Es decir, la estacionariedad es describe la variabilidad en la localización de máximos y mínimos pero no su intensidad. Sin embargo, esta propiedad no sirve para definir estacionariedad de forma continua (estacionariedad en mayor o menor grado). Una onda con una fase completamente aleatoria pero con amplitud mayor cuando se da en una fase preferencial (fase estacionaria) *es* estacionaria. De ahí que en estacionariedad no sólo está involucrada la distribución de la fase sino también la relación entre ésta y la amplitud.
+
+La estacionariedad, entonces, involucra dos efectos: la distribución de la fase (estacionariedad de fase) y la relación entre la amplitud y la fase (estacionariedad de amplitud). Un conjunto de ondas puede ser estacionario por tener la mayoría de sus elementos con fase similar a la fase estacionaria y una amplitud constante o aleatoria, o puede serlo teniendo una fase aleatoria pero una mayor amplitud cuando la fase está cerca de la fase estacionaria. El primer efecto se puede observar en la distribución de densidad de la fase mientras que el segundo se aprecia en la amplitud media en función de la fase.  
+
+```{r calc-density}
+qs <- ncep[, FitWave(gh, 3), by = .(lat, time, lev)] 
+qs[, phase.c := circular(phase*3, modulo = "2pi")]
+lats <- c(-55, -10)
+qs.density <- qs[lat != -90 & lev == 200,
+                 density(phase*3*180/pi, weights = amplitude/sum(amplitude),
+                         from = 0, to = 360)[c("x", "y")],
+                 by = lat]
+mean.phase <- qs[lat %in% lats & lev == 200,
+                 .(mean.phase = mean.wave(amplitude, phase, k)$phase*180/pi*3),
+                 by = lat]
+# qs.density <- qs[lat != -90, 
+#                  density(phase.c, bw = 7)[c("x", "y")], 
+#                  by = lat] 
+```
+
+```{r densities, fig.cap = "Estimated density of wave 3 phase weighted by amplitude in 55°s (red) and 10°S (blue) at 200hPa. Vertical lines show the stationary phase, which is identical to the mean phase weighet by amplitude.", fig.height=3}
+ggplot(qs.density[lat %in% c(-10, -55)], 
+       aes(x, y, color = factor(lat))) + 
+   geom_line() +
+   geom_vline(aes(xintercept = mean.phase, color = factor(lat)),
+              data = mean.phase, linetype = 2) +
+   # geom_rug(data = mean.phase, aes(x = mean.phase, y = 0)) +
+   scale_y_continuous("Density") +
+   scale_x_continuous("Phase", seq(0, 360, by = 60),
+                      label = AddSuffix("°")) +
+   scale_color_brewer("Latitude", palette = "Set1",
+                      label = LatLabel) +
+   theme(legend.title = element_text())
+```
+
+Una forma de combinar ambos efectos y visualizar la estacionariedad es la distribución de la fase pesada por la amplitud. Esto se ve en la Figura \ref{fig:densities} que muestra la distribución de probabilidad de la fase pesada por la amplitud para dos latitudes distintas. Queda claro que la onda 3 es más estacionaria en 10°S que en 55°S. En este caso tanto la estacionariedad de fase como la de amplitud es mayor en 10°S que en 55°S.
+
+Notar que en estos casos las distriuciones son claramente unimodales. En el caso de ser multimodal, habría que definir la estacionariedad con respecto a cada moda. En cualquier caso, queda claro que la estacionariedad se define con refernecia a una determinada fase estacionaria. Las líneas verticales marcan la fase de la onda promedio para cada latitud (que es idéntica a la media de la fase pesado por la amplitud) que es la fase estacionaria considerada. Se puede observar que este valor no coincide exactamente con la moda de la distribución. 
+
+# Posibles medidas
+
+## Desvió estándar de la fase
+
+Una forma intuitiva de media la estacionariedad podría ser la variabilidad en la fase con respecto a la fase estacionaria. Una onda perfectamente estacionaria debería tener nula variabilidad en la fase mientras que una onda totalmente "antiestacionaria" tendría un desvío estándar igual al de una distribución uniforme entre $0$ y $2\pi$ ($2\pi/\sqrt(12) \sim1.8$).
+
+De la discusión anterior se desprende que esta medida puede representar la estacionariedad de fase, pero no la estacionariedad de amplitud.
+
+## Correlación entre fase y amplitud
+
+Para capturar la estacionariedad de amplitud podría considerarse la correlación entre la amplitud de las ondas y el corrimiento de fase con respecto a la fase estacionaria. Cuanto más negativa, más estacionaria. 
+
+El problema es que esta medida no represetna la estacionariedad de fase. Además no queda claro cómo interpretar las correlaciones positivas. 
+
+## Desvío estándar de la fase pesado por la amplitud
+
+Una forma de combinar ambos tipos de estacionariedad es calcular el desvío de la fase pero pesarlo por la magnitud de la amplitud (ASD). Ondas que se alejan mucho de la fase estacionaria pero tienen poca amplitud contriburían poco a esta medida, capturando el efecto de estacionariedad de amplitud. Esta medida equivale al desvío estandar de la función de densidad pesada por la amplitud (Figura \ref{fig:densities}).
+
+```{r asd, fig.cap = "Standard deviation of wave 3 phase with respect of stationary phase. Lower values represent higher stationarity and viceversa.", fig.height=4}
+qs[, phase.stat := mean.wave(amplitude, phase, k)$phase, by = .(lat, lev, season(time))]
+qs[, phase.stat.c := circular(phase.stat*3, modulo = "2pi")]
+
+asd <- qs[amplitude != 0, 
+           .(asd = sqrt(as.numeric(mean(amplitude/sum(amplitude)*(phase.c - phase.stat.c)^2)))),
+           by = .(lat, lev, season(time))]
+
+asd %>% 
+   ggplot(aes(lat, lev)) +
+   geom_contour_fill(aes(z = asd)) +
+   scale_x_latitude(trans = "reverse")+
+   scale_fill_viridis_c() +
+   scale_y_level() +
+   facet_wrap(~season)
+```
+
+
+Esta métrica parece funcionar relativamente bien. En la Figura \ref{fig:asd} se muestra la estacionariedad según ASD (valores altos implican poca estacionariedad) en sombreado. 
+
+Por lo que estuve viendo, esta métrica sirve bastante bien aunque tiene un problema en que no es una medida necesariamente lineal, como se muestra en la Figura 2. Además, si bien una onda perfectamente estacionaria tendría un sd nulo, una no estacionaria alcanzaría un máximo que no conozco. 
+
+## AMOMA
+
+Otra forma de pensar en la estacionariedad de las ondas es considerando el efecto de la interferencia destructiva. En un conjunto de ondas estacinario, la suma de las ondas es siempre constructiva, mientras que en uno no estacionario, hay la misma cantidad de interferencia constructiva y destructiva. Una forma de medir este efecto es comparando la amplitud de la onda media (AM) que sufre el efecto de la interferencia destructiva y la media de la amplitud de las ondas (MA), que no tiene en cuenta éste efecto.
+
+### Formalismo matemático
+
+Intuitivamente, la amplitud de la onda media debería ser 0 para un grupo de ondas no estacionarias e igual a la amplitud media en un grupo de ondas perfectamente estacionarias. De modo que *AMMOMA* (AM over MA) tomaría valores entre 0 y 1 indicando el nivel de estacionariedad del conjunto de ondas. 
+
+Formalizando matemáticamente, si la amplitud de una onda $w_i$ es $A(w_i)$, se tiene que 
 
 $$
 \begin{aligned}
-\overline{A(w_i)} &= \frac{1}{N}\sum_{i=1}^{N}A(w_i) \\
-A(\overline{w_i}) &= A \left ( \frac{1}{N}\sum_{i=1}^{N}w_i\right) 
+\mathrm{AM} &=& A(\overline{w_i}) &=& A \left ( \frac{1}{N}\sum_{i=1}^{N}w_i\right) \\
+\mathrm{MA} &=& \overline{A(w_i)} &=& \frac{1}{N}\sum_{i=1}^{N}A(w_i) 
 \end{aligned}
 $$
 
-La primera expresión no tiene demasiada complicación, pero la segunda hay que desarrollarla. 
+La segunda expresión no tiene demasiada complicación, pero la primera hay que desarrollarla. 
 
-Empecemos con el caso $N = 2$. Se tiene entonces que 
+Suponiendo el caso $N = 2$, se tiene que 
 
 $$
 w_1  = A_1\cos(k(\phi - \alpha_1)) \quad
@@ -74,44 +173,23 @@ En el caso de ondas perfectamente estacionarias se tiene que $\alpha_1 = \alpha_
 $$
 \begin{aligned}
 A \left ( \frac{1}{N}\sum_{i=1}^{N}w_i\right)  &=  \frac{1}{N}\sum_{i=1}^{N}A(w_i) \\
-A(\overline{w_i})& = \overline{A(w_i)} 
+\mathrm{AM}& = \mathrm{MA}
 \end{aligned}
 $$
 
 Es decir, para ondas perfectamente estacionarias, $AM/MA = 1$. 
 
-Para ondas con fase completamente aleatoria... ???
+Para ondas no estacionarias... todavía no encontré el formalismo de matemática pura, pero se puede ver "empíricamente". Para distintos valores de $N$, calculo la amplitud de la suma de $N$ ondas con amplitud constante (2, en este caso) y fase aleatoria ($\alpha \sim U(0, 2\pi)$). Repito eso 1000 veces y calculo el promedio. Esto me da una estimación de la esperanza matemática de AM para distintos tamaños muestrales.
 
-ok, acá se me acaba la matemática pura y viene la parte empírica. Para distintos valores de $N$, calculo la amplitud de la suma de $N$ ondas con amplitud constante (2, en este caso) y fase aleatoria ($\alpha \sim U(-\pi, \pi)$). Repito eso 1000 veces y calculo el promedio. Esto me da una estimación de la esperanza matemática de $A(\overline{w_i})$ para distintos tamaños muestrales.
-
-```{r sim-fun, include=FALSE}
-sumwaves <- function(amplitudes, phases) {
-   amplitude_sum <- amplitudes[1]
-   phase_sum <- phases[1]
-   for (i in seq_along(amplitudes)[-1]) {
-      phase_dif <- phase_sum - phases[i]
-      amplitude_sum <- sqrt(amplitude_sum^2 + amplitudes[i]^2 + 
-                               2*amplitude_sum*amplitudes[i]*cos(phase_dif))
-      phase_sum <- suppressWarnings(asin(amplitudes[i]*sin(phase_dif)/amplitude_sum))
-      if (!is.finite(phase_sum)) phase_sum <- 0
-   }
-   amplitude_sum
-}
-
+```{r calc-sim, include=FALSE}
 amplsum <- function(N = 2, A = 2) {
    amplitudes <- rep(A, N)
    phases <-  runif(N, -pi, pi)
-   sumwaves(amplitudes, phases)
+   sum.wave(amplitudes, phases)$amplitude
 }
-```
-
-
-```{r calc-sim, include=FALSE}
-library(data.table)
-library(ggplot2)
 
 B <- 1000
-trials <- data.table(t = seq(2, 1000, by = 10))
+trials <- data.table(t = seq(2, 500, by = 10))
 set.seed(42)
 trials[, ampl := mean(sapply(1:B, function(x) amplsum(t))), by = t]
                
@@ -119,7 +197,7 @@ trials[, mean := ampl/t]
 trials[, mean(mean*sqrt(t), na.rm = TRUE)] -> k
 ```
 
-```{r sim, echo=FALSE, fig.cap="Amplitud del promedio de N ondas con amplitud = 2. La línea roja es la línea $y = \\sqrt{\\frac{\\pi}{x}}$.", out.extra = "", fig.height=3}
+```{r sim, echo=FALSE, fig.cap=" Amplitud del promedio de N ondas con amplitud = 2. La línea roja es la línea $y = \\sqrt{\\frac{\\pi}{x}}$.", out.extra = "", fig.height=3}
 ggplot(trials, aes(t, mean)) +
    geom_line(size = 1.3) +
    stat_function(fun = function(x) 1/2*2*sqrt(pi/x), color = "red") +
@@ -127,56 +205,25 @@ ggplot(trials, aes(t, mean)) +
    scale_x_continuous("N") 
 ```
 
-Se puede ver en la Figura \ref{fig:sim} que $\lim_{N\rightarrow \infty} A(\overline{w_i})= 0$ y que va como $\sim N^{-1/2}$ aunque con una constante multiplicativa que en este caso es $k = `r round(k, 3)`$. La parte más empírica viene ahora, porque *jugando* con este y otros casos, se puede ver que esa contante es $k = \frac{\overline{A}}{2}\sqrt{\frac{\pi}{N}}$. De manera que, *empíricamente* se puede ver que en el caso de ondas con fase totalmente aleatorias 
-
-
-$$
-A(\overline{w_i}) = \overline{A(w_i)} \frac{1}{2}\sqrt{\frac{\pi}{N}}
-$$
-
-Poniendo todo en limpio, se demostró (con una mezcla de teoría y práctica), que si se define $S = \frac{A(\overline{w_i})}{\overline{A(w_i)}}$ como medida de estacionariedad, se tiene que 
+Se puede ver en la Figura \ref{fig:sim} que $\lim_{N\rightarrow \infty} \mathrm{AM}= 0$ y que va como $\sim N^{-1/2}$ aunque con una constante multiplicativa que en este caso es $k = `r round(k, 3)`$. La parte más empírica y sucia viene ahora, porque *jugando* con este y otros casos, parece ser que que esa contante es $k = \frac{A}{2}\sqrt{\frac{\pi}{N}}$. De manera que, *empíricamente* se puede ver que en el caso de ondas con fase totalmente aleatorias 
 
 $$
-\frac{1}{2}\sqrt{\frac{\pi}{N}} \le S \le 1
+\mathrm{AM} = \mathrm{MA} \frac{1}{2}\sqrt{\frac{\pi}{N}}
+$$
+
+Poniendo todo en limpio, se demostró (con una mezcla de teoría y práctica), que si se define $\mathrm{AMOMA} = \frac{\mathrm{AM}}{\mathrm{MA}}$ como medida de estacionariedad, se tiene que 
+
+$$
+\frac{1}{2}\sqrt{\frac{\pi}{N}} \le \mathrm{AMOMA} \le 1
 $$
 
 y que las igualdades izquierda y derecha valen para el caso de pura inestacionariedad y pura estacionariedad respectivamente. 
 
+Un hecho interesante es que AMOMA es idéntico al promedio de la correlación entre la las ondas y la onda media, pesado por la amplitud (demostración pendiente, pero lo vi numéricamente). Además, la correlación entre dos ondas es igual al coseno de la diferencia entre sus fases. Como esta forma es computacionalmente más eficiente y además más exacta, es la que voy a usar de ahora en adelante para calcular AMOMA.
 
+### Datos
 
-# Otras posibles medidas de estacionariedad 
-
-## Desvió estándar de la fase
-
-Una forma intuitiva de media la estacionariedad es simplemente ver la variabilidad en la fase. Una onda perfectamente estacionaria debería tener nula variabilidad en la fase mientras que una onda totalmente "antiestacionaria" tendría variabilidad ¿infinita?
-
-El problema de esta medida es que no tiene en cuenta lo que sucede con la amplitud. Puede darse el caso de fase con variabilidad infinita pero donde la amplitud es función de la fase. Es decir, que la onda tenga amplitud máxima para una fase determinada. En ese caso, es válido hablar de que la onda tiene un nivel de estacionariedad y se vería así en los promedios. 
-
-## Correlación entre fase y amplitud
-
-Siguiendo el razonamiento anterior, es posible pensar en utilizar la correlación entre la amplitud y la desviación absoluta entre la fase y la fase media. Una correlación negativa sería entonces indicio de estacionariedad ya que indicaría que si la onda está lejos de la fase media, la amplitud debería ser pequeña. 
-
-Es una medida que funciona relativamente bien (basado en probarlo en datos reales) pero es bastante más ruidosa. Además, al usar la correlación se elimina el efecto de la variabilidad en la fase; dos grupos de ondas pueden tener la misma correlación entre fase y amplitud pero si uno tiene mayor variabilidad en la fase, implicaría menor estacionariedad. 
-
-Por otro lado, es difícil interpretar correlaciones positivas. 
-
-## Covarianza entre fase y amplitud
-
-Una alternativa a la medida anterior. En principio tiene el mismo problema que la correlación, pero además se mezcla la magnitud de la variabildiad de la amplitud. Regiones con pequeña varianza en la amplitud de las ondas (como en los trópicos) van a tener valores pequeños de covarianza aún cuando las ondas sean perfectamente estacionarias. 
-
-
-## Desvío estándar de la fase pesado por la amplitud
-
-La primer alternativa tiene el problema que no tiene en cuenta lo que sucede con la amplitud en relación a la fase. Una posible forma de corregirlo sería la de pesar la fase por la amplitud. De esta manera, una onda con fase muy distinta a la media pero con poca amplitud, contribuye poco a la variabilidad. 
-
-```{r read-data}
-ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
-                   subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01",
-                                                                           "2015-12-01"))))
-setnames(ncep, "level", "lev")
-```
-
-```{r calc-data}
+```{r calc-amoma}
 meanfun <- function(x, group, fun, ...) {
    dt <- data.table(x, group)
    dt[, group2 := seq_len(.N), by = group]
@@ -187,239 +234,78 @@ meanfun <- function(x, group, fun, ...) {
    return(list(mean.fun = mf, fun.mean = fm))
 }
 
-
-r_z <- function(x, w = NULL, ...) {
-   if (is.null(w)) w <- rep(1/length(x), length(x))
-   tanh(weighted.mean(atanh(x), w, ...))
-}
-
-ncep[, FitWave(gh, 3), by = .(lat, lev, time)] %>% 
-   .[, phase := circular(phase*3, modulo = "2pi")] %>% 
-   .[, amplitude := amplitude/sum(amplitude), by = .(lat, lev, season(time))] %>% 
-   .[, {
-          wm <- mean.circular(phase)
-          sqrt(sum(amplitude * (phase - wm)^2))
-   }  , by = .(lat, lev, season(time))] -> p
-
-ncep.qs <- ncep[ , meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
-                by = .(lat, lev, season(time))]
-
-cors <- ncep[, qs3 := FilterWave(gh, 3), by = .(lat, lev, time)] %>%
-   .[, qs3.mean := mean(qs3), by = .(lon, lat, lev, month(time))] %>% 
-   .[, .(cor = cor(qs3, qs3.mean), amplitude = FitWave(qs3, 3)$amplitude), 
-     by = .(lat, lev, time)]
-
-regr.month <- cors[is.finite(atanh(cor)), 
-                         FitLm(atanh(cor), year = year(time), se = TRUE), 
-                         by = .(lat, lev, month(time))] 
-
-cors.season <- ncep[, qs3.mean := mean(qs3), by = .(lon, lat, lev, season(time))] %>% 
-   .[, .(cor = cor(qs3, qs3.mean), amplitude = FitWave(qs3, 3)$amplitude), 
-     by = .(lat, lev, time)]
-
-cormap <- cors.season[, 
-                      .(r = mean(cor), 
-                        r_z = r_z(cor)), 
-                      by = .(lat, lev, season(time))] 
-
-regr.season <- cors.season[, .(r = r_z(cor)), 
-                           by = .(lat, lev, year(time), season(time))] %>% 
-   .[is.finite(atanh(r)), FitLm(r, year, se = TRUE), by = .(lat, lev, season)]
-
-cor.ts <- cors[lat %between% c(-65, -40) & lev %between% c(100, 700),
-               .(cor.z = mean(atanh(cor)),
-                 cor.z.max = max(atanh(cor))), 
-               by = .(time)] %>% 
-   .[, cor.z.roll := RcppRoll::roll_mean(cor.z, 12*5, fill = NA)]
+amoma <- ncep[ , meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
+                by = .(lat, lev, season(time))] %>% 
+   .[, amoma := fun.mean/mean.fun]
 ```
 
-
-
-```{r scatter, fig.cap = "Relación entre SD y AM/MA", fig.height=3}
-p[ncep.qs, on = c("lat", "lev", "season")] %>% 
-   ggplot(aes(fun.mean/mean.fun, V1)) +
-   geom_point(alpha = 0.4, size = 0.5) +
-   scale_x_continuous("AM/MA") +
-   scale_y_continuous("SD")  
-```
-
-```{r plots, fig.cap = "Desvío estándar pesado de la fase en color, amplitud de la media sobre media de la amplitud en contornos"}
-binwidth.stat <- 0.15
-binwidth.ampl <- 10
-ggplot(ncep.qs, aes(lat, lev)) +
-   geom_contour_fill(aes(z = V1), data = p[lat < 0], binwidth = 0.4) + 
-   geom_contour_tanaka(aes(z =fun.mean/mean.fun), breaks = MakeBreaks(binwidth.stat),
-                       na.rm = TRUE) +
-   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
-                        option = "D", direction = -1,
-                        breaks = MakeBreaks(1)) +
+```{r amoma, fig.cap = "Ratio of amplitude of the mean wave and mean amplitude of waves.", fig.height=4}
+ggplot(amoma, aes(lat, lev)) +
+   geom_contour_fill(aes(z = amoma)) +
+   geom_contour_tanaka(aes(z = asd), data = asd) +
+   scale_x_latitude(trans = "reverse")+
+   scale_fill_viridis_c() +
    scale_y_level() +
-   scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
-   # coord_latlev() +
-   facet_wrap( ~ season) 
-```
-
-Por lo que estuve viendo, esta métrica sirve bastante bien aunque tiene un problema en que no es una medida necesariamente lineal, como se muestra en la Figura 2. Además, si bien una onda perfectamente estacionaria tendría un sd nulo, una no estacionaria alcanzaría un máximo que no conozco. 
-
-Tendría que ver qué propiedades tiene. 
-
-
-## Correlación media entre la onda 3 mensual y la onda 3 media
-
-Otra medida posible es la correlación media entre la onda 3 de cada mes y la onda 3 media. Un pequeño detalle es que algunos autores recomiendan primero transformar los valores usando la transformada de Fischer, promediar esos valores y luego hacer la transformación inversa.
-Para evaluar ambos, llamo $r$ a la correalción media y $r_z$ a la inversa de la correlación media transformada. 
-
-```{r cor-am, fig.cap = "Relación entre la correlación media sin transformar y las otras dos medidas", fig.height=4}
-ncep.qs[cormap, on = c("lat", "lev", "season")] %>% 
-   .[, am.ma := fun.mean/mean.fun] %>% 
-   .[, .(lat, lev, season, r, r_z, am.ma)] %>% 
-   melt(id.vars = c("lat", "lev", "season", "am.ma")) %>% 
-   ggplot(aes(am.ma, value, color = variable)) +
-   geom_smooth(size = 0.5) +
-   geom_point(alpha = 0.2, size = 0.1) +
-   # geom_hex(color = NA) +
-   stat_subset(aes(subset = value < 0), color = "black", size = 0.5) +
-   geom_abline(linetype = 3) +
-   scale_color_brewer(palette = "Set1") +
-   scale_y_continuous("Correlación") +
-   scale_x_continuous("AM/MA") +
-   coord_equal() 
-```
-
-Como se ve en la Figura 4, donde se muestran las dos medidas de correlación en función de AM/MA, $r$ tiene una relación más lineal con AM/MA y además es más similar (más cercana a la línea punteada) que $r_z$. En comparación a AM/MA, $r_z$ tiende a sobreestimar la estacionariedad mientras que $r$ tiende a subestimarla, aunque en menor medida. 
-
-En principio hablar de sub o sobreestimar no es del todo correcto, ya que, en principio, también podría decirse que tanto $r$ como AM/MA sobreestiman la estacionariedad en comparación a $r_z$. Sin emabrgo, en la literatura dice que $r$ tiende a subestimar la correlación poblacional mientras que $r_z$ tiende a sobreestimarla, algo que es consistente con lo que se observa en la Figura 4. Sin embargo, la literatura dice que el sesgo de $r_z$ es *menor* que el sesgo de $r$ y esto no se cumple en este caso *asumiento que AM/MA representa la correlación verdadera*.
-
-Un problema es que, a diferencia de AM/MA que es no negativa por construcción, tanto $r$ como $r_z$ puede tomar valores negativos (marcados con puntos negros en la Figura 4) que no son fáciles de interpretar. La interpretación más consistente, en mi opinión, es que se trata de correlaciones poblacionales nulas o muy pequeñas que son negativas por variabilidad en el sampleo. 
-
-Observando los campos (Figura 5), es notable que $r_z$ es más *ruidoso* que $r_z$, especialmente en regiones con baja estacionariedad. Supuestamente esto también está reflejado en la literatura, que dice que $r_z$ tiene mayor varianza. 
-
-```{r cormap, fig.cap = "$r$ en color, $r_z$ en contornos"}
-ggplot(cormap, aes(lat, lev)) +
-   geom_contour_fill(aes(z = r), breaks = MakeBreaks(binwidth.stat)) +
-   geom_contour_tanaka(aes(z = r_z), breaks = MakeBreaks(binwidth.stat), linetype = 1) +
-   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
-                        option = "D",
-                        breaks = MakeBreaks(binwidth.stat)) +
-   scale_y_level() +
-   scale_x_latitude(trans = "reverse") +
    facet_wrap(~season)
 ```
 
+En la Figura \ref{fig:amoma} se ve que AMOMA (en sombreado) y ASD (contornos) coindicen a grandes razgos aunque este último es más ruidoso y provee menos detalle (menos contornos) en regiones con mucha estacionariedad. Punto a punto (Figura \ref{fig:amoma-asd}) se ve que aunque en promedio hay buen acuerdo entre ambas medidas, existe mucha variabilidad y ésta es mayor en áreas con mayor estacionariedad (parte derecha del gráfico). La variabilidad es tan gránde que las zonas con menor estacionariedad según ASD coinciden con áreas de mayor estacionariedad según ASD (cuadrante superior derecho)
 
-Lo bueno de esta medida es que puede aplicarse a meses individuales y analizar la variabilidad temporal. Por ejemplo, la tendencia lineal (Figura 6 y Figura 7).
-
-```{r cor-ts, fig.cap = "Mean correlation for latitude between 65°S and 40°S and level between 100hPa 700hPa.", fig.height=3}
-ggplot(cor.ts, aes(time, tanh(cor.z))) + 
-   geom_hline(yintercept = 0, size = 0.5) +
-   geom_line(color = "gray") + 
-   # geom_line(aes(y = tanh(cor.z.max)), color = "red") +
-   geom_smooth(span = 0.25, se = F, color = "black") +
-   geom_smooth(method = "lm") +
-   scale_y_continuous("Stationarity", trans = "atanh",
-                      breaks = pm(c(seq(0, 1, by = 0.2), 0.9, 0.95, 0.99, 0.99))) 
+```{r amoma-asd, fig.cap = "Relationship between ASD and AMOMA.", fig.height=3}
+asd[amoma, on = c("lat", "lev", "season")] %>% 
+   ggplot(aes(amoma, asd)) +
+   geom_point(size = 0.5, alpha = 0.2) +
+   scale_x_continuous("AMOMA") +
+   scale_y_continuous("ASD") 
 ```
 
+Curiosamente, con 108 meses el mínimo valor de AMOMA debería ser $\sim `r round(1/2*sqrt(pi/108), 3)`$, sin embargo en los datos es `r round(amoma[, min(amoma, na.rm = TRUE)], 3)`, indicando que algo falla con mi "demostración" empírica.
 
-```{r regr-cor, fig.cap = "Linear regression estimate for stationarity (correlation per decade)."}
-rect.annotation <- data.frame(latmin = -65, latmax = -40,
-                              levmin = 100, levmax = 700, 
-                              k = 3)
-regr.season[term == "year"] %>% 
-   ggplot(aes(lat, lev)) + 
-   geom_contour_fill(aes(z = tanh(estimate)), breaks = AnchorBreaks(0, 0.01, 0)) +
-   geom_index.region(rect.annotation) +
-   # geom_contour2(aes(z = tanh(estimate))) +
-   stat_subset(aes(subset = abs(estimate)/std.error > 1.96), geom = "point",
-               size = 0.2) +
-   scale_y_level() + 
-   scale_fill_divergent(trans = "atanh", breaks = AnchorBreaks(0, 0.01, 0),
-                        guide = guide_colorstrip_bottom()) + 
-   scale_x_latitude(trans = "reverse") + 
-   facet_wrap(~season)
-```
+# Algunos resultados
 
-#### Críticas ex post facto
+## Campos espaciales
 
-Pensándo sobre esto, ¿tiene sentido usar la correlación como medida de estacionariedad a nivel mensual? Lo que estoy haciendo es básicamente comparando qué tan parecida es la onda mensual con la onda media de todo el período, pero no me dice si durante ese mes o los meses cercanos la onda se movió mucho o no. Aún una onda totalmente estacionaria "localmente" (en el tiempo) aparece como poco estacionaria si la onda medio de ese período está ubicada en un lugar distinto al promedio de todo el período general. 
+Mover los campos espaciales acá?
 
-### Correlación media pesada por la amplitud
+## Evolución temporal 
 
-Luego de reflexionarlo un poco más, me parece que la correlación media entre las ondas y la onda media tiene problemas conceptuales como medida de estacionariedad. Se puede demostrar matemáticamente que la correlación entre dos ondas con igual frecuencia es idéntica al coseno de la diferencia entre las fases. De ahí que esta medida tampoco esté teniendo en cuenta la relación entre amplitud y fase. Una onda de muy baja amplitud pero corrida 180° en fase con respecto a la onda media tiene la misma magnitud de correlación que una de alta amplitud y completamente en fase con la onda media y, por tanto, pesa lo mismo cuando se promedia. 
+La estacionariedad no puede estar definida para un mes en particular sino que sólo se define con respecto a una fase estacionaria que debe ser calculada para un determinado intervalo de tiempo. Lo más directo es usar todo el período, pero si interesa saber el nivel de estacionariedad en una década determinada, por ejemplo, se debe usar la fase estacionaria de esa década. Más aún, la fase estacionaria en realidad debe calcularse *para cada mes* por separado de manera de eliminar la influencia del ciclo anual. 
 
-Una forma de corregir eso es hacer un promedio pesado por la amplitud de la onda. Y ahora viene el chiste: hacer eso es idéntico a calcular AM/MA (queda en deuda la demostración matemática, pero se ve "empíricamente"). 
+```{r calc-ts}
+qs <- qs[, wave := as.wave(amplitude, phase, k)]
 
-Con esto, creo que se justifica la decisión del AM/MA de forma más sólida y que es un muy buen candidato para la estacionariedad. 
-
-
-
-### Yapa: S a lo largo del tiempo
-
-Concluyo que la estacionariedad no puede estar definida para un mes en particular sino que sólo se define con respecto a un intervalo de tiempo sobre el cual se hace el promedio que se correlaciona con las ondas individuales. Lo más directo es usar todo el período, pero si interesa saber el nivel de estacionariedad en una década determinada, por ejemplo, se debe usar el promedio de esa década. Más aún, la correlación de cada campo mensual debe hacerse con el promedio del período *de ese mes* para que el ciclo anual no aparezca como una no estacionariedad.
-
-El procedimiento para calcular la estacionariedad es calcular la onda media de cada mes durnate el período, calcular la correlación[^1] de cada onda con su promedio correspondiente y finalmente hacer un promedio pesado por la amplitud de cada onda. Para obtener una serie temporal se aplica este procedimiento con una ventana de tiempo móvil (por ejemplo, de 5 años).
-
-[^1]: Es computacionalmente más eficiente y exacto calcular el coseno de la diferencia de fase en vez de la correlación de campos. 
-
-```{r}
-sum.waves <- function(amplitudes, phases, k = 1) {
-   phases <- -k[1]*phases + pi/2
-   i <- 1i
-   waves <- sum(amplitudes*exp(i*phases))
-   amplitude <- Mod(waves)
-   phase <- -(Arg(waves) - pi/2)/k[1]
-   
-   return(list(amplitude = amplitude,
-     phase = phase,
-     k = k[1]))
-}
-
-mean.waves <- function(amplitudes, phases, k = 3) {
-   wave <- sum.waves(amplitudes, phases, k)
-   wave$amplitude <- wave$amplitude/length(amplitudes)
-   wave
-}
-```
-
-```{r}
-wave.stationarity <- function(waves, group = 1, method = c("AM/MA")) {
-   # waves es una lista con amplitudes, phases, y kes
-   # method AM/MA
-   waves <- transpose(waves)
-   names(waves) <- c("amplitude", "phase", "k")
-   waves <- as.data.table(waves)
-   
-   if (length(group) == 1) group <- rep(group, nrow(waves))
-   waves[, group := group]
-   
-   waves[, phase_of_mean := mean.waves(amplitude, phase, k[1])$phase, 
-      by = group]
-   
-   waves[, cor := cor.waves(phase, phase_of_mean, k)]
-   waves[, weighted.mean(cor, amplitude)]
-}
-```
-
-Eso es lo que se muestra en la Figura 8 para 55°S y 200hPa. Es intersante que a pesar de usar definiciones ligeramente distintas y tener los cuidados mecionados en los párrafos anteriores, se consigue un patrón muy similar al de la línea suave de la Figura 6 (que se muestra en gris en la Figura 8). Una tendencia a la baja con mínimos locales en los 90, mediados de 2010 y máximo a principios de los 2000. 
-
-```{r amma, fig.cap = "Stationarity (mean wigthed correlation) computed in a 5 year rolling window (black) and smoothed correlation (gray)."}
-qswaves <- ncep[, FitWave(gh, 3), by = .(lat, time, lev)] 
-qswaves[, wave := transpose(list(amplitude = amplitude, 
-                                    phase = phase, 
-                                    k = k))]
 w <- 12*5 + 1 
 m <- rep(1:12, length.out = 61)
-S <- qswaves %>% 
+
+mean.phase <- function(waves) {
+   waves <- transpose(waves)
+   names(waves) <- c("amplitude", "phase", "k")
+   
+   with(waves, mean.wave(amplitude, phase, k))$phase
+}
+
+qs[, phase.stat := listapply(wave, 5, mean.phase), by = .(month(time), lat, lev)]
+
+S <- qs %>% 
    # .[lat %between% c(-65, 40) & lev %between% c(100, 700)] %>%
     .[lat == -55 & lev == 200] %>%
-   .[, S := listapply(wave, w, wave.stationarity, group = m), 
-        by = .(lat, lev)]
-
-ggplot(S, aes(time, S)) +
-   geom_smooth(aes(y = tanh(cor.z)), size = 0.5, span = 0.25, 
-               se = F, color = "gray", data = cor.ts) +
-   geom_line()  +
-   geom_smooth(method = "lm", color = "black") +
-   scale_y_continuous(trans = "atanh")
+   .[, amoma := listapply(wave, w, stationarity.wave), 
+        by = .(lat, lev)] %>% 
+   .[, asd := listapply(wave, w, stationarity.wave, method = "asd"),
+     by = .(lat, lev)]
 ```
 
+
+```{r ts, fig.cap = "Stationarity as meassured by AMOMA and ASD at 55°S and 200hPa"}
+S[, .(time, AMOMA = amoma, ASD = asd)] %>% 
+   melt(id.vars = "time") %>% 
+ggplot(aes(time, value)) +
+   geom_line()  +
+   # geom_line(aes(y = asd)) +
+   geom_smooth(method = "lm", color = "black") +
+   scale_y_continuous("Stationarity")  +
+   facet_wrap(~variable, scales = "free_y", ncol = 1)
+```
+
+
+La Figura \ref{fig:ts} muestra la serie temporal de estacionariedad según los dos métodos se en 55°S y 200hPa con una ventana móvil de 5 años. Es notorio que ambas variables coinciden en gran medida (recordar que un valor mayor de ASD implica una menor estacionariedad). Una tendencia a la baja con mínimos locales en los 90, mediados de 2010 y máximo a principios de los 2000. 

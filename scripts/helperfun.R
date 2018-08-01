@@ -914,14 +914,14 @@ slide_apply <- function (data, window, step = 1, fun)
    return(result)
 }
 
-cor.waves <- function(phi1, phi2, k = 3) {
+cor.wave <- function(phi1, phi2, k = 3) {
    a1 <- -phi1*k 
    a2 <- -phi2*k 
    
    cos(a1 - a2)
 }
 
-sum.waves <- function(amplitudes, phases, k = 1) {
+sum.wave <- function(amplitudes, phases, k = 1) {
    phases <- -k[1]*phases + pi/2
    i <- 1i
    waves <- sum(amplitudes*exp(i*phases))
@@ -933,20 +933,39 @@ sum.waves <- function(amplitudes, phases, k = 1) {
                k = k[1]))
 }
 
-mean.waves <- function(amplitudes, phases, k = 3) {
-   wave <- sum.waves(amplitudes, phases, k)
+mean.wave <- function(amplitudes, phases, k = 3) {
+   wave <- sum.wave(amplitudes, phases, k)
    wave$amplitude <- wave$amplitude/length(amplitudes)
    wave
 }
 
-wave.stationarity <- function(waves, method = c("AM/MA")) {
+stationarity.wave <- function(waves, phi.s = NULL, method = c("amoma", "asd")) {
    # waves es una lista con amplitudes, phases, y kes
    # method AM/MA
    waves <- transpose(waves)
    names(waves) <- c("amplitude", "phase", "k")
-   AM <- with(waves, mean.waves(amplitude, phase, k[1]))$amplitude
-   MA <- mean(waves$amplitude) 
-   AM/MA
+   
+   if (is.null(phi.s)) {
+      phi.s <- with(waves, mean.wave(amplitude, phase, k[1]))$phase
+   }
+   
+   w <- with(waves, amplitude/sum(amplitude))
+   if (method[1] == "amoma") {
+      s <- weighted.mean(cor.wave(waves$phase, phi.s, waves$k), w)
+   }
+   
+   if (method[1] == "asd") {
+      waves$phase <- circular::circular(waves$phase*3, modulo = "2pi")
+      phi.s <- circular::circular(phi.s*3, modulo = "2pi")
+      
+      s <- sqrt(as.numeric(mean(w*(waves$phase - phi.s)^2)))
+      if (!is.finite(s)) s <- 0
+   }
+   return(s)
+}
+
+as.wave <- function(amplitude, phase, k) {
+   data.table::transpose(list(amplitude = amplitude, phase = phase, k = k))
 }
 
 listapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
@@ -960,5 +979,5 @@ listapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
    
    OUT <- lapply(SEQ2, function(a) FUN(x[a], ...))
    OUT <- base:::simplify2array(OUT, higher = TRUE)
-   return(c(rep(fill, w/2), OUT, rep(fill, w/2)))
+   return(c(rep(fill, width/2), OUT, rep(fill, width/2)))
 }
