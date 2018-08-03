@@ -873,7 +873,7 @@ xy2lonlat <- function(x, y) {
    
    proj <- "+proj=stere +lat_0=-90 +lat_ts=-70 +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs"
    datau[, c("lon", "lat") := proj4::project(list(x1, y1), proj = proj, 
-                                               inverse = TRUE)]
+                                             inverse = TRUE)]
    datau[, lon := ConvertLongitude(lon, from = 180)]
    
    as.list(datau[data, on = c("x", "y")][, .(lon, lat)])
@@ -893,23 +893,22 @@ meanfun <- function(x, group, fun, ...) {
 qs3.index <- function(gh, lat, lev, lats.index =  c(-65, -40), levs.index = c(100, 700)) {
    dt <- data.table(gh, lat, lev)
    dt[lat %between% lats.index & 
-      lev %between% levs.index][
-      , FitWave(gh, 3), by = .(lat, lev)][
-      , phase := circular(phase*3, modulo = "2pi")][
-      , .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
+         lev %between% levs.index][
+            , FitWave(gh, 3), by = .(lat, lev)][
+               , phase := circular(phase*3, modulo = "2pi")][
+                  , .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
 }
 
 
-slide_apply <- function (data, window, step = 1, fun) 
-{
+slide_apply <- function (data, window, step = 1, fun) {
    fun <- match.fun(fun)
-   total <- length(data)
+   total <- nrow(data)
    window <- abs(window)
    spots <- seq(from = 1, to = (total - window + 1), by = abs(step))
    result <- rep(NA, length(spots))
    for (i in 1:length(spots)) {
       result[window + i - 1] <- fun(data[spots[i]:(spots[i] + 
-                                                      window - 1)])
+                                                      window - 1), ])
    }
    return(result)
 }
@@ -923,10 +922,11 @@ cor.wave <- function(phi1, phi2, k = 3) {
 
 sum.wave <- function(amplitudes, phases, k = 1) {
    phases <- -k[1]*phases + pi/2
-   i <- 1i
-   waves <- sum(amplitudes*exp(i*phases))
-   amplitude <- Mod(waves)
-   phase <- -(Arg(waves) - pi/2)/k[1]
+   
+   R <- sum(amplitudes*cos(phases))
+   I <- sum(amplitudes*sin(phases))
+   phase <- -(atan2(I, R) - pi/2)/k[1]
+   amplitude <- sqrt(R^2 + I^2)
    
    return(list(amplitude = amplitude,
                phase = phase,
@@ -939,34 +939,114 @@ mean.wave <- function(amplitudes, phases, k = 3) {
    wave
 }
 
-stationarity.wave <- function(waves, phi.s = NULL, method = c("amoma", "asd")) {
-   # waves es una lista con amplitudes, phases, y kes
-   # method AM/MA
-   waves <- transpose(waves)
-   names(waves) <- c("amplitude", "phase", "k")
+mean.phase <- function(amplitudes, phases, k = 3) {
+   phases <- -k[1]*phases + pi/2
+   R <- sum(amplitudes*cos(phases))
+   I <- sum(amplitudes*sin(phases))
+   -(atan2(I, R) - pi/2)/k[1]
    
-   if (is.null(phi.s)) {
-      phi.s <- with(waves, mean.wave(amplitude, phase, k[1]))$phase
+}
+
+# stationarity.wave <- function(waves, phi.s = NULL, method = c("amoma", "avar")) {
+#    # waves es una lista con amplitudes, phases, y kes
+#    # method AM/MA
+#    waves <- transpose(waves)
+#    names(waves) <- c("amplitude", "phase", "k")
+#    
+#    if (is.null(phi.s)) {
+#       phi.s <- with(waves, mean.wave(amplitude, phase, k[1]))$phase
+#    }
+#    
+#    w <- with(waves, amplitude/sum(amplitude))
+#    if (method[1] == "amoma") {
+#       s <- weighted.mean(cor.wave(waves$phase, phi.s, waves$k), w)
+#    }
+#    
+#    if (method[1] == "avar") {
+#       # waves$phase <- circular::circular(waves$phase*waves$k, modulo = "2pi")
+#       # phi.s <- circular::circular(phi.s*waves$k[1], modulo = "2pi")
+#       
+#       s <- mean(w*(acos(cos(waves$phase - phi.s))^2))/waves$k[1]
+#       if (!is.finite(s)) s <- 0
+#    }
+#    return(s)
+# }
+
+stationarity.wave <- function(waves, group = NULL, method = c("amoma", "avar")) {
+   if (is.null(group)) {
+      waves$phi.s <- with(waves, mean.phase(amplitude, phase, k[1]))
+   } else {
+      group <- deparse(substitute(group))
+      waves[, phi.s := mean.phase(amplitude, phase, k[1]), by = group]
    }
-   
-   w <- with(waves, amplitude/sum(amplitude))
+
    if (method[1] == "amoma") {
-      s <- weighted.mean(cor.wave(waves$phase, phi.s, waves$k), w)
+      dif <- with(waves, cos(k*(phase - phi.s)))
    }
    
-   if (method[1] == "asd") {
-      waves$phase <- circular::circular(waves$phase*3, modulo = "2pi")
-      phi.s <- circular::circular(phi.s*3, modulo = "2pi")
-      
-      s <- sqrt(as.numeric(mean(w*(waves$phase - phi.s)^2)))
-      if (!is.finite(s)) s <- 0
+   if (method[1] == "avar") {
+      dif <- with(waves, acos(cos(k*(phase - phi.s)))^2)
    }
+   s <- weighted.mean(dif, waves[["amplitude"]])
    return(s)
 }
 
-as.wave <- function(amplitude, phase, k) {
-   data.table::transpose(list(amplitude = amplitude, phase = phase, k = k))
+
+stationarity.wave2 <- function(waves, method = c("amoma", "avar")) {
+   # waves es una lista con amplitudes, phases, y kes
+   # method AM/MA
+   waves <- transpose(waves)
+   if (length(waves) == 3) {
+      names(waves) <- c("amplitude", "phase", "k")
+      waves$phi.s <- with(waves, mean.phase(amplitude, phase, k))
+   } else {
+      names(waves) <- c("amplitude", "phase", "k", "phi.s")
+   }
+   
+   # setDT(waves)
+
+   if (method[1] == "amoma") {
+      dif <- with(waves, cos(k*(phase - phi.s)))
+   }
+   
+   if (method[1] == "avar") {
+      dif <- with(waves, acos(cos(k*(phase - phi.s)))^2)
+   }
+   s <- weighted.mean(dif, waves[["amplitude"]])
+   return(s)
 }
+
+as.wave <- function(amplitude, phase, k, ...) {
+   data.table::transpose(list(amplitude = amplitude, phase = phase, k = k, ...))
+}
+
+dtapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
+   FUN <- match.fun(FUN)
+   if (is.null(by)) by <- width
+   if (width %% 2 == 0) stop("width must be odd")
+   
+   if (is.data.frame(x)) {
+      lenX <- nrow(x)
+   } else if (is.list(x)) {
+      lenX <- length(x[[1]])
+   } else {
+      lenX <- length(x)
+   }
+   
+   if (lenX < width) {
+      warning("width is longer than length(x), returning NA")
+      return(NA)
+   }
+   
+   SEQ1 <- seq(1, lenX - width + 1, by = by)
+   SEQ2 <- lapply(SEQ1, function(x) x:(x + width - 1))
+   
+   OUT <- lapply(SEQ2, function(a) FUN(x[a], ...))
+   OUT <- base:::simplify2array(OUT, higher = TRUE)
+   fill <- rep(fill[1], (width - 1)/2)
+   return(c(fill, OUT, fill))
+}
+
 
 listapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
    FUN <- match.fun(FUN)
@@ -974,10 +1054,17 @@ listapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
    if (width %% 2 == 0) stop("width must be odd")
    
    lenX <- length(x)
+   
+   if (lenX < width) {
+      warning("width is longer than length(x), returning NA")
+      return(NA)
+   }
+   
    SEQ1 <- seq(1, lenX - width + 1, by = by)
    SEQ2 <- lapply(SEQ1, function(x) x:(x + width - 1))
    
    OUT <- lapply(SEQ2, function(a) FUN(x[a], ...))
    OUT <- base:::simplify2array(OUT, higher = TRUE)
-   return(c(rep(fill, width/2), OUT, rep(fill, width/2)))
+   fill <- rep(fill, (width -1 )/2)
+   return(c(fill, OUT, fill))
 }
