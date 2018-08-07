@@ -1016,6 +1016,7 @@ stationarity.wave2 <- function(waves, method = c("amoma", "avar")) {
    return(s)
 }
 
+
 as.wave <- function(amplitude, phase, k, ...) {
    data.table::transpose(list(amplitude = amplitude, phase = phase, k = k, ...))
 }
@@ -1067,4 +1068,10 @@ listapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
    OUT <- base:::simplify2array(OUT, higher = TRUE)
    fill <- rep(fill, (width -1 )/2)
    return(c(fill, OUT, fill))
+}
+
+tanh_trans <- function() {
+   scales::trans_new("tanh", 
+      transform = tanh,
+      inverse = atanh)
 }

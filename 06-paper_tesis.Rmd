@@ -193,6 +193,7 @@ ncep <- ncep.f()
 
 ### Selección de figuras para paper
 
+---
 
 ```{r calc-fourier1}
 rect.annotation <- data.frame(latmin = -65, latmax = -40,
@@ -206,7 +207,7 @@ ncep.qs <- ncep[, meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
 
 
 
-```{r ampl-ncep, fig.cap = "Stationarity of QS3 (shaded, defined in text) and fourier amplitude of geopotential height (contours)."}
+```{r ampl-ncep, fig.cap = "Stationarity of QS3 (shaded, defined in text) and fourier amplitude of the mean zonal wave 3 (contours)."}
 binwidth.ampl <- 10
 binwidth.stat <- 0.1
 ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
@@ -252,7 +253,7 @@ The amplitude of QS3 achieves it's maximum at near 200hPa and 50°S in all seaso
 
 :::
 
-```{r}
+```{r, fig.cap = "Stationarity of QS3 (shaded, defined in text) and mean amplitude of the zonal wave 3."}
 binwidth.ampl <- 10
 binwidth.stat <- 0.1
 ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
@@ -301,6 +302,12 @@ copy(index) %>%
     #              format = "markdown") %>% 
    identity()
 ```
+
+::: notes
+
+Percent 
+
+:::
 
 
 ```{r calc-gh3-season}
@@ -410,7 +417,7 @@ gh.reg <- ncep[lev == 200][index, on = "time"] %>%
 ```
 
 
-```{r regr-psi-ncep, fig.cap = "Regresión de altura geopotential en 200hPa con el índice de QS3 estandarizado y flujos de actividad de onda calculados a partir de la regresión de psi con A3 estandarizado en sigma = 0.2101."}
+```{r regr-psi-ncep, fig.cap = "Regression of 200hPa geopotential height and QS3 standarized index, and wave acivity flux computed from regression of 0.201 sigma."}
 months <- 1:12 # c(1, 3, 4, 7, 8, 12)
 binwidth <- 10
 stream.g <- stream.reg[lat <= 0 & month %in% months] 
@@ -438,11 +445,8 @@ ggplot(gh.g, aes(lon, lat)) +
 
 ::: notes
 
-All months show evidence of planetary wave 3 activity, but with considerable heterogeneity in its characteristics. In months, like January, September and December, zonal wave 3 is related to a wave train emanating from the tropical western Pacific and propagating to the southeast and then turning to the northeast. 
+All months show evidence of planetary wave 3 activity, but with considerable heterogeneity in its characteristics. In January, September and December, zonal wave 3 is related to a wave train emanating from the tropical western Pacific propagating to the southeast and then turning to the northeast. 
 
-
-
-En la \autoref{fig:regr-gh-ncep} se muestra la regresión del campo de Z en 300hPa con $A_3$ para los doce meses del año. Si bien todos presentan evidencias visibles de la actividad de la QS3, presentan también mucha heterogeneidad en las características observadas en los distintos meses. 
 
 En enero, se observa un patrón hemisférico de onda 3, con un centro anómalamente negativo importante en el Pacífico sudeste, embebido además en un tren de ondas extendido entre el este de Nueva Zelanda, y Sudamérica. En febrero, la estructura se mantiene similar, pero con menor evidencia de propagación meridional, y el centro anticiclónico en Sudamérica intensificado y un debilitamiento de aquel ubicado al sur del Índico. En marzo, la estructura de onda 3 exhibe mínima variación meridional y ocupa todo el círculo de latitud entre 60°S y 45°S. Abril es similar a marzo, pero sin centros ciclónicos significativos. En mayo, se distingue nuevamente un tren de ondas con propagación meridional, emanando desde Australia, pero con evidencias de reflexión en el Mar de Weddell. Junio, al igual que marzo, presenta una estructura de QS3 zonal, pero menos definida y, consistente con el corrimiento de la fase observado (\autoref{fase}), con los centros ciclónicos y anticiclónicos desplazados hacia el oeste.
 
