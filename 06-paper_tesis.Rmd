@@ -456,7 +456,7 @@ ncep[lev == 200 & lat < 0] %>%
    scale_fill_divergent() +
    scale_s_map() +
    coord_quickmap() +
-   facet_wrap(~o, ncol = 1) -> g
+   facet_grid(o~.) -> g
 
 g + geom_contour_fill(aes(z = gh.z))  +
    map.SH + 
