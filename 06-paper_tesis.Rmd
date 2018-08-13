@@ -199,40 +199,39 @@ ncep <- ncep.f()
 rect.annotation <- data.frame(latmin = -65, latmax = -40,
                               levmin = 100, levmax = 700, 
                               k = 3)
-gh.season <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(time))]  
-ncep.qs <- ncep[, meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
-                by = .(lat, lev, season(time))]
-
+gh.season <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(time))] 
+ncep.qs <- ncep[lat != -90, FitWave(gh, 1:3), by = .(lat, lev, time)] %>%
+   .[, c(mean.wave(amplitude, phase, k)[c("amplitude", "phase")],
+         mean.amplitude = mean(amplitude),
+         amoma = stationarity.wave2(as.wave(amplitude, phase, k))),
+        by = .(lat, lev, season(time), k)]
 ```
 
 
 
-```{r ampl-ncep, fig.cap = "Stationarity of QS3 (shaded, defined in text) and fourier amplitude of the mean zonal wave 3 (contours)."}
+```{r ampl-ncep, fig.cap = "Fourier amplitude of the mean zonal wave 3 (contours)."}
+qs.lab <- AddPreffix("QS")
+
 binwidth.ampl <- 10
 binwidth.stat <- 0.1
+breaks <- 2^seq(0, log2(650), by = 1)
 ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
-   geom_contour_fill(aes(z = fun.mean/mean.fun), breaks = MakeBreaks(binwidth.stat),
-                     na.rm = TRUE) + 
-   geom_contour2(aes(z = fun.mean/mean.fun), breaks = 0.5, linetype = 2) +
-   geom_contour2(aes(z = fun.mean), binwidth = binwidth.ampl) +
-   geom_text_contour(aes(z = fun.mean), color = "black", 
-                     binwidth = binwidth.ampl,
-                     stroke.color = "#2B828C", stroke = 0.15) +
+   geom_contour_fill(aes(z = amplitude), breaks = breaks) + 
+   # geom_text_contour(aes(z = amplitude), color = "black", 
+   #                   binwidth = binwidth.ampl,
+   #                   stroke.color = "#2B828C", stroke = 0.15) +
    surface +
-   geom_index.region(rect.annotation) +
-   # scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
-   #                      trans = "log2",
-   #                      breaks = breaks,
-   #                      labels = round(breaks, 1),
-   #                      guide = guide_colorstrip_bottom(),
-   #                      option = "D") +
-   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
-                        option = "D",
-                        breaks = MakeBreaks(binwidth.stat)) +
+   # geom_index.region(rect.annotation) +
+    scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
+                         trans = "log2",
+                         breaks = breaks,
+                         labels = round(breaks, 1),
+                         guide = guide_colorstrip_bottom(),
+                         option = "D") +
    scale_y_level(breaks = lev.breaks) +
    scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
    coord_latlev() +
-   facet_wrap( ~ season) 
+   facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
 ```
 
 ```{r calc-index}
@@ -251,61 +250,9 @@ The amplitude of wave 3 can be computed via Fourier decomposition of the mean se
 
 The amplitude of QS3 achieves it's maximum at near 200hPa and 50°S in all seasons but with important changes in it's vertical extent. During austral winter and autum, wave 3 amplitude extends up to the higest model levels while it remains restricted to the stratosphere during spring and summer. In general, the high amplitudes are colocated with areas of high stationarity, although this metric is maximized at lower levels with the exception of spring. While the mean wave amplitude during this season is high (not shown), stationarity is low in the midlatitudes and specially in the high stratosphere. This is due primarily by the behaviour during november, when high phase variance means that wave 3 cannot be considered stationary. 
 
-:::
-
-```{r, fig.cap = "Stationarity of QS3 (shaded, defined in text) and mean amplitude of the zonal wave 3."}
-binwidth.ampl <- 10
-binwidth.stat <- 0.1
-ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
-   geom_contour_fill(aes(z = fun.mean/mean.fun), breaks = MakeBreaks(binwidth.stat),
-                     na.rm = TRUE) + 
-   geom_contour2(aes(z = fun.mean/mean.fun), breaks = 0.5, linetype = 2) +
-   geom_contour2(aes(z = mean.fun), binwidth = binwidth.ampl) +
-   geom_text_contour(aes(z = mean.fun), color = "black", 
-                     binwidth = binwidth.ampl,
-                     stroke.color = "#2B828C", stroke = 0.15) +
-   surface +
-   geom_index.region(rect.annotation) +
-   # scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
-   #                      trans = "log2",
-   #                      breaks = breaks,
-   #                      labels = round(breaks, 1),
-   #                      guide = guide_colorstrip_bottom(),
-   #                      option = "D") +
-   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
-                        option = "D",
-                        breaks = MakeBreaks(binwidth.stat)) +
-   scale_y_level(breaks = lev.breaks) +
-   scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
-   coord_latlev() +
-   facet_wrap( ~ season) 
-```
-
 ::: notes
 
 Esta figura es igual que la anterior pero en contornos pone la media de la amplitud en vez de la amplitud de la onda media. No sé cuál de las dos poner. 
-
-:::
-
-
-```{r destructive}
-copy(index) %>% 
-    .[, meanphase := mean(phase*3)/3, by = month(time)] %>% 
-    .[, interf := as.numeric(phase - meanphase)] %>% 
-    .[, .(percent_destructive = mean(abs(interf) %between% (c(1/3, 2/3)*120*pi/180))*100,
-          phase_sd = sd.circular(phase*3)*180/pi/3),
-          by = season(time)] %>% 
-   
-    # knitr::kable(caption = "Porcentaje de meses con interferencia destructiva",digits = 3,
-    #              col.names = c("Season", "Proportion of \ndestructive interference",
-    #                            "Phase standard deviation"),
-    #              format = "markdown") %>% 
-   identity()
-```
-
-::: notes
-
-Percent 
 
 :::
 
@@ -368,8 +315,8 @@ ggplot(index, aes(factor(month(time)), amplitude)) +
    # geom_violin() +
    geom_boxplot(outlier.alpha = 0, fill = "gray95") +
    geom_sina(alpha = 0.5, size = 0.7) +
-   scale_x_discrete(name = "Mes", labels = month.abb) +
-   scale_y_continuous(name = "Amplitud") +
+   scale_x_discrete(name = "Month", labels = month.abb) +
+   scale_y_continuous(name = "Amplitude") +
    theme(panel.grid.major.x = element_blank())
 ```
 
@@ -380,6 +327,144 @@ ZW3 activiy exhibits a clear annual cycle with higher amplitude during the austr
 As suggested previously, the low amplitude of QS3 wave in spring is not due to a reduction in the amplitude of the planetary wave 3 but to its reduced stationarity. 
 
 :::
+
+
+```{r fase-boxplot, fig.cap = "Phase of the mean wave for each month and $\\pm$ 1 standrad deviation (black dots and error bars). In red and blue, phase of the most intense 20 events for each month, representing the location of the ridge and throuht respectively.", fig.class = "fullpage"}
+lat.lims <- c(-60, -22)
+lon.lims <- c(240, 360)
+
+map.data.arg <- BuildMap(countries = T) %>% 
+   .[lat %between% c(lat.lims + c(0, 10)) & long %between% lon.lims]
+map.data.nz <- BuildMap(countries = T) %>% 
+   .[lat %between% (lat.lims + c(0, 10)) & 
+     long %between% (lon.lims - 120 + c(-10, 0))] %>% 
+   .[, long := long + 120] %>% 
+   .[, lat := lat]
+
+map.arg <- geom_polygon(data = map.data.arg, aes(long, lat, group = group),
+                        fill = "gray70", color = "white", size = 0.1,
+                        inherit.aes = F)
+
+map.nz <- geom_polygon(data = map.data.nz, aes(long, lat, group = group),
+                        fill = "gray90", color = "black", size = 0.1,
+                       inherit.aes = F)
+
+nudge <- 0.54
+size <- 2
+
+index <- index[, phase.c := circular(phase*3, modulo = "2pi")]
+index %>% 
+   # group_by(month = month(time)) %>% 
+   # # filter(greater(amplitude, 20)) %>% 
+   # as.data.table() %>% 
+   .[, .(phase = mean.wave(amplitude, phase, 3)$phase,
+         phase.sd = sd.circular(phase.c)/3),
+     by = .(month(time))] %>% 
+   ggplot(aes(y = (-month + 6)*2.7 - 45)) +
+   map.arg +
+   map.nz +
+   geom_point(data = index %>% 
+                 group_by(month = month(time)) %>% 
+                 filter(greater(amplitude, 20)), 
+              aes(phase*180/pi +240),
+              alpha = 0.8, size = size, color = "red",
+              position = position_nudge(y = -nudge)) +
+   geom_point(data = index %>%
+                 group_by(month = month(time)) %>%
+                 filter(greater(amplitude, 20)),
+              aes(ifelse(phase*180/pi + 240 - 60 < 240, NA,
+                         phase*180/pi + 240 - 60)),
+              alpha = 0.8, size = size+1, color = "blue",
+              shape = 18,
+              position = position_nudge(y = nudge)) +
+   geom_point(data = index %>% 
+                 group_by(month = month(time)) %>% 
+                 filter(greater(amplitude, 20)), 
+              aes(ifelse(phase*180/pi + 240 + 60 > 360, NA,
+                         phase*180/pi + 240 + 60)),
+              alpha = 0.8, size = size+1, color = "blue", 
+              shape = 18,
+              position = position_nudge(y = nudge)) +
+   geom_point(aes(phase*180/pi + 240)) +
+   geom_errorbarh(aes(xmin = (phase*180/pi + 240 - phase.sd*180/pi), 
+                      xmax = (phase*180/pi + 240 + phase.sd*180/pi))) +
+   geom_errorbarh(aes(xmin = (phase*180/pi + 240 - phase.sd*180/pi) + 120, 
+                      xmax = (phase*180/pi + 240 + phase.sd*180/pi) + 120)) +
+   geom_vline(xintercept = c(240, 360), linetype = 3) +
+
+   scale_x_longitude(ticks = 20, name = "Longitude \n (South America)", 
+                     sec.axis = sec_axis(~ .-120, name = "Longitude \n (New Zealand)",
+                                         labels = LonLabel)) +
+   scale_y_continuous(breaks = (-(1:12) + 6)*2.6 - 45, 
+                      minor_breaks = NULL,
+                      labels = month.abb_sp, 
+                      # limits = c(-70, -22),
+                      name = "Month", expand = c(0, 0)) +
+   coord_quickmap(xlim = lon.lims, ylim = c(-65, -25)) 
+# coord_map(projection = "mollweide", xlim = lon.lims, ylim = lat.lims)
+```
+
+
+```{r ampl-stat, fig.cap = "Mean wave amplitude (shaded) and stationarity (contours)." }
+binwidth.ampl <- 10
+binwidth.stat <- 0.1
+breaks <- 2^seq(0, log2(650), by = 1)
+ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
+   geom_contour_fill(aes(z = mean.amplitude), breaks = breaks) + 
+   geom_contour_tanaka(aes(z = amoma*10), breaks = MakeBreaks(1)) +
+   geom_text_contour(aes(z = amoma*10), breaks = c(7, 9), skip = 0, 
+                     rotate = FALSE, stroke = 0.1, stroke.color = "#2B828C") +
+   surface +
+   # geom_index.region(rect.annotation) +
+    scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
+                         trans = "log2",
+                         breaks = breaks,
+                         labels = round(breaks, 1),
+                         guide = guide_colorstrip_bottom(),
+                         option = "D") +
+   scale_y_level(breaks = lev.breaks) +
+   scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
+   coord_latlev() +
+   facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
+```
+
+
+```{r}
+m <- as.matrix(index[, .(amplitude/sd(amplitude), phase/sd(phase))])
+x <- dist(m) 
+
+ranks <- sort(c(x[x != 0]))
+
+x <- as.matrix(x)
+top10 <- lapply(1:10, function(i) as.numeric(which(x == ranks[i], arr.ind = TRUE)[1, ]))
+
+```
+
+
+```{r}
+similar <- rbindlist(lapply(c(1, 4), function(i) index[top10[[i]]]))
+
+similar[, o := factor(as.character(time), ordered = TRUE, 
+                          levels = as.character(time))]
+
+ncep[lev == 200 & lat < 0] %>% 
+   .[, gh.a := Anomaly(gh), by = .(lon, lat, month(time))] %>% 
+   .[time %in% similar$time] %>%
+   .[similar[, .(time, o)], on = "time"] %>% 
+   .[, gh.z := FilterWave(gh, c(-1,- 2, 0)), by = .(lat, time)] %>% 
+   ggplot(aes(lon, lat)) +
+   scale_fill_divergent() +
+   scale_s_map() +
+   coord_quickmap() +
+   facet_wrap(~o, ncol = 1) -> g
+
+g + geom_contour_fill(aes(z = gh.z))  +
+   map.SH + 
+
+g + geom_contour_fill(aes(z = gh.a))  +
+   map.SH 
+
+```
 
 
 ```{r read-psi}
@@ -451,3 +536,4 @@ All months show evidence of planetary wave 3 activity, but with considerable het
 En enero, se observa un patrón hemisférico de onda 3, con un centro anómalamente negativo importante en el Pacífico sudeste, embebido además en un tren de ondas extendido entre el este de Nueva Zelanda, y Sudamérica. En febrero, la estructura se mantiene similar, pero con menor evidencia de propagación meridional, y el centro anticiclónico en Sudamérica intensificado y un debilitamiento de aquel ubicado al sur del Índico. En marzo, la estructura de onda 3 exhibe mínima variación meridional y ocupa todo el círculo de latitud entre 60°S y 45°S. Abril es similar a marzo, pero sin centros ciclónicos significativos. En mayo, se distingue nuevamente un tren de ondas con propagación meridional, emanando desde Australia, pero con evidencias de reflexión en el Mar de Weddell. Junio, al igual que marzo, presenta una estructura de QS3 zonal, pero menos definida y, consistente con el corrimiento de la fase observado (\autoref{fase}), con los centros ciclónicos y anticiclónicos desplazados hacia el oeste.
 
 :::
+

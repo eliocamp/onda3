@@ -893,10 +893,10 @@ meanfun <- function(x, group, fun, ...) {
 qs3.index <- function(gh, lat, lev, lats.index =  c(-65, -40), levs.index = c(100, 700)) {
    dt <- data.table(gh, lat, lev)
    dt[lat %between% lats.index & 
-         lev %between% levs.index][
-            , FitWave(gh, 3), by = .(lat, lev)][
-               , phase := circular(phase*3, modulo = "2pi")][
-                  , .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
+      lev %between% levs.index] %>% 
+      .[, FitWave(gh, 3), by = .(lat, lev)] %>% 
+      .[, phase := circular(phase*3, modulo = "2pi")] %>% 
+      .[, .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
 }
 
 
@@ -973,6 +973,8 @@ mean.phase <- function(amplitudes, phases, k = 3) {
 # }
 
 stationarity.wave <- function(waves, group = NULL, method = c("amoma", "avar")) {
+   waves <- transpose(waves)
+   names(waves) <- 
    if (is.null(group)) {
       waves$phi.s <- with(waves, mean.phase(amplitude, phase, k[1]))
    } else {
@@ -1006,11 +1008,11 @@ stationarity.wave2 <- function(waves, method = c("amoma", "avar")) {
    # setDT(waves)
 
    if (method[1] == "amoma") {
-      dif <- with(waves, cos(k*(phase - phi.s)))
+      dif <- with(waves, cos(k[1]*(phase - phi.s)))
    }
    
    if (method[1] == "avar") {
-      dif <- with(waves, acos(cos(k*(phase - phi.s)))^2)
+      dif <- with(waves, acos(cos(k[1]*(phase - phi.s)))^2)
    }
    s <- weighted.mean(dif, waves[["amplitude"]])
    return(s)
