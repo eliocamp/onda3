@@ -1,0 +1,160 @@
+---
+title: "Random walk"
+author: "Elio"
+date: "July 20, 2018"
+output: 
+   pdf_document
+urlcolor: blue
+bibliography: "99 - biblio.bib"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE, message = FALSE,
+                      out.extra = "", 
+                      cache.path = "cache/estacionariedad/",
+                      fig.path = "fig/estacionariedad/")
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(metR)
+library(magrittr)
+library(circular)
+library(RcppRoll)
+library(patchwork)
+
+source("scripts/helperfun.R")
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+```
+
+La idea es pensar una serie de ondas como vectores con amplitud y argumento. Sumar ondas equivale a sumar vectores. Esto es el método phasor. 
+
+Una serie de ondas estacionaria toda onda con amplitud no nula tiene la misma fase, lo cual equivale a sumar vectores en línea recta. Una serie de ondas aleatorias, por el contrario, equivale a sumar vectores con dirección aleatoria, es decir un random walk. El caso intermedio equivale a sumar vectores con una dirección aleatoria pero sesgada. Esto es un random walk con drift.
+
+Un random walk with drift es un proceso definido por 
+
+$$
+x_i^j = x_{i-a}^j + \epsilon_i^j + \alpha^j 
+$$
+
+Donde $x_i^j$ es es el valor de *j*ésima dimensión (1 y 2 en este caso) en el momento $i$, $\epsilon^j_i$, el error de la variable $j$ en el momento $i$ y $\alpha^j$ es el drift de la variable j. La Figura \ref{fig:random} muestra una realización de 40 pasos para distinto
+
+
+```{r}
+RandomWalk2D <- function(steps, drift.x = 0, drift.y = drift.x, x0 = 0, y0 = 0) {
+   x <- rnorm(steps-1) + drift.x
+   y <- rnorm(steps-1) + drift.y
+   M <- Mag(x, y)
+   
+   return(list(x = c(0, x/M), y = c(0, y/M)))
+}
+
+
+```
+
+```{r random}
+set.seed(42)
+rw <- data.table(drift = c(0, 5)) %>% 
+   .[, RandomWalk2D(40, drift.x = drift), by = drift] %>% 
+   .[, c("X", "Y") := lapply(.SD, cumsum), by = drift] %>% 
+   .[, n := 1:.N, by = drift]
+
+ggplot(rw, aes(X, Y)) +
+   geom_path() +
+   geom_point() +
+   geom_path(data = rw[n %in% c(1, max(n))], color = "red", 
+             arrow = grid::arrow(angle = 14, length = grid::unit(1, "line"))) +
+   coord_equal() +
+   facet_wrap(~drift)
+```
+
+
+
+
+
+```{r}
+RandomWalk2D <- function(steps, drift.x = 0, drift.y = drift.x, x0 = 0, y0 = 0) {
+   x <- rnorm(steps-1) + drift.x
+   y <- rnorm(steps-1) + drift.y
+   M <- Mag(x, y)
+   
+   return(list(x = c(0, x/M), y = c(0, y/M)))
+}
+
+
+sim.amoma <- function(steps, drift.x = 0, drift.y = 0) {
+   x <- RandomWalk2D(steps, drift.x, drift.y)
+   X <- lapply(x, cumsum)
+   Mag(X$x[steps], X$y[steps])/sum(Mag(x$x, x$y))
+}
+
+logit <- function(p) {
+   log(p/(1 - p))
+}
+
+logistic <- function(x) {
+   1/(1 + exp(-x))
+}
+
+drifts <- 10^seq(-3, 1.7, length.out = 15)
+
+B <- 100
+N <- 10^seq(2, 4, length.out = 40)
+
+sims <- as.data.table(expand.grid(drift = drifts, 
+                          N = N))
+
+sims[, amoma := mean(sapply(1:B, function(x) sim.amoma(steps = N, drift.y = drift, drift.x = 0))),
+     by = .(drift, N)]
+
+sims %>% 
+   ggplot(aes(drift, amoma, color = log10(N), group = factor(N))) + 
+   geom_line() + geom_point() +
+   scale_x_log10()
+
+sims %>% 
+   ggplot(aes(drift, N)) +
+   geom_contour(aes(z = logit(amoma))) +
+   scale_x_log10() +
+   scale_y_log10()
+
+
+mean.sim %>% 
+   ggplot(aes(drift, amoma)) + 
+   geom_line() 
+
+
+mean.sim[, alpha := log(amoma/(1-amoma))]
+
+lm(alpha ~ drift, data = mean.sim[is.finite(alpha)])
+
+```
+

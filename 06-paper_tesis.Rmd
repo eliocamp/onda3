@@ -430,41 +430,40 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
 
 
 ```{r}
-m <- as.matrix(index[, .(amplitude/sd(amplitude), phase/sd(phase))])
-x <- dist(m) 
+index %>% 
+   # .[greater(amplitude, 10)] %>% 
+   .[, .(amplitude/sd(amplitude), phase/sd(phase))] %>%
+   as.matrix() %>% 
+   dist() ->x
 
 ranks <- sort(c(x[x != 0]))
 
 x <- as.matrix(x)
 top10 <- lapply(1:10, function(i) as.numeric(which(x == ranks[i], arr.ind = TRUE)[1, ]))
 
+similar <- rbindlist(lapply(1:4, function(i) index[top10[[i]]]), idcol = TRUE)
+similar[, field := 1:.N, by = .id]
+similar[, dist := ranks[.GRP], by = .id]
 ```
 
 
 ```{r}
-similar <- rbindlist(lapply(c(1, 4), function(i) index[top10[[i]]]))
-
-similar[, o := factor(as.character(time), ordered = TRUE, 
-                          levels = as.character(time))]
-
 ncep[lev == 200 & lat < 0] %>% 
    .[, gh.a := Anomaly(gh), by = .(lon, lat, month(time))] %>% 
    .[time %in% similar$time] %>%
-   .[similar[, .(time, o)], on = "time"] %>% 
-   .[, gh.z := FilterWave(gh, c(-1,- 2, 0)), by = .(lat, time)] %>% 
+   .[similar[, .(time, field, .id)], on = "time", allow.cartesian = TRUE] %>% 
+   .[, gh.z := FilterWave(gh, -2:0), by = .(lat, time)] %>% 
+   .[, gh.a := FilterWave(gh.a, -2:0), by = .(lat, time)] %>% 
    ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = gh.z), breaks = AnchorBreaks(0, 20, 0))  +
+   geom_contour2(aes(z = gh.a), size = 0.3, breaks = AnchorBreaks(0, 20, 0))  +
+   map.SH +
    scale_fill_divergent() +
    scale_s_map() +
    coord_quickmap() +
-   facet_grid(o~.) -> g
-
-g + geom_contour_fill(aes(z = gh.z))  +
-   map.SH + 
-
-g + geom_contour_fill(aes(z = gh.a))  +
-   map.SH 
-
+   facet_grid(.id~field) 
 ```
+
 
 
 ```{r read-psi}
