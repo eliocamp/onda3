@@ -1077,3 +1077,7 @@ tanh_trans <- function() {
       transform = tanh,
       inverse = atanh)
 }
+
+expand.grid <- function(...) {
+   as.data.table(base::expand.grid(...))
+}

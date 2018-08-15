@@ -5,6 +5,8 @@ date: "July 20, 2018"
 output: 
    pdf_document
 urlcolor: blue
+editor_options: 
+  chunk_output_type: console
 bibliography: "99 - biblio.bib"
 ---
 
@@ -62,56 +64,72 @@ Una serie de ondas estacionaria toda onda con amplitud no nula tiene la misma fa
 Un random walk with drift es un proceso definido por 
 
 $$
-x_i^j = x_{i-a}^j + \epsilon_i^j + \alpha^j 
+x_i^j = x_{i-1}^j + \epsilon_i^j + \alpha^j 
 $$
 
-Donde $x_i^j$ es es el valor de *j*ésima dimensión (1 y 2 en este caso) en el momento $i$, $\epsilon^j_i$, el error de la variable $j$ en el momento $i$ y $\alpha^j$ es el drift de la variable j. La Figura \ref{fig:random} muestra una realización de 40 pasos para distinto
-
+Donde $x_i^j$ es es el valor de *j*ésima dimensión (1 y 2 en este caso) en el momento $i$, $\epsilon^j_i$, el error de la variable $j$ en el momento $i$ y $\alpha^j$ es el drift de la variable j. La Figura \ref{fig:random} muestra 50 realizaciones de random walks de 40 pasos para distinto valor de $\alpha^1$ donde los puntos negros son la localización final. En todos los casos la magnitud del paso está normalizada.
 
 ```{r}
-RandomWalk2D <- function(steps, drift.x = 0, drift.y = drift.x, x0 = 0, y0 = 0) {
-   x <- rnorm(steps-1) + drift.x
-   y <- rnorm(steps-1) + drift.y
-   M <- Mag(x, y)
+RandomWalk2D <- function(steps, drift.x = 0, drift.y = 0, sd.x = 1, sd.y = 1,
+                         x0 = 0, y0 = 0, norm = FALSE) {
+   x <- rnorm(steps-1, drift.x, sd.x)
+   y <- rnorm(steps-1, drift.y, sd.y)
+   if (norm == TRUE) {
+      M <- Mag(x, y)
+      x <- x/M
+      y <- y/M
+   }
+   x <- c(x0, x)
+   y <- c(y0, y)
    
-   return(list(x = c(0, x/M), y = c(0, y/M)))
+   return(list(x = x, y = y, X = cumsum(x), Y = cumsum(y)))
 }
-
-
 ```
 
 ```{r random}
-set.seed(42)
-rw <- data.table(drift = c(0, 5)) %>% 
-   .[, RandomWalk2D(40, drift.x = drift), by = drift] %>% 
-   .[, c("X", "Y") := lapply(.SD, cumsum), by = drift] %>% 
-   .[, n := 1:.N, by = drift]
+B <- 500
+drifts <- c(0, 0.1, 0.5, 1, 2)
+Ns <- c(40, 60, 70, 90, 150, 200, 500, 1000, 10000) 
 
-ggplot(rw, aes(X, Y)) +
-   geom_path() +
-   geom_point() +
-   geom_path(data = rw[n %in% c(1, max(n))], color = "red", 
-             arrow = grid::arrow(angle = 14, length = grid::unit(1, "line"))) +
+params <- expand.grid(drift = drifts, steps = Ns)
+set.seed(42)
+rw <- lapply(1:B, function(x) as.data.table(params[, RandomWalk2D(steps, drift, 
+                                                                  norm = FALSE), 
+                                               by = .(steps, drift)])) %>% 
+   rbindlist(idcol = TRUE) %>% 
+   .[, n := 1:.N, by = .(.id, drift)]
+
+ggplot(rw[steps == 40 & drift %in% c(0, 0.5)], aes(X, Y, color = factor(drift))) +
+   stat_subset(aes(subset = n %in% max(n)), geom = "point", size = 0.5) +
+   # geom_path(data = rw[n %in% c(1, max(n))], color = "red", alpha = 0.5, size = 0.3,
+             # arrow = grid::arrow(angle = 14, length = grid::unit(0.5, "line"))) +
+   geom_path(alpha = 0.3, size = 0.3, aes(group = interaction(drift, .id))) +
    coord_equal() +
-   facet_wrap(~drift)
+   scale_color_brewer(palette = "Set1")
+   # facet_wrap(~drift, labeller = labeller(drift = AddPreffix("drift = ")))
+```
+
+El efecto del drift es que el random walk tiene un sesgo hacia una dirección media dada de manera que, en promedio, su posición final está más alejada del origen que en el caso sin drift. AMOMA, entonces, equivale a hacer la razón entre la distancia del último punto al origen y la distancia total recorrida. Estas dos magnitudes van a ser más parecidas cuando mayor sea la magnitud del drift. 
+
+En este sentido AMOMA sería una medida del drift. Pero el drift es una propieda del proceso generador, por lo que su estimación a partir de una muestra está sujeta a error. En la Figura \ref{fig:amoma-distr} se muestra la distribución de las estimaciones de AMOMA para series de distinta longitud y distintos drift. Como es esperable, la precisión de la estimación se reduce con la longitud de la serie, pero esta reducción también depende de la magnitud del drift. AMOMA no sólo es es menos precisa para drifts pequeños sino que tiene menos exactitud, mostrando un importante sesgo hacia la sobreesetimación el drift. 
+
+La razón de esta sobreestimación es que AMOMA se basa en que en un random walk aleatorio los pasos hacia un lado tienden a compensarse con pasos hacia el otro. Pero cuando la longitud de la serie es pequeña, hay menos oportunidades que éste sea el caso. De forma intuitiva, se puede pensar en el límite de un random walk de sólo 1 paso. Haya o no drift, AMOMA va a ser idéntico a 1. 
+
+```{r amoma-distr}
+amoma <- rw[, .(amoma = Mag(X[.N], Y[.N])/sum(Mag(x, y))), by = .(.id, drift, steps)]
+
+amoma[drift %in% c(0, 0.1, 0.5, 2)] %>% 
+   ggplot(aes(amoma, reorder(factor(steps), -steps))) +
+   ggridges::geom_density_ridges(rel_min_height = 0.01)  +
+   scale_y_discrete("Pasos") +
+   scale_x_continuous("AMOMA", limits = c(0, 1)) +
+   facet_wrap(~drift, ncol = 1, labeller = labeller(drift = AddPreffix("drift = ")))
 ```
 
 
-
-
-
-```{r}
-RandomWalk2D <- function(steps, drift.x = 0, drift.y = drift.x, x0 = 0, y0 = 0) {
-   x <- rnorm(steps-1) + drift.x
-   y <- rnorm(steps-1) + drift.y
-   M <- Mag(x, y)
-   
-   return(list(x = c(0, x/M), y = c(0, y/M)))
-}
-
-
+```{r more-sims}
 sim.amoma <- function(steps, drift.x = 0, drift.y = 0) {
-   x <- RandomWalk2D(steps, drift.x, drift.y)
+   x <- RandomWalk2D(steps, drift.x, drift.y, norm = TRUE)
    X <- lapply(x, cumsum)
    Mag(X$x[steps], X$y[steps])/sum(Mag(x$x, x$y))
 }
@@ -124,37 +142,107 @@ logistic <- function(x) {
    1/(1 + exp(-x))
 }
 
-drifts <- 10^seq(-3, 1.7, length.out = 15)
+logit_trans <- function() {
+   scales::trans_new("logit",
+                     logit, logitstic)
+}
 
-B <- 100
-N <- 10^seq(2, 4, length.out = 40)
+drifts <- 10^seq(-3, 5, length.out = 15)
 
-sims <- as.data.table(expand.grid(drift = drifts, 
-                          N = N))
+B <- 500
+N <- 10^seq(2, 4, length.out = 10)
+
+sims <- expand.grid(drift = drifts, 
+                          N = N)
 
 sims[, amoma := mean(sapply(1:B, function(x) sim.amoma(steps = N, drift.y = drift, drift.x = 0))),
      by = .(drift, N)]
+```
+
+```{r logit}
+model <- sims[log10(drift) >= 4 & N == max(N)] %>% 
+   .[, l.amoma := logit(amoma)] %>% 
+   lm(l.amoma ~ I(log(drift)) - 1, data = .)
+m <- as.numeric(coef(m))
+
+sims[, l.amoma.pred := predict(model, newdata = .SD)]
+sims[, amoma.pred := logistic(l.amoma.pred)]
 
 sims %>% 
-   ggplot(aes(drift, amoma, color = log10(N), group = factor(N))) + 
+   ggplot(aes(log(drift), logit(amoma), color = log10(N), group = factor(N))) + 
+   geom_line(aes(y = l.amoma.pred), data = sims[N == max(N)], color = "black") +
+   # stat_function(fun = function(x) 2*x, color = "black", data = sims[N == max(N)]) +
    geom_line() + geom_point() +
-   scale_x_log10()
+   scale_color_viridis_c()  
+```
 
-sims %>% 
-   ggplot(aes(drift, N)) +
-   geom_contour(aes(z = logit(amoma))) +
-   scale_x_log10() +
-   scale_y_log10()
+La Figura \ref{fig:logit} muestra la relación entre AMOMA y el drift de manera de ganar un insight. Se observa que, para drifts no muy pequeños donde AMOMA está sobreetimado, $\mathrm{logit}(\mathrm{AMOMA})$ y $\log(\alpha)$ están relacionados de forma perfectamente lineal con pendiente $`r round(m, 3)`$ (línea negra, computada utilizando sólo datos de drift > 10000). Utilizando esta estimación como el "verdadero" valor de AMOMA, se puede calcular la tasa de convergencia del estimador. Ésta se muestra en la Figura \ref{fig:convergence} para $\alpha = `r drifts[1]`$ y puede observarse que es proporcional a $1/\sqrt{N}$ (línea negra). 
+
+```{r convergence}
+copy(sims) %>% 
+   .[, dif := amoma - amoma.pred] %>% 
+   .[, broom::tidy(lm(dif ~ I(1/sqrt(N)))), by = amoma.pred] -> limit 
+
+ggplot(sims[drift %in% drifts[1]], 
+       aes(N, amoma - amoma.pred)) +
+   geom_point() +
+   stat_function(fun = function(x) sqrt(1/x)) +
+   geom_smooth(method = "lm", formula = y ~ I(1/sqrt(x)), se = F,color = "black")
+```
 
 
-mean.sim %>% 
-   ggplot(aes(drift, amoma)) + 
-   geom_line() 
+
+```{r}
+knitr::opts_chunk(eval = FALSE, include = FALSE)
+```
 
 
-mean.sim[, alpha := log(amoma/(1-amoma))]
+```{r eval=FALSE, include=FALSE}
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
+                   subset = list(lat = -90:0))
+setnames(ncep, "level", "lev")
 
-lm(alpha ~ drift, data = mean.sim[is.finite(alpha)])
 
+qs <- ncep[lat == -45 & lev == 500 & month(time) %in% c(1, 11), 
+           FitWave(gh, 3), by = .(time)]
+
+qs[, c("R", "I") := .(amplitude*cos(phase*3), amplitude*sin(phase*3))]
+qs[, c("X", "Y") := .(cumsum(R), cumsum(I)), by = .(month(time))]
+
+ggplot(qs, aes(R)) +
+   geom_density() +
+   geom_density(aes(I), color = "red") +
+   facet_wrap(~month(time))
+
+ggplot(qs, aes(R, I)) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   facet_wrap(~month(time))
+
+
+EmpiricalWalk2D <- function(steps, x, y) {
+   s <- sample(seq_along(x) - 1, steps, replace = TRUE)
+   x <- c(0, x[s])
+   y <- c(0, y[s])
+
+   return(list(x = x, y = y, X = cumsum(x), Y = cumsum(y)))
+}
+
+B <- 1000
+set.seed(42)
+rw <- lapply(1:B, function(x) as.data.table(qs[, EmpiricalWalk2D(.N, R, I), by = month(time)])) %>% 
+   rbindlist(idcol = TRUE)
+
+rw[, N := 1:.N, by = .(.id, month)]
+
+ggplot(rw, aes(X, Y, group = month)) +
+   stat_density2d(data = rw[N == max(N)], geom = "polygon", aes(fill = stat(level)),
+                  binwidth = 2e-6) +
+   geom_path(aes(group = interaction(.id, month)), alpha = 0.01) +
+   geom_point(data = rw[N == max(N)], size = 0.1, alpha = 1) +
+   geom_path(data = qs[, month := month(time)], color = "brown") +
+   scale_fill_viridis_c() +
+   coord_equal() #+
+   facet_wrap(~month)
 ```
 
