@@ -1,0 +1,293 @@
+---
+title: "Estacionariedad"
+author: "Elio"
+date: "July 20, 2018"
+output: 
+   pdf_document:
+      keep_tex: no
+urlcolor: blue
+bibliography: "99 - biblio.bib"
+---
+
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE, message = FALSE,
+                      out.extra = "", 
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/"))
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(metR)
+library(magrittr)
+library(circular)
+library(RcppRoll)
+library(patchwork)
+
+source("scripts/helperfun.R")
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+```
+
+```{r read-data}
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
+                   subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01","2015-12-01"))))
+setnames(ncep, "level", "lev")
+```
+
+
+Una forma de pensar en la estacionariedad de las ondas es considerando el efecto de la interferencia destructiva. En un conjunto de ondas estacinario, la suma de las ondas es siempre constructiva, mientras que en uno no estacionario, hay la misma cantidad de interferencia constructiva y destructiva. Una forma de medir este efecto es comparando la amplitud de la onda media (AM) que sufre el efecto de la interferencia destructiva y la media de la amplitud de las ondas (MA), que no tiene en cuenta éste efecto.
+
+Intuitivamente, la amplitud de la onda media debería ser 0 para un grupo de ondas no estacionarias e igual a la amplitud media en un grupo de ondas perfectamente estacionarias. De modo que *AMMOMA* (AM over MA) tomaría valores entre 0 y 1 indicando el nivel de estacionariedad del conjunto de ondas. 
+
+Formalizando matemáticamente, si la amplitud de una onda $w_i$ es $A(w_i)$, se tiene que 
+
+$$
+\begin{aligned}
+\mathrm{AM} &=& A(\overline{w_i}) &=& A \left ( \frac{1}{N}\sum_{i=1}^{N}w_i\right) \\
+\mathrm{MA} &=& \overline{A(w_i)} &=& \frac{1}{N}\sum_{i=1}^{N}A(w_i) 
+\end{aligned}
+$$
+
+La segunda expresión no tiene demasiada complicación, pero la primera hay que desarrollarla. 
+
+Suponiendo el caso $N = 2$, se tiene que 
+
+$$
+w_1  = A_1\cos(k(\phi - \alpha_1)) \quad
+w_2 = A_2\cos(k(\phi - \alpha_2)) 
+$$
+
+La suma de las ondas será una tecer onda con igual período pero distinta amplitud y fase. [Se puede demostrar](http://scipp.ucsc.edu/~haber/ph5B/addsine.pdf) que la amplitud $A_3$ de dicha suma es 
+
+$$A(w_1 + w_2) = A_3 = \sqrt{A_1^2 + A_2^2 + 2A_1A_2\cos(\alpha_1 - \alpha_2)}$$
+
+En el caso de ondas perfectamente estacionarias se tiene que $\alpha_1 = \alpha_2 = \alpha_i = \alpha_0$ (o equivalentemente, $\alpha_i \ne \alpha_0 \rightarrow  A_i = 0$) de manera que $A_3 = A_1 + A_2$ y generalizando a la suma en $N$, se llega a que
+
+$$
+\begin{aligned}
+A \left ( \frac{1}{N}\sum_{i=1}^{N}w_i\right)  &=  \frac{1}{N}\sum_{i=1}^{N}A(w_i) \\
+\mathrm{AM}& = \mathrm{MA}
+\end{aligned}
+$$
+
+Es decir, para ondas perfectamente estacionarias, $AM/MA = 1$. 
+
+Para ondas no estacionarias... todavía no encontré el formalismo de matemática pura, pero se puede ver "empíricamente". Para distintos valores de $N$, calculo la amplitud de la suma de $N$ ondas con amplitud constante (2, en este caso) y fase aleatoria ($\alpha \sim U(0, 2\pi)$). Repito eso 1000 veces y calculo el promedio. Esto me da una estimación de la esperanza matemática de AM para distintos tamaños muestrales.
+
+```{r calc-sim, include=FALSE}
+amplsum <- function(N = 2, A = 2) {
+   amplitudes <- rep(A, N)
+   phases <-  runif(N, -pi, pi)
+   sum.wave(amplitudes, phases)$amplitude
+}
+
+B <- 1000
+trials <- data.table(t = seq(2, 500, by = 10))
+set.seed(42)
+trials[, ampl := mean(sapply(1:B, function(x) amplsum(t))), by = t]
+               
+trials[, mean := ampl/t] 
+trials[, mean(mean*sqrt(t), na.rm = TRUE)] -> k
+```
+
+```{r sim, echo=FALSE, fig.cap=" Amplitud del promedio de N ondas con amplitud = 2. La línea roja es la línea $y = \\sqrt{\\frac{\\pi}{x}}$.", fig.height=3}
+ggplot(trials, aes(t, mean)) +
+   geom_line(size = 1.3) +
+   stat_function(fun = function(x) 1/2*2*sqrt(pi/x), color = "red") +
+   scale_y_continuous("Amplitud") +
+   scale_x_continuous("N") 
+```
+
+Se puede ver en la Figura \ref{fig:sim} que $\lim_{N\rightarrow \infty} \mathrm{AM}= 0$ y que va como $\sim N^{-1/2}$ aunque con una constante multiplicativa que en este caso es $k = `r round(k, 3)`$. La parte más empírica y sucia viene ahora, porque *jugando* con este y otros casos, parece ser que que esa contante es $k = \frac{A}{2}\sqrt{\frac{\pi}{N}}$. De manera que, *empíricamente* se puede ver que en el caso de ondas con fase totalmente aleatorias 
+
+$$
+\mathrm{AM} = \mathrm{MA} \frac{1}{2}\sqrt{\frac{\pi}{N}}
+$$
+
+Esta cota inferior no es del todo sólida (como se va a ver desupés). En @Pain2005 se demuestra que la amplitud suma de $N$ ondas con igual amplitud $A$ y fase aleatoria es $\sqrt{N}A$. Es to justifica el factor $1/\sqrt{N}$, pero no se ve por qué aparece $\sqrt{\pi/2}$.
+
+Poniendo todo en limpio, se demostró (con una mezcla de teoría y práctica), que si se define $\mathrm{AMOMA} = \frac{\mathrm{AM}}{\mathrm{MA}}$ como medida de estacionariedad, se tiene que 
+
+$$
+\frac{1}{2}\sqrt{\frac{\pi}{N}} \le \mathrm{AMOMA} \le 1
+$$
+
+y que las igualdades izquierda y derecha valen para el caso de pura inestacionariedad y pura estacionariedad respectivamente. 
+
+También de forma empírica, se puede ver que AMOMA es igual al promedio ponderado por la amplitud de la correlación entre las ondas y la onda estacionaria (que es igual al coseno de la diferencia de fase --[demostración](https://www.johndcook.com/blog/2016/03/06/correlating-two-sine-waves/)). De manera que 
+
+$$
+\mathrm{AMOMA} = \frac{1}{N'}\sum_{i=1}^{N'}\frac{\mathrm{A}_i}{\mathrm{A}_e}\cos\left (\overline{\phi} - \phi_i \right ) 
+$$
+
+Esta forma es más eficiente de calcular y más elegante. 
+
+
+##  Random walk
+
+Una forma euivalente de abordar el problema es pensar una serie de ondas como vectores con amplitud y argumento. Sumar ondas equivale a sumar vectores. Esto es el método phasor. 
+
+Una serie de ondas estacionaria toda onda con amplitud no nula tiene la misma fase, lo cual equivale a sumar vectores en línea recta. Una serie de ondas aleatorias, por el contrario, equivale a sumar vectores con dirección aleatoria, es decir un random walk. El caso intermedio equivale a sumar vectores con una dirección aleatoria pero sesgada. Esto es un random walk con drift.
+
+Un random walk con drift en 2D es un proceso definido por 
+
+$$
+x_i^j = x_{i-1}^j + \epsilon_i^j + \alpha^j 
+$$
+
+Donde $x_i^j$ es es el valor de *j*ésima dimensión (1 y 2 en este caso) en el momento $i$, $\epsilon^j_i$, el error de la variable $j$ en el momento $i$ y $\alpha^j$ es el drift de la variable j. La Figura \ref{fig:random} muestra 50 realizaciones de random walks de 40 pasos para distinto valor de $\alpha^1$ donde los puntos negros son la localización final.
+
+```{r RandomWalk2D-fun}
+RandomWalk2D <- function(steps, drift.x = 0, drift.y = 0, sd.x = 1, sd.y = 1,
+                         x0 = 0, y0 = 0, norm = FALSE) {
+   x <- rnorm(steps-1, drift.x, sd.x)
+   y <- rnorm(steps-1, drift.y, sd.y)
+   if (norm == TRUE) {
+      M <- Mag(x, y)
+      x <- x/M
+      y <- y/M
+   }
+   x <- c(x0, x)
+   y <- c(y0, y)
+   
+   return(list(x = x, y = y, X = cumsum(x), Y = cumsum(y)))
+}
+```
+
+```{r random-walks}
+B <- 500
+drifts <- c(0, 0.1, 0.5, 1, 2)
+Ns <- c(40, 60, 70, 90, 150, 200, 500, 1000, 10000) 
+
+params <- expand.grid(drift = drifts, steps = Ns)
+set.seed(42)
+rw <- lapply(1:B, function(x) as.data.table(params[, RandomWalk2D(steps, drift, 
+                                                                  norm = FALSE), 
+                                               by = .(steps, drift)])) %>% 
+   rbindlist(idcol = TRUE) %>% 
+   .[, n := 1:.N, by = .(.id, drift)]
+```
+
+```{r random, fig.cap = "Simulaciones de random walks para distinta magnitud de drift"}
+ggplot(rw[steps == 40 & drift %in% c(0, 0.5)], aes(X, Y, color = factor(drift))) +
+   stat_subset(aes(subset = n %in% max(n)), geom = "point", size = 0.5) +
+   geom_path(alpha = 0.3, size = 0.3, aes(group = interaction(drift, .id))) +
+   coord_equal() +
+   scale_color_brewer(palette = "Set1", label = AddPreffix("drift = "))
+```
+
+El efecto del drift es que el random walk tiene un sesgo hacia una dirección media dada de manera que, en promedio, su posición final está más alejada del origen que en el caso sin drift. AMOMA, entonces, equivale a hacer la razón entre la distancia del último punto al origen y la distancia total recorrida. Estas dos magnitudes van a ser más parecidas cuando mayor sea la magnitud del drift. 
+
+En este sentido AMOMA sería una medida del drift. Pero el drift es una propieda del proceso generador, por lo que su estimación a partir de una muestra está sujeta a error. En la Figura \ref{fig:amoma-distr} se muestra la distribución de las estimaciones de AMOMA para series de distinta longitud y distintos drift. Como es esperable, la precisión de la estimación se reduce con la longitud de la serie, pero esta reducción también depende de la magnitud del drift. AMOMA no sólo es es menos precisa para drifts pequeños sino que tiene menos exactitud, mostrando un importante sesgo hacia la sobreesetimación el drift. 
+
+La razón de esta sobreestimación es que AMOMA se basa en que en un random walk aleatorio los pasos hacia un lado tienden a compensarse con pasos hacia el otro. Pero cuando la longitud de la serie es pequeña, hay menos oportunidades que éste sea el caso. De forma intuitiva, se puede pensar en el límite de un random walk de sólo 1 paso. Haya o no drift, AMOMA va a ser idéntico a 1. 
+
+```{r amoma-distr, fig.cap = "Distribution of stationarity estimates for different drift and steps"}
+amoma <- rw[, .(amoma = Mag(X[.N], Y[.N])/sum(Mag(x, y))), by = .(.id, drift, steps)]
+
+amoma[drift %in% c(0, 0.1, 0.5, 2)] %>% 
+   ggplot(aes(amoma, reorder(factor(steps), -steps))) +
+   ggridges::geom_density_ridges(rel_min_height = 0.01)  +
+   scale_y_discrete("Pasos") +
+   scale_x_continuous("AMOMA", limits = c(0, 1)) +
+   facet_wrap(~drift, ncol = 1, labeller = labeller(drift = AddPreffix("drift = ")))
+```
+
+
+```{r more-sims}
+sim.amoma <- function(steps, drift.x = 0, drift.y = 0) {
+   x <- RandomWalk2D(steps, drift.x, drift.y, norm = TRUE)
+   X <- lapply(x, cumsum)
+   Mag(X$x[steps], X$y[steps])/sum(Mag(x$x, x$y))
+}
+
+logit <- function(p) {
+   log(p/(1 - p))
+}
+
+logistic <- function(x) {
+   1/(1 + exp(-x))
+}
+
+logit_trans <- function() {
+   scales::trans_new("logit",
+                     logit, logitstic)
+}
+
+drifts <- 10^seq(-3, 5, length.out = 15)
+
+B <- 500
+N <- 10^seq(2, 4, length.out = 10)
+
+sims <- expand.grid(drift = drifts, 
+                          N = N)
+
+sims[, amoma := mean(sapply(1:B, function(x) sim.amoma(steps = N, drift.y = drift, drift.x = 0))),
+     by = .(drift, N)]
+```
+
+
+```{r logit, fig.cap = "Relación entre amoma y drift"}
+model <- sims[log10(drift) >= 4 & N == max(N)] %>% 
+   .[, l.amoma := logit(amoma)] %>% 
+   lm(l.amoma ~ I(log(drift)) - 1, data = .)
+m <- as.numeric(coef(model))
+
+sims[, l.amoma.pred := predict(model, newdata = .SD)]
+sims[, amoma.pred := logistic(l.amoma.pred)]
+
+sims[amoma < 0.9999 & N == max(N)] %>% 
+   ggplot(aes(drift, amoma)) + 
+   # geom_line(aes(y = l.amoma.pred), data = sims[N == max(N)], color = "black") +
+   # stat_function(fun = function(x) 2*x, color = "black", data = sims[N == max(N)]) +
+   geom_line() + geom_point() +
+   scale_x_continuous(trans = "log10") +
+   # scale_y_continuous(trans = "atanh", breaks = pm(seq(0, 1, by = 0.1))) +
+   scale_color_viridis_c()  
+```
+
+La Figura \ref{fig:logit} muestra la relación entre AMOMA y la magnitud del drift (en escala logarítmica).

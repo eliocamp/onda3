@@ -974,7 +974,7 @@ mean.phase <- function(amplitudes, phases, k = 3) {
 
 stationarity.wave <- function(waves, group = NULL, method = c("amoma", "avar")) {
    waves <- transpose(waves)
-   names(waves) <- 
+   names(waves) <- c("amplitude", "phase", "k")
    if (is.null(group)) {
       waves$phi.s <- with(waves, mean.phase(amplitude, phase, k[1]))
    } else {
@@ -1080,4 +1080,10 @@ tanh_trans <- function() {
 
 expand.grid <- function(...) {
    as.data.table(base::expand.grid(...))
+}
+
+median.dist <- function(x) {
+   m <- as.vector(dist(x))
+   M <- mean(Mag(x[, 1], x[, 2]))
+   mean(m^2/M^2)
 }
