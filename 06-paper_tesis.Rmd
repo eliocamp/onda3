@@ -76,9 +76,9 @@ d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
 write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
 extrafont::loadfonts()
 
-theme_elio <- theme_minimal(base_size = 11) +
+theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 11) +
+   # theme_minimal(base_size = 11) +
    theme(
-      text = element_text(family = font_rc),
       legend.position = "bottom", legend.box = "vertical",
       panel.spacing.y = unit(5, "mm"),
       panel.spacing.x = unit(5, "mm"),
@@ -252,7 +252,6 @@ The amplitude of wave 3 can be computed via Fourier decomposition of the mean se
 
 The amplitude of QS3 achieves it's maximum at near 200hPa and 50°S in all seasons but with important changes in it's vertical extent. During austral winter and autum, wave 3 amplitude extends up to the higest model levels while it remains restricted to the stratosphere during spring and summer. In general, the high amplitudes are colocated with areas of high stationarity, although this metric is maximized at lower levels with the exception of spring. While the mean wave amplitude during this season is high (not shown), stationarity is low in the midlatitudes and specially in the high stratosphere. This is due primarily by the behaviour during november, when high phase variance means that wave 3 cannot be considered stationary. 
 
-::: notes
 
 Esta figura es igual que la anterior pero en contornos pone la media de la amplitud en vez de la amplitud de la onda media. No sé cuál de las dos poner. 
 
@@ -430,51 +429,64 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
    facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
 ```
 
+::: notes
 
-```{r}
-index %>% 
-   # .[greater(amplitude, 10)] %>% 
-   .[, .(amplitude/sd(amplitude), phase/sd(phase))] %>%
-   as.matrix() %>% 
-   dist() ->x
 
-ranks <- sort(c(x[x != 0]))
 
-x <- as.matrix(x)
-top10 <- lapply(1:10, function(i) as.numeric(which(x == ranks[i], arr.ind = TRUE)[1, ]))
+:::
 
-similar <- rbindlist(lapply(1:4, function(i) index[top10[[i]]]), idcol = TRUE)
-similar[, field := 1:.N, by = .id]
-similar[, dist := ranks[.GRP], by = .id]
+
+```{r fun-similar.field}
+similar.field <- function(months = 1:12, n = 1:4) {
+   index[month(time) %in% months] %>% 
+      # .[greater(amplitude, 10)] %>% 
+      .[, .(amplitude/sd(amplitude), phase/sd(phase))] %>%
+      as.matrix() %>% 
+      dist() ->x
+   
+   ranks <- sort(c(x[x != 0]))
+   
+   x <- as.matrix(x)
+   tops <- lapply(n, function(i) as.numeric(which(x == ranks[i], arr.ind = TRUE)[1, ]))
+   
+   similar <- rbindlist(lapply(n, function(i) index[month(time) %in% months][tops[[i]]]), 
+                        idcol = TRUE)
+   similar[, field := 1:.N, by = .id]
+   similar[, dist := ranks[.GRP], by = .id]
+   similar.fields <- ncep[lev == 200 & lat < 0] %>% 
+      .[, gh.a := Anomaly(gh), by = .(lon, lat, month(time))] %>% 
+      .[time %in% similar$time] %>%
+      .[similar[, .(time, field, .id, dist = round(dist, 3))], 
+        on = "time", allow.cartesian = TRUE] %>% 
+      .[, gh.z := FilterWave(gh, -2:0), by = .(lat, time)]
+   
+   print(
+      ggplot(similar.fields, aes(lon, lat)) +
+         geom_contour_fill(aes(z = gh.z), breaks = AnchorBreaks(0, 20, 0), 
+                           xwrap = c(0, 360))  +
+         geom_contour2(aes(z = gh.a), size = 0.3, breaks = AnchorBreaks(0, 20, 0), 
+                       xwrap = c(0, 360)) +
+         geom_text_contour(aes(z = gh.a), breaks = AnchorBreaks(0, 20, 0), 
+                           xwrap = c(0, 360), stroke = 0.1, rotate = FALSE) +
+         stat_subset(aes(subset = lat == -90 & lon == 0, 
+                         label = time, x = 25, y = -85),
+                     geom = "label", label.r = grid::unit(0, "lines")) +
+         map.SH +
+         scale_fill_divergent() +
+         scale_s_map() +
+         coord_quickmap() +
+         facet_grid(dist~field, labeller = labeller(dist = AddPreffix("Distancia = ")))
+   )
+   
+   dcast(similar.fields, lon + lat + .id ~ field, value.var = "gh.z") %>% 
+      .[, cor(`1`, `2`), by = .(.id)] %>% 
+      .$V1
+}
 ```
 
 
 ```{r top4, fig.cap = "Four most similar field tuples in standarized wave 3 amplitude and phase space. Temporal anomaly of 200hPa geopotential (contours) and zonal anomaly of 200hPa geopotential with waves 1 and 2 filtered out (shaded)." }
-similar.fields <- ncep[lev == 200 & lat < 0] %>% 
-   .[, gh.a := Anomaly(gh), by = .(lon, lat, month(time))] %>% 
-   .[time %in% similar$time] %>%
-   .[similar[, .(time, field, .id, dist = round(dist, 3))], 
-     on = "time", allow.cartesian = TRUE] %>% 
-   .[, gh.z := FilterWave(gh, -2:0), by = .(lat, time)]
-
-cors <- dcast(similar.fields, lon + lat + .id ~ field, value.var = "gh.z") %>% 
-   .[, cor(`1`, `2`), by = .(.id)] %>% 
-   .$V1
-
-ggplot(similar.fields, aes(lon, lat)) +
-   geom_contour_fill(aes(z = gh.z), breaks = AnchorBreaks(0, 20, 0), xwrap = c(0, 360))  +
-   geom_contour2(aes(z = gh.a), size = 0.3, breaks = AnchorBreaks(0, 20, 0), 
-                 xwrap = c(0, 360)) +
-   geom_text_contour(aes(z = gh.a), breaks = AnchorBreaks(0, 20, 0), 
-                 xwrap = c(0, 360), stroke = 0.1, rotate = FALSE) +
-   stat_subset(aes(subset = lat == -90 & lon == 0, 
-                   label = time, x = 25, y = -85),
-               geom = "label", label.r = grid::unit(0, "lines")) +
-   map.SH +
-   scale_fill_divergent() +
-   scale_s_map() +
-   coord_quickmap() +
-   facet_grid(dist~field, labeller = labeller(dist = AddPreffix("Distancia = "))) 
+cors <- similar.field()
 ```
 
 ::: notes
@@ -485,6 +497,81 @@ Los campos de anomalías temporales, por su parte, casi no presentan similitudes
 
 :::
 
+```{r top4-sep, fig.cap = "Four most similar september field tuples in standarized wave 3 amplitude and phase space. Temporal anomaly of 200hPa geopotential (contours) and zonal anomaly of 200hPa geopotential with waves 1 and 2 filtered out (shaded)." }
+cors <- similar.field(9)
+```
+
+```{r percentiles fig.cap = ""}
+index[, percentile := Percentile(amplitude), by = month(time)]
+index[, next.percentile := shift(percentile, 3, type = "lead")]
+
+breaks <- seq(0, 1, by = .25)
+set.seed(42)
+ggplot(index, aes(percentile, next.percentile)) +
+   geom_jitter(width = 0.005, height = 0.005) +
+   geom_smooth(method = "lm") +
+   scale_x_continuous("Percentile of month", breaks = breaks,
+                      minor_breaks = NULL) +
+   scale_y_continuous("Percentile of next month", breaks = breaks,
+                      minor_breaks = NULL) +
+   coord_equal()
+```
+
+
+::: notes
+
+Se muestra la (falta de) relación entre el percentil de cada mes con el percentil del mes siguiente. 
+
+:::   
+
+
+```{r}
+acf.sig(index$percentile, lag.max = 60) %>% 
+   .[-1, ] %>% 
+   ggplot(aes(lag, acf)) +
+   geom_ribbon(aes(ymin = -sig.cut, ymax =  sig.cut), alpha = 0.1) +
+   geom_line() 
+```
+
+
+::: notes 
+
+El autocorrelograma confirma esta falta de relación.
+
+:::
+
+
+
+```{r}
+index %>% copy() %>% 
+   .[, phase := phase*3*180/pi] %>% 
+   ggperiodic::periodic(phase = c(0, 360)) -> index.p
+
+
+index.p %>% 
+   .[, amplitude := cut(Percentile(amplitude), 
+                        seq(0, 1, by = 0.25), labels = FALSE,
+                        ordered_result = TRUE), 
+     by = month(time)] -> index.p
+   
+ggperiodic::wrap(index.p, phase = c(-180, 540)) %>% 
+        ggplot(aes(phase, fill = reorder(as.factor(amplitude), -amplitude))) +
+   geom_histogram(breaks = seq_centered(0, 360, length.out = (4*4 + 1))) +
+   scale_x_continuous(breaks = no_last(seq(0, 360, length.out = (4*4 + 1)))) +
+   scale_fill_viridis_d(direction = -1) +
+   coord_polar(start = -pi/16) +
+   facet_wrap(~month(time))
+```
+
+
+```{r}
+index %>% copy() %>% 
+   .[, phase := phase*3*180/pi] %>% 
+   ggperiodic::periodic(phase = c(0, 360))
+
+
+
+```
 
 
 ```{r read-psi}

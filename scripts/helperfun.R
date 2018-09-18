@@ -896,7 +896,7 @@ qs3.index <- function(gh, lat, lev, lats.index =  c(-65, -40), levs.index = c(10
       lev %between% levs.index] %>% 
       .[, FitWave(gh, 3), by = .(lat, lev)] %>% 
       .[, phase := circular(phase*3, modulo = "2pi")] %>% 
-      .[, .(amplitude = mean(amplitude), phase = mean.circular(phase)/3)]
+      .[, .(amplitude = mean(amplitude), phase = as.numeric(mean.circular(phase)/3))]
 }
 
 
@@ -1086,4 +1086,34 @@ median.dist <- function(x) {
    m <- as.vector(dist(x))
    M <- mean(Mag(x[, 1], x[, 2]))
    mean(m^2/M^2)
+}
+
+
+interactivity <- function() {
+   structure(list(), class = "add_plotly")
+}
+
+ggplot_add.add_plotly <- function(object, plot, object_name) {
+   plotly::ggplotly(plot)
+}
+
+seq_centered <- function(from = 1, to = 1, by = ((to - from)/(length.out - 1)),
+                         length.out = NULL, along.with = NULL, sign = -1, ...) {
+   s <- seq(from, to, by, ...)
+   d <- s[2] - s[1]
+   s + d*sign/2
+}
+
+no <- function(vector, i) {
+   if (is.numeric(i)) {
+      vector[-as.integer(i)]
+   } else if (all.equal(i, "last")) {
+      vector[-length(vector)]
+   } else if (all.equal(i, "first")) {
+      vector[-1]
+   }
+}
+
+no_last <- function(vector) {
+   no(vector, i = "last")
 }
