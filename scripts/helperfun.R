@@ -889,16 +889,19 @@ meanfun <- function(x, group, fun, ...) {
    return(list(mean.fun = mf, fun.mean = fm))
 }
 
-
-qs3.index <- function(gh, lat, lev, lats.index =  c(-65, -40), levs.index = c(100, 700)) {
+qs.index <- function(gh, lat, lev, k = 3, lats.index =  c(-65, -40), levs.index = c(100, 700)) {
    dt <- data.table(gh, lat, lev)
    dt[lat %between% lats.index & 
       lev %between% levs.index] %>% 
-      .[, FitWave(gh, 3), by = .(lat, lev)] %>% 
-      .[, phase := circular(phase*3, modulo = "2pi")] %>% 
-      .[, .(amplitude = mean(amplitude), phase = as.numeric(mean.circular(phase)/3))]
+      .[, FitWave(gh, k), by = .(lat, lev)] %>% 
+      .[, phase := circular(phase*k, modulo = "2pi")] %>% 
+      .[, .(amplitude = mean(amplitude), phase = as.numeric(mean.circular(phase)/k))]
 }
 
+
+qs3.index <- function(...) {
+   qs.index(k = 3, ...)
+}
 
 slide_apply <- function (data, window, step = 1, fun) {
    fun <- match.fun(fun)
@@ -1104,16 +1107,260 @@ seq_centered <- function(from = 1, to = 1, by = ((to - from)/(length.out - 1)),
    s + d*sign/2
 }
 
-no <- function(vector, i) {
-   if (is.numeric(i)) {
-      vector[-as.integer(i)]
-   } else if (all.equal(i, "last")) {
-      vector[-length(vector)]
-   } else if (all.equal(i, "first")) {
-      vector[-1]
-   }
+no <- function(object, i) {
+   UseMethod("no")
 }
 
-no_last <- function(vector) {
-   no(vector, i = "last")
+no.default <- function(object, i) {
+   i <- ifelse(i < 0, length(object) + i + 1, i)
+   object[-i]
+}
+
+no.data.frame <- function(object, i) {
+   i <- ifelse(i < 0, nrow(object) + i + 1, i)
+   object[-i, , drop = FALSE]
+}
+
+no_last <- function(object) {
+   no(object, i = -1)
+}
+
+compute_group = function(data, scales, bw = "nrd0", adjust = 1, kernel = "gaussian",
+                         n = 512, trim = FALSE, na.rm = FALSE, 
+                         circular = FALSE) {
+   if (trim) {
+      range <- range(data$x, na.rm = TRUE)
+   } else {
+      range <- scales$x$dimension()
+   }
+   
+   compute_density(data$x, data$weight, from = range[1], to = range[2],
+                   bw = bw, adjust = adjust, kernel = kernel, n = n,
+                   circular = circular)
+}
+
+compute_density <- function(x, w, from, to, bw = "nrd0", adjust = 1,
+                            kernel = "gaussian", n = 512,
+                            circular = FALSE) {
+   nx <- length(x)
+   
+   if (is.null(w)) {
+      w <- rep(1 / nx, nx)
+   }
+   
+   w <- w/sum(w)
+   
+   # if less than 2 points return data frame of NAs and a warning
+   if (nx < 2) {
+      warning("Groups with fewer than two data points have been dropped.", call. = FALSE)
+      return(data.frame(
+         x = NA_real_,
+         density = NA_real_,
+         scaled = NA_real_,
+         ndensity = NA_real_,
+         count = NA_real_,
+         n = NA_integer_
+      ))
+   }
+   
+   if (isFALSE(circular)) {
+      dens <- stats::density(x, weights = w, bw = bw, adjust = adjust,
+                             kernel = kernel, n = n, from = from, to = to)
+   } else {
+      if (isTRUE(circular)) {
+         x <- suppressWarnings(circular::as.circular(x))
+      } else {
+         x <- do.call(circular::as.circular, c(list(x = x), circular))
+      }
+      
+      if (!is.numeric(bw)) {
+         bw <- suppressWarnings(bw.nrd.circular(x))
+      }
+      if (kernel != "wrappednormal") kernel <- "vonmises"
+      dens <- suppressWarnings(density.circular(x, bw = bw, adjust = adjust, kernel = kernel,
+                                                from = from, to = to, n = n, weights = w))
+   }
+   
+   data.frame(
+      x = dens$x,
+      density = dens$y,
+      scaled =  dens$y / max(dens$y, na.rm = TRUE),
+      ndensity = dens$y / max(dens$y, na.rm = TRUE),
+      count =   dens$y * nx,
+      n = nx
+   )
+}
+
+StatDensity$compute_group <- compute_group
+
+StatDensity$default_aes <- c(StatDensity$default_aes, 
+                             list(weight = 1))
+
+library(circular)
+density.circular <- function(x, z = NULL, bw = bw.nrd.circular,
+                             weights = NULL,
+                             adjust = 1, type = c("K", "L"), 
+                             kernel = c("vonmises", "wrappednormal"), 
+                             na.rm = FALSE, from = circular(0), 
+                             to = circular(2*pi), n = 512, K = NULL, min.k = 10,
+                             control.circular = list(), ...) {
+   name <- deparse(substitute(x))
+   data <- x
+   if (!is.numeric(from)) 
+      stop("argument 'from' must be numeric")
+   if (!is.numeric(to)) 
+      stop("argument 'to' must be numeric")
+   if (!is.finite(from)) 
+      stop("non-finite `from'")
+   if (!is.finite(to)) 
+      stop("non-finite `to'")
+   if (!is.numeric(n)) 
+      stop("argument 'n' must be numeric")
+   n <- round(n)
+   if (n <= 0) 
+      stop("argument 'n' must be integer and positive")
+   if (!is.numeric(x)) 
+      stop("argument 'x' must be numeric")
+   if (!is.null(z) && is.circular(z)) {
+      datacircularp <- circularp(z)
+   }
+   else if (is.circular(x)) 
+      datacircularp <- circularp(x)
+   else {
+      datacircularp <- list(type = "angles", units = "radians", 
+                            template = "none", modulo = "asis", zero = 0, rotation = "counter")
+   }
+   dc <- control.circular
+   if (is.null(dc$type)) 
+      dc$type <- datacircularp$type
+   if (is.null(dc$units)) 
+      dc$units <- datacircularp$units
+   if (is.null(dc$template)) 
+      dc$template <- datacircularp$template
+   if (is.null(dc$modulo)) 
+      dc$modulo <- datacircularp$modulo
+   if (is.null(dc$zero)) 
+      dc$zero <- datacircularp$zero
+   if (is.null(dc$rotation)) 
+      dc$rotation <- datacircularp$rotation
+   if (dc$modulo == "pi") 
+      stop("The function does not work yet for modulo='pi'")
+   
+   if (!is.numeric(bw)) {
+      bw <- match.fun(bw)
+      bw <- bw(x)
+   }
+   
+   x <- conversion.circular(x, units = "radians", zero = 0, 
+                            rotation = "counter")
+   attr(x, "class") <- attr(x, "circularp") <- NULL
+   from <- conversion.circular(from, units = "radians", zero = 0, 
+                               rotation = "counter")
+   attr(from, "class") <- attr(from, "circularp") <- NULL
+   to <- conversion.circular(to, units = "radians", zero = 0, 
+                             rotation = "counter")
+   attr(to, "class") <- attr(to, "circularp") <- NULL
+   kernel <- match.arg(kernel)
+   x <- as.vector(x)
+   x.na <- is.na(x)
+   if (any(x.na)) {
+      if (na.rm) 
+         x <- x[!x.na]
+      else stop("x contains missing values")
+   }
+   x.finite <- is.finite(x)
+   if (any(!x.finite)) {
+      x <- x[x.finite]
+   }
+   nx <- length(x)
+   if (is.null(z)) {
+      z <- circular(seq(from = from, to = to, length = n))
+   }
+   else {
+      if (!is.numeric(z)) 
+         stop("argument 'z' must be numeric")
+      namez <- deparse(substitute(z))
+      z.na <- is.na(z)
+      if (any(z.na)) {
+         if (na.rm) {
+            z <- z[!z.na]
+         }
+         else {
+            stop("z contains missing values")
+         }
+      }
+      z.finite <- is.finite(z)
+      if (any(!z.finite)) {
+         z <- z[z.finite]
+      }
+   }
+   zz <- conversion.circular(z, dc$units, dc$type, dc$template, 
+                             dc$modulo, dc$zero, dc$rotation)
+   z <- conversion.circular(z, units = "radians", zero = 0, 
+                            rotation = "counter")
+   attr(z, "class") <- attr(z, "circularp") <- NULL
+   z <- as.vector(z)
+   
+   bw <- adjust * bw
+   if (!is.numeric(bw)) 
+      stop("argument 'bw' and 'adjust' must be numeric")
+   if (!is.finite(bw)) 
+      stop("non-finite `bw'")
+   if (bw <= 0) 
+      stop("`bw' is not positive.")
+   
+   y <- DensityCircularRad(x = x, z = z, bw = bw, kernel = kernel, 
+                           K = K, min.k = min.k, weights = weights)
+   structure(list(data = data, x = zz, y = y, bw = bw, n = nx, 
+                  kernel = kernel, call = match.call(), data.name = name, 
+                  has.na = FALSE), class = "density.circular")
+}
+
+
+DensityCircularRad <- function (x, z, bw, kernel, K = NULL, min.k = 10, 
+                                weights = NULL) {
+   if (is.null(weights)) {
+      weights <- rep(1, length(x))
+   }
+   
+   # weights <- weights/sum(weights)
+   nx <- length(x)
+   if (kernel == "vonmises") {
+      y <- sapply(z, circular:::DvonmisesRad, mu = x, kappa = bw, log = FALSE)
+   }
+   else if (kernel == "wrappednormal") {
+      rho <- exp(-bw^2/2)
+      y <- sapply(z, circular:::DwrappednormalRad, mu = x, rho = rho, 
+                  K = K, min.k = min.k)
+   }
+   else {
+      stop("other kernels not implemented yet")
+   }
+   y <- apply(y, 2, weighted.mean, w = weights)
+   return(y)
+}
+
+
+as.data.frame.density.circular <- function(x, row.names = NULL, optional = FALSE, ...) {
+   df <- with(x, data.frame(x = x, y = y))
+   df[order(df$x), ]
+}
+
+
+as.degrees <- function(x) {
+   x*180/pi
+}
+
+as.radians <- function(x) {
+   x*pi/180
+}
+
+degrees_trans <- function() {
+   scales::trans_new("degrees",
+                     function(x) x*180/pi,
+                     function(x) x*pi/180)
+}
+
+LabDegrees <- function(x) {
+   as.character(as.numeric(x)*180/pi)
 }

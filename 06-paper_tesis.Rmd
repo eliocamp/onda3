@@ -405,6 +405,58 @@ index %>%
 # coord_map(projection = "mollweide", xlim = lon.lims, ylim = lat.lims)
 ```
 
+```{r}
+lat.lims <- c(-55, -22)
+lon.lims <- c(240, 360)
+
+map.data.arg <- BuildMap(countries = T) %>% 
+   .[lat %between% c(lat.lims + c(0, 10)) & long %between% lon.lims] %>% 
+   .[, lat := scales::rescale(lat, c(12, 1), from = lat.lims)] %>% 
+   .[, lon := scales::rescale(long, c(0, 360), from = lon.lims)] %>% 
+   .[, lon := as.radians(lon)]
+
+map.data.nz <- BuildMap(countries = T) %>%
+   .[lat %between% (lat.lims + c(0, 10)) &
+     long %between% (lon.lims - 120 + c(-10, 0))] %>%
+   .[, lat := scales::rescale(lat, c(12, 1), from = lat.lims)] %>% 
+   .[, lon := scales::rescale(long, c(0, 360), from = lon.lims - 120)] %>% 
+   .[, lon := as.radians(lon)]
+
+alpha <- 0.2
+map.arg <- geom_polygon(data = map.data.arg, aes(lon, lat, group = group),
+                        fill = "gray70", color = "white", size = 0.1,
+                        inherit.aes = F, alpha = alpha)
+
+map.nz <- geom_polygon(data = map.data.nz, aes(lon, lat, group = group),
+                        fill = "gray90", color = "black", size = 0.1,
+                        inherit.aes = F, alpha = alpha)
+
+
+index %>% copy() %>% 
+   .[, phase := phase*3] %>% 
+   ggplot(aes(phase)) +
+   
+   geom_raster(stat = "density", aes(x = phase, y = month(time), fill = ..count..,
+                                     group = month(time)),
+               circular = TRUE) +
+   map.arg + 
+   map.nz +
+   scale_y_continuous("Month", breaks = 1:12, labels = month.abb, trans = "reverse",
+                      minor_breaks = NULL) +
+   scale_x_continuous("Phase", labels = LabDegrees, breaks = as.radians(seq(0, 360, by = 30)),
+                      minor_breaks = NULL) +
+   scale_fill_viridis_c(guide = "none") +
+   coord_cartesian(ylim = c(1:12))
+
+```
+
+::: notes
+
+Esta es otra forma de mostrar la variabilidad de la onda 3. Son distribuciones de densidad de la fase pesada por la amplitud para cada mes. Se ven las diferencias de fase media entre meses de verano e invierno y también lo cambios en la estacionarieda de la onda. En noviembre, la distribución es prácticamente uniforme. 
+
+
+:::
+
 
 ```{r ampl-stat, fig.cap = "Mean wave amplitude (shaded) and stationarity (contours)." }
 binwidth.ampl <- 10
@@ -549,10 +601,10 @@ index %>% copy() %>%
 
 
 index.p %>% 
-   .[, amplitude := cut(Percentile(amplitude), 
+   .[, amplitude := as.numeric(cut(Percentile(amplitude), 
                         seq(0, 1, by = 0.25), labels = FALSE,
-                        ordered_result = TRUE), 
-     by = month(time)] -> index.p
+                        ordered_result = TRUE)), 
+     by = month(time)] 
    
 ggperiodic::wrap(index.p, phase = c(-180, 540)) %>% 
         ggplot(aes(phase, fill = reorder(as.factor(amplitude), -amplitude))) +
@@ -564,14 +616,6 @@ ggperiodic::wrap(index.p, phase = c(-180, 540)) %>%
 ```
 
 
-```{r}
-index %>% copy() %>% 
-   .[, phase := phase*3*180/pi] %>% 
-   ggperiodic::periodic(phase = c(0, 360))
-
-
-
-```
 
 
 ```{r read-psi}
