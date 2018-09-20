@@ -39,6 +39,7 @@ library(magrittr)
 library(circular)
 library(RcppRoll)
 library(patchwork)
+library(lubridate)
 
 source("scripts/helperfun.R")
 
@@ -72,7 +73,9 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 
 ```{r read-data}
 ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"), 
-                   subset = list(lat = -90:0, time= lubridate::as_datetime(c("1979-12-01","2015-12-01"))))
+                   subset = list(lat = -90:0, 
+                                 time= as_datetime(c("1979-12-01",
+                                                     "2015-12-01"))))
 setnames(ncep, "level", "lev")
 ```
 
@@ -330,6 +333,16 @@ Curiosamente, con 108 meses el mínimo valor de AMOMA debería ser $\sim `r roun
 
 La estacionariedad no puede estar definida para un mes en particular sino que sólo se define con respecto a una fase estacionaria que debe ser calculada para un determinado intervalo de tiempo. Lo más directo es usar todo el período, pero si interesa saber el nivel de estacionariedad en una década determinada, por ejemplo, se debe usar la fase estacionaria de esa década. Más aún, la fase estacionaria en realidad debe calcularse *para cada mes* por separado de manera de eliminar la influencia del ciclo anual. 
 
+```{r read-more}
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"),
+                   subset = list(lat = -90:0))
+setnames(ncep, "level", "lev")
+qs <- ncep[, FitWave(gh, 3), by = .(time, lev, lat)]
+remove(ncep)
+```
+
+
+
 ```{r calc-ts}
 w <- 12*5 + 1 
 
@@ -343,32 +356,22 @@ qs <- qs[, wave :=  as.wave(amplitude, phase, k)] %>%
    .[, phi.s := listapply(wave, 5, mean.phase.wave),
                        by = .(lat, lev, month(time))]
 
-S <- copy(qs)[, wave := as.wave(amplitude, phase, k, phi.s)]
+S <- copy(qs)
 # S <- copy(qs)
 
 S <- S[, amoma := listapply(wave, w, stationarity.wave2), 
         by = .(lat, lev)] %>% 
-   .[, avar := listapply(wave, w, stationarity.wave2, method = "avar"),
-     by = .(lat, lev)] %>%
-   .[, .(lat, lev, time, amoma, avar)] %>% 
-   melt(id.vars = c("time", "lat", "lev"), variable.name = "method") %>% 
-   .[!is.na(value)]
+   .[, .(lat, lev, time, amoma)]
 ```
 
 
 ```{r ts, fig.cap = "Stationarity as meassured by AMOMA and AVAR at 45°S and 500hPa. Background rectangles mark El Niño and La Niña events and their intensities."}
 S[lat == -45 & lev == 500] %>%
-ggplot(aes(time, value)) +
-   # geom_ribbon(aes(x = time, ymin = -Inf, ymax = Inf, fill = event,
-   #                 group = id, alpha = intensity), inherit.aes = FALSE,
-   #             data = enso[event != "Neutral" & l > 5 & time <= max(S[, time])]) +
+ggplot(aes(time, amoma)) +
+   geom_rect(xmin = -Inf, xmax = 198, ymin = -Inf, ymax = Inf, 
+             alpha = 0.5, fill = "gray90") +
    geom_line()  +
-   # geom_line(aes(y = avar)) +
-   geom_smooth(method = "lm", color = "black") +
-   scale_y_continuous("Stationarity")  +
-   scale_alpha(guide = "none") +
-   scale_fill_manual(values = c(Niña = "blue", Niño = "red")) +
-   facet_wrap(~method, scales = "free_y", ncol = 1)
+   scale_y_continuous("Stationarity")  
 ```
 
 La Figura \ref{fig:ts} muestra la serie temporal de estacionariedad según los dos métodos en 45°S y 500hPa con una ventana móvil de 5 años. Es notorio que ambas variables coinciden en gran medida (recordar que un valor mayor de AVAR implica una menor estacionariedad). Una tendencia a la baja con mínimos locales en los 90, mediados de 2010 y máximo a principios de los 2000. 
@@ -376,64 +379,63 @@ La Figura \ref{fig:ts} muestra la serie temporal de estacionariedad según los d
 Una forma alternativa --aunque conceptualmente equivalente-- es la de calcular la medida de distancia para cada mes y luego ajustar un modelo LOWESS usando la amplitud como los pesos. El resultado de este método (Figuras \ref{fig:cor-smooth} y \ref{fig:cor-smooth-corte}) tiene menor varianza en la alta frecuencia pero captura las variaciones temporales. 
 
 ```{r cor-smooth, fig.cap = "Correlation between monthly wave and a running mean wave at 45°S and 500hPa with windows of 5 years (gray line), loess fit weigthed by wave amplitude (black line). AMOMA computed with a 5 year running window is shown (in red) as refference.", fig.height=3}
+
+qs[, phi.s := mean.phase(amplitude, phase, 3), by = .(lev, lat)]
 qs[, rho := cos(3*(phase - phi.s))]
-qs[, dif := acos(cos(3*(phase - phi.s)))^2]
 
 qs <- qs[!is.na(rho) & lat != -90,
-   `:=`(amoma.loess = predict(loess(rho ~ as.numeric(time), weights = amplitude, 
-                        span = 0.13*2, data = .SD, degree = 1)), 
-        avar.loess = predict(loess(dif ~ as.numeric(time), weights = amplitude, 
-                        span = 0.13*2, data = .SD, degree = 1))),
+         c("amoma.loess", "ci") := 
+            predict(loess(rho ~ as.numeric(time), weights = amplitude, 
+                          span = 0.13, data = .SD, degree = 1), 
+                    se = TRUE)[c("fit", "se.fit")],
    by = .(lev, lat)]
 
 
 ggplot(qs[!is.na(rho) & lev == 500 & lat == -45], aes(time, rho)) +
    geom_line(color = "gray") +
+   geom_ribbon(aes(ymin = amoma.loess - 2*ci, ymax = amoma.loess + 2*ci), 
+               fill = "gray20", alpha = 0.2) +
    geom_line(aes(y = amoma.loess)) +
-   geom_line(aes(y = value), data = S[lev == 500 & lat == -45 & method == "amoma"], 
+   geom_line(aes(y = amoma), data = S[lev == 500 & lat == -45], 
              color = "red") +
-   # scale_y_continuous(trans = "atanh") +
-   # geom_smooth(aes(weight = amplitude), method = "lm") +
    # geom_smooth(method = "lm")
    # coord_trans(y = "tanh") +
-   coord_cartesian(ylim = c(0.25, 1)) +
+   coord_cartesian(ylim = c(0.0, 1)) +
    NULL
 ```
 
 ```{r cor-smooth-corte, fig.cap = "Hovmoller plot of AMOMA stationarity a 500hPa computed as a lowess fit (contour) and as a rolling mean (shaded).", fig.height=4}
 binwidth <- 0.05
 ggplot(qs[lev == 500], aes(lat, time)) +
-   
-   geom_contour_fill(aes(z = value), data = S[lev == 500 & method == "amoma"], 
-                 size = 0.2, breaks = MakeBreaks(binwidth)) +
-   geom_contour_tanaka(aes(z = amoma.loess), na.rm = TRUE, 
-                     breaks = MakeBreaks(binwidth)) +
+   geom_contour_fill(aes(z = amoma.loess)) +
+   geom_contour_tanaka(aes(z = amoma.loess)) +
    scale_x_latitude(trans = "reverse") +
+   scale_y_datetime(expand = c(0, 0)) +
    scale_fill_viridis_c() 
 ```
 
 
 La tendencia hacia menor estacionariedad se da en todos los niveles de latitudes medias (Figura \ref{fig:amoma-trends}) y hay una tendencia a mayor estacionariedad en la estratósfera tropical. 
 
-```{r amoma-trends, fig.cap = "Stationarity for the whole period (contours) and decadal trend in stationarity (shaded) for AMOMA", fig.height=3}
-regr.S <- S[, FitLm(value, time = 1:.N, se = TRUE),
-     by = .(lat, lev, method)]
-
-ggplot(regr.S[term == "time" & method == "amoma"], aes(lat, lev)) +
-   geom_contour_fill(aes(z = estimate*12*10), 
-                     breaks = AnchorBreaks(0, 0.02, 0)) +
-   # stat_subset(aes(subset = abs(estimate)/std.error > 3), geom = "point", 
-               # size = 0.2) +
-   geom_contour_tanaka(data = qs[, stationarity.wave2(wave), by = .(lat, lev)],
-                       aes(z = V1)) +
-   scale_x_latitude(trans = "reverse", ticks = 15) +
-   scale_fill_divergent(oob = scales::squish,
-                        guide = guide_colorstrip_bottom(),
-                        breaks = AnchorBreaks(0, 0.02, 0),
-                        limits = pm(0.1)) +
-   scale_y_level(breaks = lev.breaks)  +
-   annotate("point", x = -28, y = 50)
+```{r}
+set.seed(42)
+invisible(capture.output(
+   WaveletComp::analyze.wavelet(qs[!is.na(rho) & lev == 500 & lat == -45][, date := time],
+                                verbose = FALSE,
+                             loess.span = 0, "amoma.loess", dt = 1/12) -> wv))
+wavelets <- as.data.table(wv)
+autoplot(wv) 
 ```
+
+```{r}
+wavelets[, .(power = mean(power), p.value = mean(p.value)),
+         by = period] %>% 
+   ggplot(aes(period, power)) +
+   geom_line() +
+   geom_vline(xintercept = c(20, 14), linetype = 3) +
+   scale_x_continuous(trans = "log2")  
+```
+
 
 ## Regresiones
 

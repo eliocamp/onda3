@@ -892,7 +892,7 @@ meanfun <- function(x, group, fun, ...) {
 qs.index <- function(gh, lat, lev, k = 3, lats.index =  c(-65, -40), levs.index = c(100, 700)) {
    dt <- data.table(gh, lat, lev)
    dt[lat %between% lats.index & 
-      lev %between% levs.index] %>% 
+         lev %between% levs.index] %>% 
       .[, FitWave(gh, k), by = .(lat, lev)] %>% 
       .[, phase := circular(phase*k, modulo = "2pi")] %>% 
       .[, .(amplitude = mean(amplitude), phase = as.numeric(mean.circular(phase)/k))]
@@ -984,7 +984,7 @@ stationarity.wave <- function(waves, group = NULL, method = c("amoma", "avar")) 
       group <- deparse(substitute(group))
       waves[, phi.s := mean.phase(amplitude, phase, k[1]), by = group]
    }
-
+   
    if (method[1] == "amoma") {
       dif <- with(waves, cos(k*(phase - phi.s)))
    }
@@ -1009,7 +1009,7 @@ stationarity.wave2 <- function(waves, method = c("amoma", "avar")) {
    }
    
    # setDT(waves)
-
+   
    if (method[1] == "amoma") {
       dif <- with(waves, cos(k[1]*(phase - phi.s)))
    }
@@ -1077,8 +1077,8 @@ listapply <- function(x, width, FUN = NULL, by = 1, fill = NA, ...) {
 
 tanh_trans <- function() {
    scales::trans_new("tanh", 
-      transform = tanh,
-      inverse = atanh)
+                     transform = tanh,
+                     inverse = atanh)
 }
 
 expand.grid <- function(...) {
@@ -1364,3 +1364,75 @@ degrees_trans <- function() {
 LabDegrees <- function(x) {
    as.character(as.numeric(x)*180/pi)
 }
+
+
+as.data.table.analyze.wavelet <- function(object) {
+   df <- with(object, Ampl)
+
+   dimnames(df) <- list(period = object$Period,
+                        location = object$axis.1)
+   
+   df <- data.table::setDT(data.table::melt(df, value.name = "amplitude"))
+   if (!is.null(object$series$date)) {
+      df[, location2 := lubridate::as_datetime(object$series$date)]
+      df[, location := NULL]
+      setnames(df, "location2", "location")
+   }
+   df[, phase := c(object$Phase)]
+   df[, power := c(object$Power)]
+   df[, p.value := c(object$Power.pval)]
+   df <- df[, ridge := c(object$Ridge)]
+   return(df)
+}
+
+get_coi <- function(object) {
+   coi <- with(object, data.table(location = coi.1, 
+                                  period = 2^coi.2))
+   coi <- coi[location %between% range(object$axis.1)]
+   if (!is.null(object$series$date)) {
+      coi[, location2 := lubridate::as_datetime(object$series$date)]
+      coi[, location := NULL]
+      setnames(coi, "location2", "location")
+   }
+   coi <- coi[period %between% range(object$Period)]
+   # coi <- coi[coi < min(object$Period), coi := min(object$Period)]
+   coi
+}
+
+autoplot.analyze.wavelet <- function(object, p.val = 0.01, 
+                                     geom = c("contour_fill", "raster")) {
+   df <- as.data.table(object)
+   coi <- get_coi(object)
+   
+   r <- range(df$period)
+   
+   breaks <- 2^seq(floor(log2(r[1])), ceiling(log2(r[2])))
+   breaks <- breaks[breaks %between% r]
+   
+   g <- ggplot(df, aes(location, period))
+   
+   if (geom[1] == "contour_fill") {
+      g <- g +  geom_contour_fill(aes(z = power))
+   } else if (geom[1] == "raster") {
+      g <- g + geom_raster(aes(fill = power)) 
+   }
+   
+  g <- g + stat_subset(aes(subset = ridge == 1), size = 0.1) +
+      geom_contour(aes(z = p.value), breaks = p.val, 
+                   color = "black", size = 0.8) +
+      geom_ribbon(data = coi, aes(x = location, ymax = Inf, ymin = period),
+                  inherit.aes = F, alpha = 0.2, fill = "white", 
+                  color = "white", size = 0.1) +
+      scale_y_continuous("Period", expand = c(0, 0),
+                         breaks = breaks,
+                         trans = scales::log2_trans()) +
+      scale_fill_viridis_c()
+   
+   if (is.numeric(df$location)) {
+      g + scale_x_continuous("Location", expand = c(0, 0))
+   } else {
+      g + scale_x_datetime("Location", expand = c(0, 0))
+   }
+}
+
+
