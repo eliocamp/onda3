@@ -1368,16 +1368,16 @@ LabDegrees <- function(x) {
 
 as.data.table.analyze.wavelet <- function(object) {
    df <- with(object, Ampl)
-
+   
    dimnames(df) <- list(period = object$Period,
-                        location = object$axis.1)
+                        location = seq(0, object$nc - 1)*object$dt + 1)
    
    df <- data.table::setDT(data.table::melt(df, value.name = "amplitude"))
-   if (!is.null(object$series$date)) {
-      df[, location2 := lubridate::as_datetime(object$series$date)]
-      df[, location := NULL]
-      setnames(df, "location2", "location")
-   }
+   # if (!is.null(object$series$date)) {
+   #    df[, location2 := lubridate::as_date(object$series$date), by = period]
+   #    df[, location := NULL]
+   #    setnames(df, "location2", "location")
+   # }
    df[, phase := c(object$Phase)]
    df[, power := c(object$Power)]
    df[, p.value := c(object$Power.pval)]
@@ -1385,22 +1385,41 @@ as.data.table.analyze.wavelet <- function(object) {
    return(df)
 }
 
+fortify.analyze.wavelet <- function(model, object, ...) {
+   as.data.table(model)
+}
+
+
 get_coi <- function(object) {
    coi <- with(object, data.table(location = coi.1, 
                                   period = 2^coi.2))
    coi <- coi[location %between% range(object$axis.1)]
-   if (!is.null(object$series$date)) {
-      coi[, location2 := lubridate::as_datetime(object$series$date)]
-      coi[, location := NULL]
-      setnames(coi, "location2", "location")
-   }
+   # if (!is.null(object$series$date)) {
+   #    coi[, location2 := lubridate::as_date(object$series$date), by = period]
+   #    coi[, location := NULL]
+   #    setnames(coi, "location2", "location")
+   # }
    coi <- coi[period %between% range(object$Period)]
    # coi <- coi[coi < min(object$Period), coi := min(object$Period)]
    coi
 }
 
+geom_coi <- function(object, alpha = 0.2, fill = "white", 
+                     color = "white", size = 0.1, ...) {
+   coi <- get_coi(object) 
+   geom_ribbon(data = coi, aes(x = location, ymax = Inf, ymin = period),
+               inherit.aes = F, alpha = alpha, fill = fill, 
+               color = color, size = size, ...) 
+}
+
+log2_breaks <- function(range) {
+   breaks <- 2^seq(floor(log2(range[1])), ceiling(log2(range[2])))
+   # breaks <- breaks[breaks %between% range]
+}
+
 autoplot.analyze.wavelet <- function(object, p.val = 0.01, 
-                                     geom = c("contour_fill", "raster")) {
+                                     geom = c("contour_fill", "raster", "tanaka"),
+                                     ridge = FALSE) {
    df <- as.data.table(object)
    coi <- get_coi(object)
    
@@ -1412,14 +1431,26 @@ autoplot.analyze.wavelet <- function(object, p.val = 0.01,
    g <- ggplot(df, aes(location, period))
    
    if (geom[1] == "contour_fill") {
-      g <- g +  geom_contour_fill(aes(z = power))
+      g <- g +  geom_contour_fill(aes(z = power)) 
    } else if (geom[1] == "raster") {
       g <- g + geom_raster(aes(fill = power)) 
+   } else if (geom[1] == "tanaka") {
+      g <- g +  
+         geom_contour_fill(aes(z = power)) +
+         geom_contour_tanaka(aes(z = power))
    }
    
-  g <- g + stat_subset(aes(subset = ridge == 1), size = 0.1) +
-      geom_contour(aes(z = p.value), breaks = p.val, 
-                   color = "black", size = 0.8) +
+   if (isTRUE(ridge)) {
+      g <- g + stat_subset(aes(subset = ridge == 1), size = 0.1)
+   }
+   
+   if (!is.null(p.val)) {
+      g <- g +
+         geom_contour(aes(z = p.value), breaks = p.val, 
+                      color = "white", size = 0.3) 
+   }
+   
+   g <- g +
       geom_ribbon(data = coi, aes(x = location, ymax = Inf, ymin = period),
                   inherit.aes = F, alpha = 0.2, fill = "white", 
                   color = "white", size = 0.1) +
@@ -1428,11 +1459,41 @@ autoplot.analyze.wavelet <- function(object, p.val = 0.01,
                          trans = scales::log2_trans()) +
       scale_fill_viridis_c()
    
-   if (is.numeric(df$location)) {
-      g + scale_x_continuous("Location", expand = c(0, 0))
+   if (!is.null(object$series$date)) {
+      dates <- object$series$date
+      breaklabs <- function(x) {
+         as.character(dates[as.numeric(x)])
+      }
+      g + scale_x_continuous(labels = breaklabs, expand = c(0, 0))
    } else {
-      g + scale_x_datetime("Location", expand = c(0, 0))
+      g + scale_x_continuous(expand = c(0, 0))
    }
+   
 }
 
 
+scale_range <- function(scale, limits = NULL, expand = TRUE) {
+   expansion <- if (expand) ggplot2:::expand_default(scale) else c(0, 0)
+   
+   if (is.null(limits)) {
+      scale$dimension(expansion)
+   } else {
+      limits <- ifelse(is.na(limits), scale$get_limits(), limits)
+      range <- range(scale$transform(limits))
+      scales::expand_range(range, expansion[1], expansion[2])
+   } 
+}
+
+assignInNamespace("scale_range", scale_range, ns = "ggplot2")
+
+
+Wavelets <- function(...) {
+   invisible(capture.output(w <- invisible(WaveletComp::analyze.wavelet(..., verbose = FALSE))))
+   return(w)
+}
+
+harmonics <- function(x, n = 4) {
+   n <- as.numeric(seq(1, by = 1, length.out = n))
+   h <- c(vapply(x, function(i) i/n, n))
+   sort(h)
+}
