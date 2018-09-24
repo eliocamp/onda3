@@ -98,8 +98,8 @@ qs.density <- qs[lat != -90 & lev == 200,
                          from = 0, to = 360)[c("x", "y")],
                  by = lat]
 mean.phases <- qs[lat %in% lats & lev == 200,
-                 .(mean.phase = mean.wave(amplitude, phase, k)$phase*180/pi*3),
-                 by = lat]
+                  .(mean.phase = mean.wave(amplitude, phase, k)$phase*180/pi*3),
+                  by = lat]
 # qs.density <- qs[lat != -90, 
 #                  density(phase.c, bw = 7)[c("x", "y")], 
 #                  by = lat] 
@@ -205,7 +205,7 @@ B <- 1000
 trials <- data.table(t = seq(2, 500, by = 10))
 set.seed(42)
 trials[, ampl := mean(sapply(1:B, function(x) amplsum(t))), by = t]
-               
+
 trials[, mean := ampl/t] 
 trials[, mean(mean*sqrt(t), na.rm = TRUE)] -> k
 ```
@@ -224,7 +224,7 @@ $$
 \mathrm{AM} = \mathrm{MA} \frac{1}{2}\sqrt{\frac{\pi}{N}}
 $$
 
-Esta cota inferior no es del todo sólida (como se va a ver desupés). En @Pain2005 se demuestra que la amplitud suma de $N$ ondas con igual amplitud $A$ y fase aleatoria es $\sqrt{N}A$. Es to justifica el factor $1/\sqrt{N}$, pero no se ve por qué aparece $\sqrt{\pi/2}$.
+Cabe notar que esta igualdad vale para el promedio de MA, no para mediciones individuales. En @Pain2005 se demuestra que la amplitud suma de $N$ ondas con igual amplitud $A$ y fase aleatoria es $\sqrt{N}A$. Es to justifica el factor $1/\sqrt{N}$, pero no se ve por qué aparece $\sqrt{\pi/2}$.
 
 Poniendo todo en limpio, se demostró (con una mezcla de teoría y práctica), que si se define $\mathrm{AMOMA} = \frac{\mathrm{AM}}{\mathrm{MA}}$ como medida de estacionariedad, se tiene que 
 
@@ -273,12 +273,13 @@ $$
 \mathrm{AVAR} &=\frac{1}{N'} \sum_{i = 1}^{N'} \frac{A_i}{A_e}\cos^{-1}  \left[ \cos \left( \overline{\phi} - \phi_i \right) \right]^2
 \end{aligned}
 $$
- 
-Ambos son el promedio pesado de una distancia entre la fase y la fase estacionaria. Pero ésta se define de manera distinta.
- 
-# Algunos resultados
 
-## Campos espaciales
+Ambos son el promedio pesado de una distancia entre la fase y la fase estacionaria. Pero ésta se define de manera distinta.
+
+
+## Escalado 
+
+@Singer1967 desarrolla una variable llamada *steadniess* definida como $2\sin^{-1}(\mathrm{AMOMA})/\pi$. La fustificación de esta función de escalado es que linearliza el comportamiento de AMOMA en relación al rango de variabilidad. 
 
 ```{r calc-avar}
 qs[, phase.stat := mean.wave(amplitude, phase, k)$phase, by = .(lat, lev, season(time))]
@@ -301,7 +302,7 @@ meanfun <- function(x, group, fun, ...) {
 }
 
 amoma <- ncep[ , meanfun(gh, time, function(x) FitWave(x, 3)$amplitude),
-                by = .(lat, lev, season(time))] %>% 
+               by = .(lat, lev, season(time))] %>% 
    .[, amoma := fun.mean/mean.fun]
 ```
 
@@ -310,28 +311,47 @@ avar[amoma, on = c("lat", "lev", "season")] %>%
    ggplot(aes(amoma, avar)) +
    geom_point(size = 0.5, alpha = 0.2) +
    scale_x_continuous("AMOMA") +
-   scale_y_continuous("AVAR") 
+   scale_y_continuous("AVAR") +
+   avar[amoma, on = c("lat", "lev", "season")] %>% 
+   ggplot(aes(asin(amoma)*2/pi, sqrt(avar))) +
+   geom_point(size = 0.5, alpha = 0.2) +
+   scale_x_continuous("asin(AMOMA)*2/pi") +
+   scale_y_continuous("sqrt(AVAR)") 
 ```
 
+En efecto, en la Figura \ref{fig:amoma-avar} puede observarse como la relación entre AMOMA y AVAR es ligeramente no lineal, mientras que la relación entre *steadiness* y la raiz de AVAR (que representaría el desvío estándar) es mucho más lineal y con menos spread. También, como se ve en la Figura \ref{fig:amoma-densities}, la distribución de *steadiness* es menos asimétrica y más normal que de AMOMA. 
 
+```{r amoma-densities, fig.cap = "Estimated probability densities of AMOMA (red) and steadiness (blue)., fig.height = 3"}
+amoma[, .(amoma = amoma)] %>% 
+   .[, steadiness := asin(amoma)*2/pi] %>% 
+   melt(variable.name = "method", value.name = "amoma") %>% 
+   ggplot(aes(amoma)) +
+   geom_density(aes(color = method, fill = method), alpha = 0.25, trim = TRUE) +
+   scale_color_brewer(palette = "Set1", aesthetics = c("color", "fill"))
+```
+
+Como esta transformación la encontré después de hacer el análisis de abajo, por ahora uso AMOMA. Sin embargo, creo que usar el *steadiness* parece mejor. De todass formas, las conclusiones generales valen para ambas medidas. 
+
+# Algunos resultados
+
+## Campos espaciales
 
 ```{r amoma-avar-field, fig.cap = "AMOMA (shaded) and AVAR (contours)", fig.height=4}
 ggplot(amoma, aes(lat, lev)) +
-   geom_contour_fill(aes(z = amoma)) +
-   geom_contour_tanaka(aes(z = avar), data = avar) +
+   geom_contour_fill(aes(z = avar), data = avar) +
+   geom_contour_tanaka(aes(z = amoma)) +
    scale_x_latitude(trans = "reverse", ticks = 15)+
-   scale_fill_viridis_c() +
+   scale_fill_viridis_c(direction = -1) +
    scale_y_level(breaks = lev.breaks) +
    facet_wrap(~season)
 ```
 
-La comparación ente AMOMA y AVAR (Figuras \ref{fig:amoma-avar} y \ref{fig:amoma-avar-field}) muestran que hay un excelente acuerdo entre ambas medidas. 
+La comparación ente AMOMA y AVAR (Figuras \ref{fig:amoma-avar} y \ref{fig:amoma-avar-field}) muestran que hay un excelente acuerdo entre ambas medidas. En latitudes medias, la máxima estacionariedad se da en 45°S y 500hPa, teniendo un mínmo en primavera. Se observa el alto nivel de estacionariedad en los niveles altos de las latitudes tropicales, especialmente en verano, probablemente debido a la atividad del SAMS. 
 
-Curiosamente, con 108 meses el mínimo valor de AMOMA debería ser $\sim `r round(1/2*sqrt(pi/108), 3)`$, sin embargo en los datos es `r round(amoma[, min(amoma, na.rm = TRUE)], 3)`, indicando que algo falla con mi "demostración" empírica de la cota inferior.
 
 ## Evolución temporal 
 
-La estacionariedad no puede estar definida para un mes en particular sino que sólo se define con respecto a una fase estacionaria que debe ser calculada para un determinado intervalo de tiempo. Lo más directo es usar todo el período, pero si interesa saber el nivel de estacionariedad en una década determinada, por ejemplo, se debe usar la fase estacionaria de esa década. Más aún, la fase estacionaria en realidad debe calcularse *para cada mes* por separado de manera de eliminar la influencia del ciclo anual. 
+La estacionariedad no puede estar definida para un mes en particular sino que sólo se define con respecto a una fase estacionaria que debe ser calculada para un determinado intervalo de tiempo. Lo más directo es usar todo el período, pero si interesa saber el nivel de estacionariedad en una década determinada, por ejemplo, se debe usar la fase estacionaria de esa década. 
 
 ```{r read-more}
 ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"),
@@ -342,102 +362,145 @@ remove(ncep)
 ```
 
 
-
 ```{r calc-ts}
 w <- 12*5 + 1 
 
 S <- copy(qs) %>% 
    .[, amoma := listapply(as.wave(amplitude, phase, k),
-                            w, stationarity.wave2), 
-        by = .(lat, lev)] %>% 
+                          w, stationarity.wave2), 
+     by = .(lat, lev)] %>% 
    .[, .(lat, lev, time, amoma)]
 ```
 
 
-```{r ts, fig.cap = "Stationarity as meassured by AMOMA at 45°S and 500hPa. The pre-satellite era is marked in gray."}
+```{r ts, fig.cap = "Stationarity as meassured by AMOMA at 45°S and 500hPa. The pre-satellite era is marked in gray.", fig.height=3}
 S[lat == -45 & lev == 500 & !is.na(amoma)] %>%
-ggplot(aes(time, amoma)) +
-   geom_rect(xmin = -Inf, xmax = 198, ymin = -Inf, ymax = Inf, 
+   ggplot(aes(time, amoma)) +
+   geom_rect(xmin = -Inf, xmax = as_datetime("1980-01-01"), 
+             ymin = -Inf, ymax = Inf,
              alpha = 0.5, fill = "gray90") +
    geom_line()  +
    scale_y_continuous("Stationarity")  +
-   scale_x_datetime(expand = c(0, 0))
+   scale_x_datetime(expand = c(0, 0), date_breaks = "5 years", 
+                    date_labels = "%y")
 ```
 
-La Figura \ref{fig:ts} muestra la serie temporal de estacionariedad según los dos métodos en 45°S y 500hPa con una ventana móvil de 5 años. Es notorio que ambas variables coinciden en gran medida (recordar que un valor mayor de AVAR implica una menor estacionariedad). Una tendencia a la baja con mínimos locales en los 90, mediados de 2010 y máximo a principios de los 2000. 
+La Figura \ref{fig:ts} muestra la serie temporal de estacionariedad con una ventana móvil de 5 años. La variación interanual es evidente, con momentos alternados de baja (p.ej. 1975-80) y alta (p.ej. 1980-90) estacionarieda. Los datos previos a la era satelital (región gris) son menos confiables. Idealmente habría que confirmarlo con otros reanálisis. 
 
-Una forma alternativa --aunque conceptualmente equivalente-- es la de calcular la medida de distancia para cada mes y luego ajustar un modelo LOWESS usando la amplitud como los pesos. El resultado de este método (Figuras \ref{fig:cor-smooth} y \ref{fig:cor-smooth-corte}) tiene menor varianza en la alta frecuencia pero captura las variaciones temporales. 
+Una forma alternativa --aunque conceptualmente equivalente-- de obtener una serie temporal, es la de calcular la medida de distancia para cada mes y luego ajustar un modelo LOWESS usando la amplitud como los pesos. El resultado de este método (Figuras \ref{fig:cor-smooth} y \ref{fig:cor-smooth-corte}) tiene menor varianza en la alta frecuencia pero captura las variaciones temporales de más baja frecuencia correctamente. 
 
-```{r cor-smooth, fig.cap = "Correlation between monthly wave and a running mean wave at 45°S and 500hPa with windows of 5 years (gray line), loess fit weigthed by wave amplitude (black line). AMOMA computed with a 5 year running window is shown (in red) as refference.", fig.height=3}
-
+```{r cor-smooth, fig.cap = "Correlation between monthly wave and the mean wave, lowess fit weigthed by wave amplitude (black line) and 95% confidence interval. AMOMA computed with a 5 year running window is shown (in red) as reference. All in 45°S and 500hPa", fig.height=3}
 qs[, phi.s := mean.phase(amplitude, phase, 3), by = .(lev, lat)]
 qs[, rho := cos(3*(phase - phi.s))]
 
 qs <- qs[!is.na(rho) & lat != -90,
-         c("amoma.loess", "ci") := 
+         c("amoma", "ci") := 
             predict(loess(rho ~ as.numeric(time), weights = amplitude, 
                           span = 0.13, data = .SD, degree = 1), 
                     se = TRUE)[c("fit", "se.fit")],
-   by = .(lev, lat)]
-
+         by = .(lev, lat)]
 
 ggplot(qs[!is.na(rho) & lev == 500 & lat == -45], aes(time, rho)) +
+   geom_rect(xmin = -Inf, xmax = as_datetime("1980-01-01"),
+             ymin = -Inf, ymax = Inf,
+             alpha = 0.5, fill = "gray90") +
    geom_line(color = "gray") +
-   geom_ribbon(aes(ymin = amoma.loess - 2*ci, ymax = amoma.loess + 2*ci), 
-               fill = "gray20", alpha = 0.2) +
-   geom_line(aes(y = amoma.loess)) +
-   geom_line(aes(y = amoma), data = S[lev == 500 & lat == -45], 
+   geom_line(aes(y = amoma), data = S[lev == 500 & lat == -45],
              color = "red") +
-   # geom_smooth(method = "lm")
+   geom_ribbon(aes(ymin = amoma - 2*ci, ymax = amoma + 2*ci),
+               fill = "gray20", alpha = 0.2) +
+   geom_line(aes(y = amoma)) +
+   # geom_smooth(aes(weight = amplitude), span = 0.13,
+               # method.args = list(degree = 1)) +
+   # scale_y_continuous(trans = "atanh") +
    # coord_trans(y = "tanh") +
    coord_cartesian(ylim = c(0.0, NA)) +
-   NULL
+   scale_x_datetime(expand = c(0, 0), date_breaks = "5 years", 
+                    date_labels = "%y")
 ```
 
 ```{r cor-smooth-corte, fig.cap = "Hovmoller plot of AMOMA stationarity a 500hPa computed as a lowess fit (contour) and as a rolling mean (shaded).", fig.height=4}
 binwidth <- 0.05
 qs[lev == 500] %>%
- # S[lev == 500] %>% 
-ggplot( aes(lat, time)) +
-   geom_contour_fill(aes(z = amoma.loess)) +
-   geom_contour_tanaka(aes(z = amoma.loess)) +
+   # S[lev == 500] %>% 
+   ggplot( aes(lat, time)) +
+   geom_contour_fill(aes(z = amoma)) +
+   # geom_rect(ymin = -Inf, ymax = as_datetime("1980-01-01"), 
+   #           xmin = -Inf, xmax = Inf,
+   #           alpha = 0.01, fill = "white") +
+   geom_contour_tanaka(aes(z = amoma)) +
    scale_x_latitude(trans = "reverse") +
-   scale_y_datetime(expand = c(0, 0)) +
+   scale_y_datetime(expand = c(0, 0), date_breaks = "5 years", 
+                    date_labels = "%Y") +
    scale_fill_viridis_c() 
 ```
 
+En el hovmoller de la Figura \ref{fig:cor-smooth-corte} puede observarse la evolución de la estacionariedad en 500hPa para cada círculo de latitud. ....
 
-La tendencia hacia menor estacionariedad se da en todos los niveles de latitudes medias (Figura \ref{fig:amoma-trends}) y hay una tendencia a mayor estacionariedad en la estratósfera tropical. 
 
-```{r}
+```{r calc-wavelets}
 set.seed(42)
-wv <- Wavelets(S[lev == 500 & lat == -45 & is.finite(amoma)][, date := time],
-      loess.span = 0, "amoma", dt = 1/12, n.sim = 1000, method = "shuffle")
-wavelets <- as.data.table(wv)
-autoplot(wv, geom = "tanaka") +
-   geom_hline(yintercept = c(22, 12), linetype = 3) +
-   coord_cartesian(ylim = c(2, max(wavelets$period)))
+rbindlist(list(loess = qs[, .(lat, lev, time, amoma)],
+               runmean = S), idcol = "method", use.names = TRUE) %>% 
+   .[lev == 500 & lat == -45 & is.finite(amoma)] %>% 
+   .[, date := time] %>% 
+   {
+      wavelets <<- .[, as.data.table(Wavelets(.SD, "amoma", dt = 1/12,
+                                              loess.span = 0, 
+                                              n.sim = 5)), 
+                     by = .(method)] %>% 
+         setnames("date", "time") 
+      
+      coi <<- .[, get_coi(Wavelets(.SD, "amoma", dt = 1/12,
+                                   loess.span = 0, 
+                                   n.sim = 1)), 
+                by = .(method)] %>% 
+         setnames("date", "time") 
+   }
 ```
 
 
-```{r}
+```{r amoma-wavelets, fig.cap = "Wavelet analysis for AMOMA stationarity at 45°S and 500hPa. a) Power spectrum and b) mean power spectrum for the whole period."}
+ggplot(wavelets, aes(time, period)) +
+   geom_contour_fill(aes(z = power)) +
+   geom_contour_tanaka(aes(z = power)) +
+   geom_contour(aes(z = p.value), breaks = 0.01, color = "black", 
+                size = 0.3) +
+   geom_coi(coi) +
+   scale_fill_viridis_c() +
+   scale_y_continuous(trans = "log2") +
+   coord_cartesian(ylim = c(4, max(wavelets$period)), expand = FALSE) +
+   facet_wrap(~method, ncol = 1) +
 wavelets[, .(power = mean(power), p.value = mean(p.value)),
-         by = period] %>% 
+            by = .(period, method)] %>% 
    ggplot(aes(period, power)) +
    geom_line() +
    # geom_vline(xintercept = 16/(2^seq(0, 6)), linetype = 3) +
+   scale_color_brewer(palette = "Set1") +
    scale_x_continuous(trans = "log2", breaks = log2_breaks)  +
-   scale_y_continuous(trans = "log2") 
+   coord_flip(xlim = c(4, max(wavelets$period)), expand = FALSE) +
+   facet_wrap(~method, ncol = 1, labeller = labeller(method = c(loess = " ",
+                                                                runmean = " "))) +
+   theme(axis.title.y = element_blank()) +
+   plot_annotation(tag_level = "a")
 ```
 
+La variabilidad interanual observada en la Figura \ref{fig:cor-smooth} se cuantifica mediante un análisis de wavelets en la Figura \ref{fig:amoma-wavelets}. La estacionariedad derivada a partir de ambos métodos da un resultado consistente. Puede observarse una fuerte periodicidad de entre 10 y 20 añosqueque es máxima en la segunda mitad del perídodo.
 
+Una limitación de todo esto es que la periodicidad es relativamente larga en comparación con el período con datos confiables. 
 
 ## Regresiones
 
 Para realizar regresiones se tomó como indicador de estacionariedad, el valor de AMOMA obtenido a partir del ajuste LOWESS en 45°S y 500hPa con la tendencia lineal eliminada. A su vez, se aplicó el mismo suavizado a las series de anomalías mensuales de SST, altura geopotencial y función corriente.
 
-```{r}
-S <- qs[, .(time, lat, lev, method = "amoma", value = amoma.loess)]
+```{r rename}
+S <- qs[, .(time, lat, lev, value = amoma)]
+```
+
+```{r read-ncep2}
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"),
+                   subset = list(lat = -90:15, level = 500)) %>% 
+   setnames("level", "lev")
 ```
 
 ```{r reas-sst}
@@ -445,23 +508,23 @@ sst <- ReadNetCDF("DATA/sst.nc", vars = "sst")[!is.na(sst)]
 
 sst[, sst.a := Anomaly(sst), by = .(lon, lat, month(time))]
 sst[, sst.a := predict(loess(sst.a ~ as.numeric(time), 
-                        span = 0.13*2, data = .SD, degree = 1)),
+                             span = 0.13, data = .SD, degree = 1)),
     by = .(lat, lon)]
 
 regr.sst <- S[lat == -45 & lev == 500, 
-       .(time, value = Detrend(value), method)] %>% 
+              .(time, value = Detrend(value))] %>% 
    .[sst, on = c("time"), allow.cartesian = TRUE] %>% 
    .[!is.na(value), FitLm(sst.a, value, se = TRUE), 
-     by = .(lon, lat, method)]
+     by = .(lon, lat)]
 
-regr.gh <- S[lat == -45 & lev == 500, .(time, value = Detrend(value), method)] %>% 
+regr.gh <- S[lat == -45 & lev == 500, .(time, value = Detrend(value))] %>% 
    ncep[lev == 500][., on = c("time"), allow.cartesian = TRUE] %>% 
    .[, gh := Anomaly(gh), by = .(lat, lon, month(time))] %>% 
-   .[, gh := predict(loess(gh ~ as.numeric(time), span = 0.13*2, data = .SD, 
+   .[, gh := predict(loess(gh ~ as.numeric(time), span = 0.13, data = .SD, 
                            degree = 1)),
      by = .(lat, lon)] %>% 
    .[, FitLm(gh, value, se = TRUE), 
-     by = .(lat, lon, method)]
+     by = .(lat, lon)]
 
 stream <- ReadNetCDF("DATA/NCEP Reanalysis/psi.mon.mean.nc",
                      subset = list(level = 0.2101, 
@@ -472,29 +535,29 @@ stream <- ReadNetCDF("DATA/NCEP Reanalysis/psi.mon.mean.nc",
 stream[, psi.a := Anomaly(psi), by = .(lon, lat, month(time))]
 
 regr.stream <- S[lat == -45 & lev == 500, 
-       .(time, value = Detrend(value), method)] %>% 
+                 .(time, value = Detrend(value))] %>% 
    .[stream, on = c("time"), allow.cartesian = TRUE] %>% 
-   .[, psi.a := predict(loess(psi.a ~ as.numeric(time), span = 0.13*2, data = .SD, 
-                           degree = 1)),
+   .[, psi.a := predict(loess(psi.a ~ as.numeric(time), span = 0.13, data = .SD, 
+                              degree = 1)),
      by = .(lat, lon)] %>% 
    .[!is.na(value), FitLm(psi.a, value, se = TRUE), 
-     by = .(lon, lat, method)]
+     by = .(lon, lat)]
 
 regr.stream[, psi.z := estimate] %>% 
-   .[, c("f.x", "f.y") := WaveFlux(.SD), by = .(method, term)]
+   .[, c("f.x", "f.y") := WaveFlux(.SD), by = .(term)]
 ```
 
 ```{r regr, fig.cap = "Regression of Sea Surface Temperature (shaded), 500hPa geopotential height (contours) with stationarity at 45°S 500hPa and activity wave fluxes derived from the regression of streamfunction with stationarity.", fig.height=5}
-ggplot(regr.gh[term == "value" & method == "amoma"], aes(lon, lat)) +
+ggplot(regr.gh[term == "value"], aes(lon, lat)) +
    geom_raster(aes(fill = estimate), interpolate = TRUE,
-               data = regr.sst[term == "value" & method == "amoma"]) + 
+               data = regr.sst[term == "value"]) + 
    geom_contour2(aes(z = estimate, linetype = factor(-sign(stat(level)))), 
                  breaks = AnchorBreaks(0, 20, 0), size = 0.2, xwrap = c(0, 360)) +
    geom_text_contour(aes(z = estimate), stroke.color = "white", stroke = 0.2,
-                 breaks = AnchorBreaks(0, 20, 0), size = 2) +
+                     breaks = AnchorBreaks(0, 20, 0), size = 2) +
    geom_streamline(aes(dx = f.x, dy = f.y), min.L = 5, skip = 3,
                    arrow.length = 0.2, size = 0.3, res = 3,
-                   data = regr.stream[term == "value" & method == "amoma"]) +
+                   data = regr.stream[term == "value"]) +
    # geom_raster(aes(fill = estimate)) +
    map.SH +
    scale_y_latitude(limits = c(-90, 15)) +

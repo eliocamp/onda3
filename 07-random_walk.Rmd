@@ -134,10 +134,11 @@ La razón de esta sobreestimación es que AMOMA se basa en que en un random walk
 amoma <- rw[, .(amoma = Mag(X[.N], Y[.N])/sum(Mag(x, y))), by = .(.id, drift, steps)]
 
 amoma[drift %in% c(0, 0.1, 0.5, 2)] %>% 
-   ggplot(aes(amoma, reorder(factor(steps), -steps))) +
+   ggplot(aes(2*asin(amoma)/pi, reorder(factor(steps), -steps))) +
    ggridges::geom_density_ridges(rel_min_height = 0.01)  +
    scale_y_discrete("Pasos") +
    scale_x_continuous("AMOMA", limits = c(0, 1)) +
+   coord_cartesian(expand = FALSE) +
    facet_wrap(~drift, ncol = 1, labeller = labeller(drift = AddPreffix("drift = ")))
 ```
 
@@ -175,13 +176,13 @@ sims[, amoma := mean(sapply(1:B, function(x) sim.amoma(steps = N, drift.y = drif
 ```
 
 ```{r}
-
-avar[drift %in% c(0, 0.1, 0.5, 2)] %>% 
-   ggplot(aes(avar, reorder(factor(steps), -steps))) +
-   ggridges::geom_density_ridges(rel_min_height = 0.01)  +
-   scale_y_discrete("Pasos") +
-   # scale_x_continuous("AMOMA", limits = c(0, 1)) +
-   facet_wrap(~drift, ncol = 1, labeller = labeller(drift = AddPreffix("drift = ")))
+# 
+# avar[drift %in% c(0, 0.1, 0.5, 2)] %>% 
+#    ggplot(aes(avar, reorder(factor(steps), -steps))) +
+#    ggridges::geom_density_ridges(rel_min_height = 0.01)  +
+#    scale_y_discrete("Pasos") +
+#    # scale_x_continuous("AMOMA", limits = c(0, 1)) +
+#    facet_wrap(~drift, ncol = 1, labeller = labeller(drift = AddPreffix("drift = ")))
 ```
 
 

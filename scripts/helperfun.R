@@ -1373,15 +1373,17 @@ as.data.table.analyze.wavelet <- function(object) {
                         location = seq(0, object$nc - 1)*object$dt + 1)
    
    df <- data.table::setDT(data.table::melt(df, value.name = "amplitude"))
-   # if (!is.null(object$series$date)) {
-   #    df[, location2 := lubridate::as_date(object$series$date), by = period]
-   #    df[, location := NULL]
-   #    setnames(df, "location2", "location")
-   # }
+   if (!is.null(object$series$date)) {
+      df[, date := lubridate::as_datetime(object$series$date), by = period]
+   }
    df[, phase := c(object$Phase)]
    df[, power := c(object$Power)]
    df[, p.value := c(object$Power.pval)]
    df <- df[, ridge := c(object$Ridge)]
+   
+   coi <- get_coi(object)
+   data.table::setattr(df, "coi", coi)
+   
    return(df)
 }
 
@@ -1389,16 +1391,21 @@ fortify.analyze.wavelet <- function(model, object, ...) {
    as.data.table(model)
 }
 
-
 get_coi <- function(object) {
+   UseMethod("get_coi")
+}
+
+get_coi.data.table <- function(object) {
+   attr(object, "coi")
+}
+
+get_coi.analyze.wavelet <- function(object) {
    coi <- with(object, data.table(location = coi.1, 
                                   period = 2^coi.2))
    coi <- coi[location %between% range(object$axis.1)]
-   # if (!is.null(object$series$date)) {
-   #    coi[, location2 := lubridate::as_date(object$series$date), by = period]
-   #    coi[, location := NULL]
-   #    setnames(coi, "location2", "location")
-   # }
+   if (!is.null(object$series$date)) {
+      coi[, date := lubridate::as_datetime(object$series$date)]
+   }
    coi <- coi[period %between% range(object$Period)]
    # coi <- coi[coi < min(object$Period), coi := min(object$Period)]
    coi
@@ -1406,8 +1413,10 @@ get_coi <- function(object) {
 
 geom_coi <- function(object, alpha = 0.2, fill = "white", 
                      color = "white", size = 0.1, ...) {
-   coi <- get_coi(object) 
-   geom_ribbon(data = coi, aes(x = location, ymax = Inf, ymin = period),
+   if (!is.data.frame(object)) object <- get_coi(object)
+   # coi <- get_coi(object) 
+   if (is.null(object$time)) object$time <- object$location
+   geom_ribbon(data = object, aes(x = time, ymax = Inf, ymin = period),
                inherit.aes = F, alpha = alpha, fill = fill, 
                color = color, size = size, ...) 
 }
@@ -1421,7 +1430,7 @@ autoplot.analyze.wavelet <- function(object, p.val = 0.01,
                                      geom = c("contour_fill", "raster", "tanaka"),
                                      ridge = FALSE) {
    df <- as.data.table(object)
-   coi <- get_coi(object)
+   coi <- get_coi(df)
    
    r <- range(df$period)
    
