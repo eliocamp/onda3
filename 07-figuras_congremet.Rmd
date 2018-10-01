@@ -1,12 +1,7 @@
 ---
 title: "paper de la tesis"
 author: "Elio Campitelli"
-output: 
-   powerpoint_presentation:
-    # ioslides_presentation:
-        fig_height: 5
-        fig_width: 11
-        reference_doc: ppttemplate.pptx
+output: html_document
 editor_options: 
   chunk_output_type: console
 ---
@@ -33,8 +28,8 @@ knitr::opts_chunk$set(echo = FALSE,
                       cache.path = paste0("cache/", name, "/"),
                       fig.path = paste0("fig/", name, "/"),
                       warning = FALSE,
-                      message = FALSE
-                      # dev = "cairo_pdf"
+                      message = FALSE,
+                      dev = "pdf"
 )
 
 library(data.table)
@@ -77,7 +72,8 @@ d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
 write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
 extrafont::loadfonts()
 
-theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 11) +
+theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 18, 
+                                         plot_title_size = 22) +
    # theme_minimal(base_size = 11) +
    theme(
       legend.position = "bottom", legend.box = "vertical",
@@ -88,7 +84,10 @@ theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 11) +
       legend.title = element_blank(),
       legend.box.spacing = unit(3, "mm"),
       legend.margin = margin(t = -5),
-      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      # panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.grid = element_blank(), 
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
       panel.ontop = TRUE)
 theme_set(theme_elio)
 update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
@@ -119,7 +118,7 @@ coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
 lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
 
 season <- function(...) {
-   metR::season(..., lang = "en")
+   metR::season(..., lang = "es")
 }
 
 
@@ -208,30 +207,6 @@ ncep.qs <- ncep[lat != -90, FitWave(gh, 1:3), by = .(lat, lev, time)] %>%
 
 
 
-```{r ampl-ncep, fig.cap = "Fourier amplitude of the mean zonal wave 3 (contours)."}
-qs.lab <- AddPreffix("QS")
-
-binwidth.ampl <- 10
-binwidth.stat <- 0.1
-breaks <- 2^seq(0, log2(650), by = 1)
-ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
-   geom_contour_fill(aes(z = amplitude), breaks = breaks) + 
-   # geom_text_contour(aes(z = amplitude), color = "black", 
-   #                   binwidth = binwidth.ampl,
-   #                   stroke.color = "#2B828C", stroke = 0.15) +
-   surface +
-   # geom_index.region(rect.annotation) +
-   scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
-                        trans = "log2",
-                        breaks = breaks,
-                        labels = round(breaks, 1),
-                        guide = guide_colorstrip_bottom(),
-                        option = "D") +
-   scale_y_level(breaks = lev.breaks) +
-   scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
-   coord_latlev() +
-   facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
-```
 
 ```{r calc-index}
 lats.index <- c(-65, -40)
@@ -259,9 +234,9 @@ Esta figura es igual que la anterior pero en contornos pone la media de la ampli
 gh.season <- gh.season[, qs3 := FilterWave(gh, 3), by = .(lat, lev, season)]
 ```
 
-```{r gh3-season, fig.cap = "Wave 3 component of the geopotential field of each season at 200hPa."}
+```{r gh3-season, fig.cap = "Wave 3 component of the geopotential field of each season at 200hPa.", fig.height=3.36, fig.width=7}
 binwidth <- 10
-ggplot(gh.season[lev == 200], aes(lon, lat)) +
+g <- ggplot(gh.season[lev == 200], aes(lon, lat)) +
    geom_contour_fill(aes(z = qs3), breaks = AnchorBreaks(0, binwidth, 0), 
                      xwrap = c(0, 360)) +
    geom_contour2(aes(z = qs3), breaks = AnchorBreaks(0, binwidth, 0),
@@ -282,7 +257,7 @@ The reconstructed QS3 field at 200hPa show the expected maximum at 50°S and the
 :::
 
 
-```{r qs3-season-cut, fig.cap = "Mean wave 3 component of geopotential height between 65°S and 35°S"}
+```{r qs3-season-cut, fig.cap = "Mean wave 3 component of geopotential height between 65°S and 35°S", fig.height=3.36, fig.width=10}
 cutlats <- c(-65, -35)
 binwidth <- 5
 ggplot(gh.season[lat %between% cutlats, .(qs3 = mean(qs3)), 
@@ -298,6 +273,7 @@ ggplot(gh.season[lat %between% cutlats, .(qs3 = mean(qs3)),
    facet_wrap(~season, ncol = 2) 
 ```
 
+
 ::: notes
 
 The vertical strucure of the QS3 shows that the expected seasonal cycle in vertical extent is followed by a slight inclination of the disturances. 
@@ -308,27 +284,28 @@ Taken together, this suggests a mix of baroclinic and barotropic processes relat
 
 
 
-```{r ampl-stat, fig.cap = "Mean wave amplitude (shaded) and stationarity (contours)." }
+```{r ampl-stat, fig.cap = "Mean wave amplitude (shaded) and stationarity (contours).", fig.width=10, fig.height=6}
 binwidth.ampl <- 10
 binwidth.stat <- 0.1
 breaks <- 2^seq(0, log2(650), by = 1)
-ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
-   geom_contour_fill(aes(z = mean.amplitude), breaks = breaks) + 
-   geom_contour_tanaka(aes(z = amoma*10), breaks = MakeBreaks(1)) +
-   geom_text_contour(aes(z = amoma*10), breaks = c(7, 9), skip = 0, 
-                     rotate = FALSE, stroke = 0.1, stroke.color = "#2B828C") +
+ggplot(ncep.qs[lat <= 0 & k == 3], aes(lat, lev)) +
+   geom_contour_fill(aes(z = mean.amplitude), breaks = MakeBreaks(10)) + 
+   geom_contour_tanaka(aes(z = asin(amoma)*2/pi), breaks = MakeBreaks(0.1),
+                       range = c(0.02, 0.3)) +
+   # geom_text_contour(aes(z = asin(amoma)*10*2/pi), breaks = c(7, 9), skip = 0, 
+   #                   rotate = FALSE, stroke = 0.1, stroke.color = "#2B828C") +
    surface +
-   # geom_index.region(rect.annotation) +
-   scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
-                        trans = "log2",
-                        breaks = breaks,
-                        labels = round(breaks, 1),
+   geom_index.region(rect.annotation) +
+   scale_fill_viridis_c(name = "Amplitud (escala logarítmica)",
                         guide = guide_colorstrip_bottom(),
+                        oob = scales::squish,
+                        limits = c(0, 70),
+                        breaks = MakeBreaks(10),
                         option = "D") +
    scale_y_level(breaks = lev.breaks) +
-   scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
+   scale_x_latitude(name = "latitud", trans = "reverse", ticks = 15) +
    coord_latlev() +
-   facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
+   facet_wrap(~season)
 ```
 
 ::: notes
@@ -338,10 +315,9 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
 :::
 
 
-```{r boxplot-index, fig.cap = "Seasonal cicle of QS3 index."}
+```{r boxplot-index, fig.cap = "Seasonal cicle of QS3 index.", fig.width=10, fig.height=4.36}
 set.seed(42)
 ggplot(index, aes(factor(month(time)), amplitude)) +
-   # geom_violin() +
    geom_boxplot(outlier.alpha = 0, fill = "gray95") +
    geom_sina(alpha = 0.5, size = 0.7) +
    scale_x_discrete(name = "Month", labels = month.abb) +
@@ -394,30 +370,28 @@ gh.reg <- ncep[lev == 200][index, on = "time"] %>%
 ```
 
 
-```{r regr-psi-ncep, fig.cap = "Regression of 200hPa geopotential height and QS3 standarized index, and wave acivity flux computed from regression of 0.201 sigma."}
+```{r regr-psi-ncep, fig.cap = "Regression of 200hPa geopotential height and QS3 standarized index, and wave acivity flux computed from regression of 0.201 sigma.", fig.height=10, fig.width=15}
 months <- 1:12 # c(1, 3, 4, 7, 8, 12)
 binwidth <- 10
 stream.g <- stream.reg[lat <= 0 & month %in% months] 
 gh.g <- gh.reg[month %in% months] #%>% 
    # .[, estimate := Anomaly(estimate), by = .(month, lat)]
-
-
 ggplot(gh.g, aes(lon, lat)) +
    geom_contour_fill(aes(z = estimate), xwrap = c(0, 360),
                      breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour2(aes(z = estimate, linetype = factor(-sign(stat(level)))), 
-                 breaks = AnchorBreaks(0, binwidth, 0), xwrap = c(0, 360), 
-                 size = 0.1) +
+   # geom_contour2(aes(z = estimate, linetype = factor(-sign(stat(level)))),
+   #               breaks = AnchorBreaks(0, binwidth, 0), xwrap = c(0, 360),
+   #               size = 0.05) +
    geom_streamline(aes(dx = f.x, dy = f.y), skip = 4, min.L = 3,
                    xwrap = c(0, 360),
-                   res = 4, L = 3, arrow.length = 0.2, size = 0.2,
+                   res = 4, L = 10, arrow.length = 0.2, size = 0.2,
                    data = stream.g) +
    map.world +
    scale_s_map() +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, -15)) +
-   facet_wrap(~month, dir = "h",
+   facet_wrap(~month, dir = "h", ncol = 3,
               labeller = labeller(month = month.abb)) +
    theme(panel.spacing.y = unit(0, "lines"))
 ```
@@ -431,50 +405,8 @@ En enero, se observa un patrón hemisférico de onda 3, con un centro anómalame
 :::
 
 
-```{r}
-gh.g <- gh.reg[month %in% months] %>% 
-   .[, estimate := Anomaly(estimate), by = .(month, lat)]
 
-
-ggplot(gh.g, aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), xwrap = c(0, 360),
-                     breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour2(aes(z = estimate, linetype = factor(-sign(stat(level)))), 
-                 breaks = AnchorBreaks(0, binwidth, 0), xwrap = c(0, 360), 
-                 size = 0.1) +
-   geom_streamline(aes(dx = f.x, dy = f.y), skip = 4, min.L = 3,
-                   xwrap = c(0, 360),
-                   res = 4, L = 3, arrow.length = 0.2, size = 0.2,
-                   data = stream.g) +
-   map.world +
-   scale_s_map() +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
-                        guide = guide_colorstrip_bottom()) +
-   coord_quickmap(ylim = c(-90, -15)) +
-   facet_wrap(~month, dir = "h",
-              labeller = labeller(month = month.abb)) +
-   theme(panel.spacing.y = unit(0, "lines"))
-```
-
-
-
-```{r wavelets, fig.cap = "Wavelet analysis of QS3 index"}
-wv <- copy(index)[, date := time] %>% 
-   .[, amplitude := Anomaly(amplitude), by = month(time)] %>% 
-   Wavelets("amplitude", dt = 1/12, n.sim = 300, 
-            method = "shuffle")
-
-autoplot(wv) 
-```
-
-::: notes
-
-Un análisis de wavelets no muestra evidencia de periodicidades.
-
-:::
-
-
-```{r fase-boxplot, fig.cap = "Phase of the mean wave for each month and $\\pm$ 1 standrad deviation (black dots and error bars). In red and blue, phase of the most intense 20 events for each month, representing the location of the ridge and throuht respectively.", fig.class = "fullpage"}
+```{r fase-boxplot, fig.cap = "Phase of the mean wave for each month and $\\pm$ 1 standrad deviation (black dots and error bars). In red and blue, phase of the most intense 20 events for each month, representing the location of the ridge and throuht respectively.", fig.height=6, fig.width=13}
 lat.lims <- c(-60, -22)
 lon.lims <- c(240, 360)
 
@@ -489,7 +421,7 @@ map <- function(data) {
 }
 
 nudge <- 0.54
-size <- 2
+size <- 4
 
 index <- index[, phase.c := circular(phase*3, modulo = "2pi")]
 
@@ -512,59 +444,18 @@ index %>%
    geom_point(data = index_points,
               aes(x = phase + 60),
               alpha = 0.8, size = size, color = "blue",
-              shape = 5,
               position = position_nudge(y = nudge)) +
-   geom_point(aes(phase*180/pi + 240)) +
+   geom_point(aes(phase*180/pi + 240), size = size+1) +
    geom_errorbarh(aes(xmin = (phase*180/pi + 240 - phase.sd*180/pi), 
                       xmax = (phase*180/pi + 240 + phase.sd*180/pi))) +
    geom_vline(xintercept = c(240, 360), linetype = 3) +
-   scale_x_longitude(ticks = 20, name = "Longitude") +
+   scale_x_longitude(ticks = 20, name = "Longitud") +
    scale_y_continuous(breaks = (-(1:12) + 6)*2.6 - 45, 
                       minor_breaks = NULL,
                       labels = month.abb_sp, 
-                      name = "Month", expand = c(0, 0)) +
+                      name = "Mes", expand = c(0, 0)) +
    coord_quickmap(xlim = lon.lims, ylim = c(-65, -25)) 
 ```
-
-```{r}
-
-lon.lims.nz <- c(120, 240) - 20
-
-map.data.nz <- BuildMap(countries = T) %>% 
-   .[lat %between% (lat.lims + c(0, 10)) & 
-        long %between% lon.lims.nz] %>% 
-   .[, lat := lat]
-
-map.nz <- geom_polygon(data = map.data.nz, aes(long, lat, group = group),
-                       fill = "gray90", color = "black", size = 0.1,
-                       inherit.aes = F)
-
-index %>% 
-   .[, .(phase = mean.wave(amplitude, phase, 3)$phase*180/pi + 120,
-         phase.sd = sd.circular(phase.c)/3),
-     by = .(month(time))] %>% 
-   ggplot(aes(y = (-month + 6)*2.7 - 45)) +
-   map(map.data.nz) +
-   geom_point(data = index_points,
-              aes(x = phase),
-              alpha = 0.8, size = size, color = "red") +
-   geom_point(data = index_points,
-              aes(x = phase + 60),
-              alpha = 0.8, size = size, color = "blue",
-              shape = 5,
-              position = position_nudge(y = nudge)) +
-   geom_point(aes(phase), size = size + 1, shape = 0) +
-   geom_errorbarh(aes(xmin = (phase - phase.sd*180/pi), 
-                      xmax = (phase + phase.sd*180/pi))) +
-   geom_vline(xintercept = lon.lims.nz, linetype = 3) +
-   scale_x_longitude(ticks = 20, name = "Longitude") +
-   scale_y_continuous(breaks = (-(1:12) + 6)*2.6 - 45, 
-                      minor_breaks = NULL,
-                      labels = month.abb_sp, 
-                      name = "Month", expand = c(0, 0)) +
-   coord_quickmap(xlim = lon.lims.nz, ylim = c(-65, -25)) 
-```
-
 
 
 ```{r fun-similar.field}
@@ -622,88 +513,3 @@ similar.field <- function(months = 1:12, n = 1:4, min.amplitude = 25) {
 }
 ```
 
-
-```{r top4, fig.cap = "Four most similar field tuples in standarized wave 3 amplitude and phase space. Temporal anomaly of 200hPa geopotential (contours) and zonal anomaly of 200hPa geopotential with waves 1 and 2 filtered out (shaded).", dependson="fun-similar",  fig.height=6.8, fig.width = 10}
-cors <- similar.field(min.amplitude = 50)
-```
-
-::: notes
-
-Se muestran los cuatro pares de campos más similares en cuanto a amplitud y fase. Aún en esta muestra puede verse grandes heterogeneidades. En el primer par de campos, por ejemplo, uno muestra anomalías zonales significativas principalmente sobre el Atlántico y el Índico mientrs que en el otro éstas ocupan todo el dominio. La latitud de las anomal ías también cambia mucho entre ambos casos. La correlación de campo es de `r round(cors[1], 2)`. El segundo y tercer par de campos presenta mayor similaridad (correlación de campo `r round(cors[2], 2)` y `r round(cors[3], 2)` respectivamente). El cuarto par no sólo presenta poca correlación (`r round(cors[4], 2)`) sino que presenta una gran diferencia en el área de máximas anomalías.
-
-Los campos de anomalías temporales, por su parte, casi no presentan similitudes entre los campos. Esto se debe principalmente a que no se está filtrando las ondas 1 y 2.
-
-:::
-
-```{r top4-sep, fig.cap = "Four most similar september field tuples in standarized wave 3 amplitude and phase space. Temporal anomaly of 200hPa geopotential (contours) and zonal anomaly of 200hPa geopotential with waves 1 and 2 filtered out (shaded).", dependson="fun-similar",  fig.height=6.8, fig.width = 10}
-cors <- similar.field(months = 9, min.amplitude = 50)
-```
-
-```{r percentiles, fig.cap = "Relationship between QS3 index at each month with QS3 index at the subsequent month"}
-index <- index[, percentile := Percentile(amplitude), by = month(time)]
-index[, next.percentile := shift(percentile, 1, type = "lead")]
-
-breaks <- seq(0, 1, by = .25)
-set.seed(42)
-ggplot(index, aes(percentile, next.percentile)) +
-   # geom_density2d(aes(color = ..level..), h = c(0.25, 0.25)) +
-   geom_jitter(width = 0.005, height = 0.005) +
-   geom_smooth(method = "lm") +
-   scale_x_continuous("Percentile of month", breaks = breaks,
-                      minor_breaks = NULL) +
-   scale_y_continuous("Percentile of next month", breaks = breaks,
-                      minor_breaks = NULL) +
-   scale_color_viridis_c() +
-   coord_equal()
-```
-
-::: notes
-
-Se muestra la (falta de) relación entre el percentil de cada mes con el percentil del mes siguiente. No sólo no hay relación (lineal) sino que si hubiera una persistencia en los valores más altos, tendría que haber una concentración de puntos en la esquina superior derecha o en la inferior izquierda. 
-
-:::
-
-```{r ac-index, fig.cap = "Autocorrelation function of QS3 index. Shaded area indicates p-values greater than 0.01"}
-acf.sig(index$percentile, lag.max = 60, alpha = 0.01) %>% 
-   .[-1, ] %>% 
-   ggplot(aes(lag, acf)) +
-   geom_ribbon(aes(ymin = -sig.cut, ymax =  sig.cut), alpha = 0.1) +
-   geom_line() +
-   scale_x_continuous(expand = c(0, 0))
-```
-
-
-::: notes 
-
-El autocorrelograma confirma esta falta de relación.
-
-:::
-
-```{r conditional-prob, fig.cap = "Conditional probability of persistence"}
-p.cuts <- seq(0.2, 0.9, by = 0.05)
-
-probs <- lapply(p.cuts, function(x) {
-   index[percentile >= x, 
-         .(p.cut = x,
-           prob = mean(next.percentile >= x),
-           N = .N)]
-}) %>% 
-   rbindlist()
-
-ggplot(probs, aes(1-p.cut, prob)) +
-   geom_ribbon(aes(ymin = prob - sqrt(1/N), ymax = prob + sqrt(1/N)), 
-               fill = "gray90") +
-   geom_point() +
-   geom_abline(linetype = 3) +
-   geom_point() + geom_line() +
-   scale_y_continuous("P(percentile_i >= x | percentile_i-1 >= x)") +
-   scale_x_continuous("1 - percentile") +
-   coord_equal(expand = FALSE)
-```
-
-::: notes
-
-Esta figura muestra la probabilidad condicional de que un mes sea del percentil mayor o igual a un determinado valor sabiendo que el anterior mes estaba en el percentil mayor o igual al valor de corte. La línea punteada es la hipótesis nula (la probabilidad condicional es igual a la porbabilidad incondicional). Se confirma que no hay persistencia (o, más bien, que no se puede detectar persistencia en estos datos).
-
-:::
-

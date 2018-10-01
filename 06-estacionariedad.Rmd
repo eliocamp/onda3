@@ -389,7 +389,7 @@ La Figura \ref{fig:ts} muestra la serie temporal de estacionariedad con una vent
 
 Una forma alternativa --aunque conceptualmente equivalente-- de obtener una serie temporal, es la de calcular la medida de distancia para cada mes y luego ajustar un modelo LOWESS usando la amplitud como los pesos. El resultado de este método (Figuras \ref{fig:cor-smooth} y \ref{fig:cor-smooth-corte}) tiene menor varianza en la alta frecuencia pero captura las variaciones temporales de más baja frecuencia correctamente. 
 
-```{r cor-smooth, fig.cap = "Correlation between monthly wave and the mean wave, lowess fit weigthed by wave amplitude (black line) and 95% confidence interval. AMOMA computed with a 5 year running window is shown (in red) as reference. All in 45°S and 500hPa", fig.height=3}
+```{r calc-amoma-loess}
 qs[, phi.s := mean.phase(amplitude, phase, 3), by = .(lev, lat)]
 qs[, rho := cos(3*(phase - phi.s))]
 
@@ -400,6 +400,10 @@ qs <- qs[!is.na(rho) & lat != -90,
                     se = TRUE)[c("fit", "se.fit")],
          by = .(lev, lat)]
 
+```
+
+
+```{r cor-smooth, fig.cap = "Correlation between monthly wave and the mean wave, lowess fit weigthed by wave amplitude (black line) and 95\\% confidence interval. AMOMA computed with a 5 year running window is shown (in red) as reference. All in 45°S and 500hPa", fig.height=3}
 ggplot(qs[!is.na(rho) & lev == 500 & lat == -45], aes(time, rho)) +
    geom_rect(xmin = -Inf, xmax = as_datetime("1980-01-01"),
              ymin = -Inf, ymax = Inf,
@@ -447,7 +451,7 @@ rbindlist(list(loess = qs[, .(lat, lev, time, amoma)],
    {
       wavelets <<- .[, as.data.table(Wavelets(.SD, "amoma", dt = 1/12,
                                               loess.span = 0, 
-                                              n.sim = 5)), 
+                                              n.sim = 200)), 
                      by = .(method)] %>% 
          setnames("date", "time") 
       
@@ -460,7 +464,7 @@ rbindlist(list(loess = qs[, .(lat, lev, time, amoma)],
 ```
 
 
-```{r amoma-wavelets, fig.cap = "Wavelet analysis for AMOMA stationarity at 45°S and 500hPa. a) Power spectrum and b) mean power spectrum for the whole period."}
+```{r amoma-wavelets, fig.cap = "Wavelet analysis for AMOMA stationarity at 45°S and 500hPa. a) Power spectrum (black lines show p.values lower than 0.01) and b) mean power spectrum for the whole period."}
 ggplot(wavelets, aes(time, period)) +
    geom_contour_fill(aes(z = power)) +
    geom_contour_tanaka(aes(z = power)) +

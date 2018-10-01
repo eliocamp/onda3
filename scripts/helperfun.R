@@ -895,7 +895,7 @@ qs.index <- function(gh, lat, lev, k = 3, lats.index =  c(-65, -40), levs.index 
          lev %between% levs.index] %>% 
       .[, FitWave(gh, k), by = .(lat, lev)] %>% 
       .[, phase := circular(phase*k, modulo = "2pi")] %>% 
-      .[, .(amplitude = mean(amplitude), phase = as.numeric(mean.circular(phase)/k))]
+      .[, .(amplitude = mean(amplitude), phase = as.numeric(mean.circular(phase/k)))]
 }
 
 
