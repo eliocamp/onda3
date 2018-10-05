@@ -276,6 +276,30 @@ $$
 
 Ambos son el promedio pesado de una distancia entre la fase y la fase estacionaria. Pero ésta se define de manera distinta.
 
+## Demostración gráfica
+
+
+```{r demostracion}
+library(tibble)
+
+tribble(
+   ~x1, ~y1, ~x2, ~y2,
+   0,     0,   1,   3,
+   1,     3,   5,   4,
+   0,     0,   5,   4
+
+) %>% 
+   ggplot() +
+   geom_segment(aes(x1, y1, xend = x2, yend = y2), 
+                arrow = grid::arrow())
+```
+
+La igualdad entre AM/MA y la suma ponderada de cosenos se puede demostrar mirando la Figura \ref{fig:demostracion}. Llevando al caso simplificado de sólo dos vectores, puede verse que la magnitud total del vector suma puede descomponerse en las contribuciones de cada vector individual. Ésta contribución no es más que la proyección del vector individual sobre el vector suma, es decir:
+
+$$
+A_{1+2} = A_1\cos(\phi_{1+2} - \phi_1) + A_2\cos(\phi_{1+2} - \phi_2)
+$$
+
 
 ## Escalado 
 

@@ -2,13 +2,13 @@
 title: "paper de la tesis"
 author: "Elio Campitelli"
 output: 
-   powerpoint_presentation:
-    # ioslides_presentation:
-        fig_height: 5
-        fig_width: 11
-        reference_doc: ppttemplate.pptx
+   pdf_document: default
+   keep_tex: yes
 editor_options: 
   chunk_output_type: console
+header-includes:
+   - \usepackage{subfig}
+   - \newcommand*\mean[1]{\overline{#1}}
 ---
 
 ```{r setup, include=FALSE}
@@ -33,7 +33,9 @@ knitr::opts_chunk$set(echo = FALSE,
                       cache.path = paste0("cache/", name, "/"),
                       fig.path = paste0("fig/", name, "/"),
                       warning = FALSE,
-                      message = FALSE
+                      message = FALSE,
+                      fig.align = "center",
+                      out.extra = ""
                       # dev = "cairo_pdf"
 )
 
@@ -46,6 +48,10 @@ library(hrbrthemes)
 library(extrafont)
 library(patchwork)
 library(officer)
+library(here)
+library(ggperiodic)
+
+here <- here::here
 
 knit_error <-  knitr::knit_hooks$get("error")
 knitr::knit_hooks$set(error = function(x, options) {
@@ -54,7 +60,7 @@ knitr::knit_hooks$set(error = function(x, options) {
 })
 
 
-source("scripts/helperfun.R")
+source(here("scripts", "helperfun.R"))
 # Plot thingys
 
 data.world <- BuildMap(res = 1, smooth = 1)
@@ -62,7 +68,7 @@ map.world <- geom_map2(data.world)
 map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
 
 
-pres <- ReadNetCDF("DATA/srfp.mon.mean.nc")
+pres <- ReadNetCDF(here("DATA", "srfp.mon.mean.nc"))
 pres.mean <- pres[, .(pres = median(pres)), by = lat]
 pres.mean <- rbind(data.table(lat = 0.0, pres = Inf), 
                    pres.mean, 
@@ -77,7 +83,7 @@ d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
 write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
 extrafont::loadfonts()
 
-theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 11) +
+theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 10) +
    # theme_minimal(base_size = 11) +
    theme(
       legend.position = "bottom", legend.box = "vertical",
@@ -116,75 +122,44 @@ geom_contour_ <- function(..., gap = 0, rotate = FALSE) {
 coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
 coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
 
-lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+lev.breaks <- c(1000, 500, 200, 100, 50, 10)
 
 season <- function(...) {
    metR::season(..., lang = "en")
 }
 
 
-## Options for generating ppt output
-ppt <- FALSE
-pptfile <- "figuras.pptx"
-ppttemplate <- "ppttemplate.pptx"
-# Initial ppt
-if (ppt == TRUE){
-   my_pres <- read_pptx(ppttemplate)
-   print(my_pres, pptfile)   
-}
-
-# Add a plot to ppt 
-knit_plot <- knitr::knit_hooks$get("plot")
-
-knitr::knit_hooks$set(plot = function(x, options) {
-   if (ppt == TRUE) {
-      # print(options)
-      if (inherits(last_plot(), "gg")) {
-         read_pptx(pptfile)  %>%
-            add_slide(layout = "figure", master = "Office Theme") %>%
-            ph_with_gg(last_plot(), type = "pic") %>%
-            ph_with_text(options$fig.cap, type = "body") %>%
-            print(pptfile)
-         set_last_plot(NULL)   # remove last_plot()
-      } else {
-         read_pptx(pptfile ) %>%
-            add_slide(layout = "figure", master = "Office Theme") %>%
-            rvg::ph_with_vg(code = eval(parse(text = options$code)), 
-                            type = "pic") %>%
-            ph_with_text(options$fig.cap, type = "body") %>% 
-            print(pptfile)
-      }
-   }
-   knit_plot(x, options)
-})
-
-# Turn off cache for figures
-knitr::opts_hooks$set(fig.cap = function(options) {
-   if (ppt == TRUE) options$cache <- FALSE
-   options
-})
+knitr::knit_hooks$set(
+    rotate = function(before, options, envir) {
+        if (before) {
+            return("\\begin{landscape}")
+        } else{
+            return("\\end{landscape}")
+        }
+    }
+)
 
 ```
 
 ```{r read-ncep}
-subset.time <- lubridate::as_datetime(c("1979-12-01", "2015-12-01"))
+subset.time <- lubridate::as_datetime(c("1979-12-01", "2017-12-01"))
 ncep.f <- memoise::memoise(function(lat = -90:40, 
                                     lon = 0:360,
                                     time = lubridate::as_datetime(c("1979-12-01",
-                                                                    "2015-12-01")),
+                                                                    "2017-12-01")),
                                     level = 10:1000,
                                     vars = "gh"){
    subset <- list(lat = lat, lon = lon, level = level,
                   time = time)
-   n <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+   n <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), vars = c(gh = "hgt"),
                    subset = subset) %>% 
       setnames(., c("level"), c("lev"))
    if ("u" %in% vars) {
-      n[, u := ReadNetCDF("DATA/NCEP Reanalysis/uwnd.mon.mean.nc", out = "vector",
+      n[, u := ReadNetCDF(here("DATA", "NCEP Reanalysis", "uwnd.mon.mean.nc"), out = "vector",
                           subset = subset)[[1]]] 
    }
    if ("v" %in% vars) {
-      n[, v := ReadNetCDF("DATA/NCEP Reanalysis/vwnd.mon.mean.nc", out = "vector",
+      n[, v := ReadNetCDF(here("DATA", "NCEP Reanalysis", "vwnd.mon.mean.nc"), out = "vector",
                           subset = subset)[[1]]]
    }
    n[, time := as.Date(time[1]), by = time]
@@ -200,15 +175,77 @@ rect.annotation <- data.frame(latmin = -65, latmax = -40,
                               k = 3)
 gh.season <- ncep[, .(gh = mean(gh)), by = .(lat, lon, lev, season(time))] 
 ncep.qs <- ncep[lat != -90, FitWave(gh, 1:3), by = .(lat, lev, time)] %>%
+   .[, phi.s := mean.phase(amplitude, phase, k), by = .(k, month(time), lat, lev)] %>% 
    .[, c(mean.wave(amplitude, phase, k)[c("amplitude", "phase")],
-         mean.amplitude = mean(amplitude),
-         amoma = stationarity.wave2(as.wave(amplitude, phase, k))),
-     by = .(lat, lev, season(time), k)]
+         amoma = 2/pi*asin(stationarity.wave2(as.wave(amplitude, phase, k,
+                                                      phi.s)))),
+     by = .(lat, lev, season(time), k)] 
 ```
 
+# Introduction
+
+## Description and literature
 
 
-```{r ampl-ncep, fig.cap = "Fourier amplitude of the mean zonal wave 3 (contours)."}
+## ZW3 != QS3 
+
+XX Needs redaction:
+* Zonal Waves (ZW) and Quasistationary Waves (QS) are related but conceptually distinct.
+
+* ZW is a property of a global scalar field (geopotential in this present case) while QS are a property of *a set* of global scalar fields. 
+
+* QS for a set of fields can be defined as the ZW of the mean field. In that sense, measuring the "activity" of QS waves at a monthly scale is impossible. What *can* be measured is 
+  * ZW activity (and asume that is a good proxy for QS activity)
+  * monthly field similarity to the QS field --this leads to non-trivial questions about *how* to measure similarity. 
+
+XX
+
+
+# Methods 
+
+## Data source
+
+
+## Fourier?
+
+## Steadiness 
+
+Since planetary waves are charecterised by amplitude and phase, they can be treated similarly to other vector quantities like wind. Following this analogy, we measure the degree of stationarity of quasistationary waves by calculating steadiness. That is
+
+$$
+\begin{aligned}
+k &=  \frac{ |\mathbf{\mean{V}}|}{ \mean{ |\mathbf{V} | } } \\
+S &= \frac{2}{\pi}\sin^{-1} \left (  k \right )
+\end{aligned}
+$$
+
+Where $k$ is the *constancy* and is defined as the ratio between the magnitude of the mean wave ( $|\mathbf{\mean{V}}|$  ) and the mean magnitude of waves $\mean{ |\mathbf{V} | }$. Steadiness ( $S$ ) transforms that value to linearize the $k$ with respect to the phase range [@Singer1967]. A value of 1 represents a completely stationary wave while a value of 0 represents a completely random wave. 
+
+XXX Probably needs better notation.
+
+In practice, `k` can be computed more efficiently by 
+
+$$
+k = \frac{\sum_{i=1}^{N}\mathrm{A}_i\cos\left (\mean{\phi} - \phi_i \right )}{\sum_{i=1}^{N}A_i}
+$$
+
+Where $A_i$, $\phi_i$ are the amplitude and phase of the ith wave and $\mean{\phi}$ is the phase of the mean wave (stationary phase). That is, $k$ is a weighted mean of the cosine of the difference between phases and the stationary phase. Further, considering that $\cos\left (\mean{\phi} - \phi_i \right )$ is the correlation between two waves of different phase but same frequency makes the interpretation of $k$ clearer. It can be seen that $k$ (and by extension $S$) is a measure of how similar are individual wave 3 fields to the climatological wave 3 field. 
+
+Note that in order to filter out the effect of the monthly seasonal cycle, here $S$ is computed using $\mean{\phi}$ for each month even though the sum is performed for each trimestre. 
+
+
+XXX Is this too much?
+
+## Wave Action
+
+XXX Needs some definition and methodloty or just a citation to @Vera2004 further along?
+
+
+# Results
+
+## QS3 climatology
+
+```{r ampl-ncep, fig.cap = "Fourier amplitude of the mean zonal wave 3 (contours) XXX"}
 qs.lab <- AddPreffix("QS")
 
 binwidth.ampl <- 10
@@ -220,7 +257,7 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
    #                   binwidth = binwidth.ampl,
    #                   stroke.color = "#2B828C", stroke = 0.15) +
    surface +
-   # geom_index.region(rect.annotation) +
+   geom_index.region(rect.annotation) +
    scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
                         trans = "log2",
                         breaks = breaks,
@@ -233,6 +270,7 @@ ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
    facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
 ```
 
+
 ```{r calc-index}
 lats.index <- c(-65, -40)
 levs.index <- c(100, 700)
@@ -240,27 +278,20 @@ levs.index <- c(100, 700)
 index <- ncep[, qs.index(gh, lat, lev, k = 3), by = time]
 ```
 
+Figure \ref{fig:ampl-ncep} shows the amplitude of the mean wave for QS1 to 3 for each trimestre. QS1 dominates in almost all levels and latitudes during all seasons but its amplitude is strongest in the austral spring and at higher levels of the atmosphere. QS2, on the other hand... ?
 
-::: notes
+The amplitude of QS3 achieves it's maximum around 200hPa and 50°S during all seasons but with important changes in it's vertical extent. During austral winter and autum, wave 3 amplitude extends up to the higest model levels while it remains restricted to the troposphere and lower stratosphere during spring and summer. 
 
-(En la tésis no tengo demasiado texto sobre ésta figura; principalmente la compara con el campo de r2 que no voy a mostrar.)
-
-The amplitude of wave 3 can be computed via Fourier decomposition of the mean seasonal field (*AM* method) or by computing the mean amplitude of the instantaneous --monthly-- fields (*MA* method). The ratio MA/AM can be used as a meassure of the stationarity of the zonal wave 3 since a perfectly stationary wave (withouth change in phase) would have a ratio equal to 1 and a completely unstationary wave (with completely random phase) would have a ratio close to zero... 
-
-The amplitude of QS3 achieves it's maximum at near 200hPa and 50°S in all seasons but with important changes in it's vertical extent. During austral winter and autum, wave 3 amplitude extends up to the higest model levels while it remains restricted to the stratosphere during spring and summer. In general, the high amplitudes are colocated with areas of high stationarity, although this metric is maximized at lower levels with the exception of spring. While the mean wave amplitude during this season is high (not shown), stationarity is low in the midlatitudes and specially in the high stratosphere. This is due primarily by the behaviour during november, when high phase variance means that wave 3 cannot be considered stationary. 
-
-
-Esta figura es igual que la anterior pero en contornos pone la media de la amplitud en vez de la amplitud de la onda media. No sé cuál de las dos poner. 
-
-:::
+The tropical upper troposphere stands out as an area of high QS amplitude for the three wavenumbers and almost during all seasons. This is porobably related to the stationary response to the SAMS, specifically the Bolivian High and the xx Low (name??). This can be confirmed by a similar analysis of wave 3 amplitude but using wavelets, which shows that that the area of high QS3 amplitude is located over South America (not shown).  (xx not shown? I don't know if just tease an innovative result among the old methodology.)
 
 
 ```{r calc-gh3-season}
 gh.season <- gh.season[, qs3 := FilterWave(gh, 3), by = .(lat, lev, season)]
 ```
 
-```{r gh3-season, fig.cap = "Wave 3 component of the geopotential field of each season at 200hPa."}
-binwidth <- 10
+```{r gh3-season, fig.cap = "Wave 3 component of the geopotential field of each season", fig.height=3, fig.subcap=c("At 200hPa", "between 65°S and 35°S"), fig.show="h", fig.ncol = 1}
+binwidth <- 7
+
 ggplot(gh.season[lev == 200], aes(lon, lat)) +
    geom_contour_fill(aes(z = qs3), breaks = AnchorBreaks(0, binwidth, 0), 
                      xwrap = c(0, 360)) +
@@ -273,18 +304,9 @@ ggplot(gh.season[lev == 200], aes(lon, lat)) +
                         guide = guide_colorstrip_bottom()) +
    facet_wrap(~season, ncol = 2) +
    coord_quickmap()
-```
 
-::: notes
-
-The reconstructed QS3 field at 200hPa show the expected maximum at 50°S and the anual cycle in its phase already observed in previous studies. It also shows an easterly inclination of the systems evident in summer but absent in winter, suggesting that the QS3 might be related to southerly transport of momentum. 
-
-:::
-
-
-```{r qs3-season-cut, fig.cap = "Mean wave 3 component of geopotential height between 65°S and 35°S"}
 cutlats <- c(-65, -35)
-binwidth <- 5
+binwidth <- 7
 ggplot(gh.season[lat %between% cutlats, .(qs3 = mean(qs3)), 
                  by = .(lon, lev, season)], 
        aes(lon, lev)) +
@@ -298,183 +320,81 @@ ggplot(gh.season[lat %between% cutlats, .(qs3 = mean(qs3)),
    facet_wrap(~season, ncol = 2) 
 ```
 
-::: notes
+The reconstructed QS3 field at 200hPa shows the expected maximum at 50°S and the anual cycle in its phase already observed in previous studies. It also shows an easterly inclination of the systems evident in all seasons except winter, suggesting that the QS3 might be related to southerly transport of momentum. The vertical strucure of the QS3 shows that the expected seasonal cycle in vertical extent is followed by a slight inclination of the disturances. 
 
-The vertical strucure of the QS3 shows that the expected seasonal cycle in vertical extent is followed by a slight inclination of the disturances. 
-
-Taken together, this suggests a mix of baroclinic and barotropic processes related to the QS3. The former, more important during summer and the the latter dominating in winter. (Esto se debería ver con la energética)
-
-:::
+Taken together, this suggests a mix of baroclinic and barotropic processes related to the QS3. The former more important during summer and the the latter dominating in winter.
 
 
-
-```{r ampl-stat, fig.cap = "Mean wave amplitude (shaded) and stationarity (contours)." }
+```{r ampl-stat, fig.cap = "Stat." }
 binwidth.ampl <- 10
 binwidth.stat <- 0.1
 breaks <- 2^seq(0, log2(650), by = 1)
-ggplot(ncep.qs[lat <= 0], aes(lat, lev)) +
-   geom_contour_fill(aes(z = mean.amplitude), breaks = breaks) + 
-   geom_contour_tanaka(aes(z = amoma*10), breaks = MakeBreaks(1)) +
-   geom_text_contour(aes(z = amoma*10), breaks = c(7, 9), skip = 0, 
-                     rotate = FALSE, stroke = 0.1, stroke.color = "#2B828C") +
+ggplot(ncep.qs[lat <= 0 & k == 3], aes(lat, lev)) +
+   geom_contour_fill(aes(z = amoma), breaks = MakeBreaks(0.1)) +
+   # geom_contour_tanaka(aes(z = amoma*10), breaks = MakeBreaks(1)) +
+   # geom_contour2(aes(z = amoma), breaks = 0.3) +
+   geom_contour2(aes(z = amplitude),
+                 size = 0.1) +
+   # geom_text_contour(aes(z = amoma*10), breaks = c(7, 9), skip = 0, 
+   #                   rotate = FALSE, stroke = 0.1, stroke.color = "#2B828C") +
    surface +
    # geom_index.region(rect.annotation) +
-   scale_fill_viridis_c(name = "Amplitud (escala logarítmica)", 
-                        trans = "log2",
-                        breaks = breaks,
-                        labels = round(breaks, 1),
+   scale_fill_viridis_c(name = "amoma", 
+                        # trans = "log2",
+                        breaks = MakeBreaks(0.1),
+                        limits = c(0, 1),
+                        oob = scales::squish,
+                        # labels = scales::percent,
                         guide = guide_colorstrip_bottom(),
                         option = "D") +
    scale_y_level(breaks = lev.breaks) +
    scale_x_latitude(name = "latitude", trans = "reverse", ticks = 15) +
    coord_latlev() +
-   facet_grid(k ~ season, labeller = labeller(k = qs.lab)) 
+   theme(panel.grid.minor.y = element_blank()) +
+   facet_wrap(~ season, ncol = 2)
 ```
 
-::: notes
+Figure \ref{fig:ampl-stat} show QS3 steadiness for each trimestre of the year. The highest steadiness can be seen in tropical upper troposphere north of 30°S, specially during the summer.
+
+```{r}
+ncep[lat <= 0 & month(time) == 11, FitWave(gh, 3), by = .(time, lat, lev)] %>% 
+   .[, stationarity.wave2(as.wave(amplitude, phase, k)), by = .(lat, lev)] %>% 
+   .[, V2 := 2/pi*asin(V1)] -> nov
+```
 
 
+With the exception of spring, areas of high amplitude (shown in black contours in Figure \ref{fig:ampl-stat}) are colocated with areas of high steadiness --although this metric is maximized at lower levels. While the mean wave amplitude in spring is high (not shown), steadiness is low in the midlatitudes and specially in the stratosphere. This is due primarily by the behaviour during november, when steadiness is so low (reaching ~`r round(nov[lat == -60 & lev == 500]$V2, 2)` at 60°S, 500hPa) that wave 3 arguably cannot be considered stationary in the midlatitudes. 
 
-:::
+As described before, monthly ZW activity can be used as a proxy for QS activity at a monthly scale. Following this an index for the activity of ZW3 was constructed by taking the average amplitude and phase of the wave 3 component in a box with limits between 45°S and 60°S and between 100hPa and 700hPa (shown as a dotted box un Figure \ref{fig:ampl-ncep}). The seasonal cycle of the amplitude componet is shown in Figure \ref{fig:boxplot-index} along with the seasonal cycle of the amplitude of the QS3 wave in the same box.  
+
+```{r}
+ncep[lat %between% c(-60, -45) & lev %between% c(100, 700), 
+     mean(gh), by = .(lon, lat, lev, month(time))] %>% 
+   .[, FitWave(V1, 3), by = .(lat, lev, month)] %>% 
+   .[, .(QS3 = mean(amplitude)), by = .(month)] -> qs3
+```
 
 
 ```{r boxplot-index, fig.cap = "Seasonal cicle of QS3 index."}
 set.seed(42)
 ggplot(index, aes(factor(month(time)), amplitude)) +
    # geom_violin() +
-   geom_boxplot(outlier.alpha = 0, fill = "gray95") +
+   geom_boxplot(outlier.alpha = 0,  aes(fill = season(time))) +
+   geom_line(data = qs3, aes(x = month, y = QS3)) +
    geom_sina(alpha = 0.5, size = 0.7) +
    scale_x_discrete(name = "Month", labels = month.abb) +
    scale_y_continuous(name = "Amplitude") +
+   scale_fill_brewer(palette = "OrRd", guide = "none") +
    theme(panel.grid.major.x = element_blank())
 ```
 
-::: notes
+ZW3 activiy exhibits a clear annual cycle with higher amplitude during the austral winter months and lower amplitude during the summer months. This annual cycle is consistent with previous work [@Loon1972; @Karoly1985; @Raphael2004]. There is also an annual cycle in variability with winter months showing a high degree of variability compared to summer. 
 
-ZW3 activiy exhibits a clear annual cycle with higher amplitude during the austral winter months and lower amplitude during the summer months. This annual cycle is consistent with previous work [@Loon1972; @Karoly1985; @Raphael2004]. 
+There is no evidence of persistence, periodicities or xxlong time tendencies (not shown).
 
-As suggested previously, the low amplitude of QS3 wave in spring is not due to a reduction in the amplitude of the planetary wave 3 but to its reduced stationarity. 
+A comparison with the QS3 cycle (black line in Figure \ref{fig:boxplot-index}) echoes what is seen in Figure \ref{fig:ampl-stat}. Winter months have a low level of steadiness that makes the ZW and QS properties diverge. As suggested previously, the low amplitude of QS3 wave in spring is not due to a reduction in the amplitude of the planetary wave 3 but to its reduced steadiness. This divergence should guide the interpretation of results based on the index. 
 
-:::
-
-
-
-```{r read-psi}
-psi.file <- "DATA/NCEP Reanalysis/psi.mon.mean.nc"
-levs <-  ReadNetCDF(psi.file, out = "vars")$dimensions$level
-levs <- levs[levs %~% 0.21]
-stream <- ReadNetCDF(psi.file, subset = list(lat = -90:40,
-                                             level = levs,
-                                             time = subset.time)) %>% 
-   # setnames(c("level", "time"), c("lev", "date")) %>% 
-   .[, psi.z := Anomaly(psi), by = .(lat, time)]
-stream[, time := as.Date(time[1]), by = time]
-```
-
-```{r calc-regrs}
-# lats <- stream[time == time[1], unique(round(lat, 3))]
-# lons <- stream[time == time[1], unique(round(lon, 3))]
-
-stream.reg <- stream[, .(lon, lat, time, psi.z)] %>% 
-   .[index, on = "time"] %>% 
-   .[, FitLm(psi.z, amplitude = amplitude/sd(amplitude), phase = phase, 
-             se = TRUE), 
-     by = .(lat, lon, month(time))] %>% 
-   .[term == "amplitude"] %>% 
-   # .[, Interpolate(estimate ~ lon + lat, x.out = lons, y.out = lats),
-   #                      by = month] %>%
-   .[, psi.z := estimate] %>% 
-   .[, c("f.x", "f.y") := WaveFlux(.SD), by = .(month)] %>% 
-   .[complete.cases(.)]
-
-gh.reg <- ncep[lev == 200][index, on = "time"] %>% 
-   .[, FitLm(gh, amplitude = amplitude/sd(amplitude), phase), 
-     by = .(lat, lon, month(time))] %>% 
-   .[term == "amplitude"]
-```
-
-
-```{r regr-psi-ncep, fig.cap = "Regression of 200hPa geopotential height and QS3 standarized index, and wave acivity flux computed from regression of 0.201 sigma."}
-months <- 1:12 # c(1, 3, 4, 7, 8, 12)
-binwidth <- 10
-stream.g <- stream.reg[lat <= 0 & month %in% months] 
-gh.g <- gh.reg[month %in% months] #%>% 
-   # .[, estimate := Anomaly(estimate), by = .(month, lat)]
-
-
-ggplot(gh.g, aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), xwrap = c(0, 360),
-                     breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour2(aes(z = estimate, linetype = factor(-sign(stat(level)))), 
-                 breaks = AnchorBreaks(0, binwidth, 0), xwrap = c(0, 360), 
-                 size = 0.1) +
-   geom_streamline(aes(dx = f.x, dy = f.y), skip = 4, min.L = 3,
-                   xwrap = c(0, 360),
-                   res = 4, L = 3, arrow.length = 0.2, size = 0.2,
-                   data = stream.g) +
-   map.world +
-   scale_s_map() +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
-                        guide = guide_colorstrip_bottom()) +
-   coord_quickmap(ylim = c(-90, -15)) +
-   facet_wrap(~month, dir = "h",
-              labeller = labeller(month = month.abb)) +
-   theme(panel.spacing.y = unit(0, "lines"))
-```
-
-::: notes
-
-All months show evidence of planetary wave 3 activity, but with considerable heterogeneity in its characteristics. In January, September and December, zonal wave 3 is related to a wave train emanating from the tropical western Pacific propagating to the southeast and then turning to the northeast. 
-
-En enero, se observa un patrón hemisférico de onda 3, con un centro anómalamente negativo importante en el Pacífico sudeste, embebido además en un tren de ondas extendido entre el este de Nueva Zelanda, y Sudamérica. En febrero, la estructura se mantiene similar, pero con menor evidencia de propagación meridional, y el centro anticiclónico en Sudamérica intensificado y un debilitamiento de aquel ubicado al sur del Índico. En marzo, la estructura de onda 3 exhibe mínima variación meridional y ocupa todo el círculo de latitud entre 60°S y 45°S. Abril es similar a marzo, pero sin centros ciclónicos significativos. En mayo, se distingue nuevamente un tren de ondas con propagación meridional, emanando desde Australia, pero con evidencias de reflexión en el Mar de Weddell. Junio, al igual que marzo, presenta una estructura de QS3 zonal, pero menos definida y, consistente con el corrimiento de la fase observado, con los centros ciclónicos y anticiclónicos desplazados hacia el oeste.
-
-:::
-
-
-```{r}
-gh.g <- gh.reg[month %in% months] %>% 
-   .[, estimate := Anomaly(estimate), by = .(month, lat)]
-
-
-ggplot(gh.g, aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), xwrap = c(0, 360),
-                     breaks = AnchorBreaks(0, binwidth, 0)) +
-   geom_contour2(aes(z = estimate, linetype = factor(-sign(stat(level)))), 
-                 breaks = AnchorBreaks(0, binwidth, 0), xwrap = c(0, 360), 
-                 size = 0.1) +
-   geom_streamline(aes(dx = f.x, dy = f.y), skip = 4, min.L = 3,
-                   xwrap = c(0, 360),
-                   res = 4, L = 3, arrow.length = 0.2, size = 0.2,
-                   data = stream.g) +
-   map.world +
-   scale_s_map() +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
-                        guide = guide_colorstrip_bottom()) +
-   coord_quickmap(ylim = c(-90, -15)) +
-   facet_wrap(~month, dir = "h",
-              labeller = labeller(month = month.abb)) +
-   theme(panel.spacing.y = unit(0, "lines"))
-```
-
-
-
-```{r wavelets, fig.cap = "Wavelet analysis of QS3 index"}
-wv <- copy(index)[, date := time] %>% 
-   .[, amplitude := Anomaly(amplitude), by = month(time)] %>% 
-   Wavelets("amplitude", dt = 1/12, n.sim = 300, 
-            method = "shuffle")
-
-autoplot(wv) 
-```
-
-::: notes
-
-Un análisis de wavelets no muestra evidencia de periodicidades.
-
-:::
-
-
-```{r fase-boxplot, fig.cap = "Phase of the mean wave for each month and $\\pm$ 1 standrad deviation (black dots and error bars). In red and blue, phase of the most intense 20 events for each month, representing the location of the ridge and throuht respectively.", fig.class = "fullpage"}
+```{r fase-boxplot-arg}
 lat.lims <- c(-60, -22)
 lon.lims <- c(240, 360)
 
@@ -500,7 +420,7 @@ index_points <- index %>%
    ggperiodic::periodic(phase = c(0, 120)) %>% 
    ggperiodic::wrap(phase = c(0, 360))
 
-index %>% 
+arg <- index %>% 
    .[, .(phase = mean.wave(amplitude, phase, 3)$phase,
          phase.sd = sd.circular(phase.c)/3),
      by = .(month(time))] %>% 
@@ -514,20 +434,19 @@ index %>%
               alpha = 0.8, size = size, color = "blue",
               shape = 5,
               position = position_nudge(y = nudge)) +
-   geom_point(aes(phase*180/pi + 240)) +
+   geom_point(aes(phase*180/pi + 240), shape = 0) +
    geom_errorbarh(aes(xmin = (phase*180/pi + 240 - phase.sd*180/pi), 
                       xmax = (phase*180/pi + 240 + phase.sd*180/pi))) +
    geom_vline(xintercept = c(240, 360), linetype = 3) +
    scale_x_longitude(ticks = 20, name = "Longitude") +
    scale_y_continuous(breaks = (-(1:12) + 6)*2.6 - 45, 
                       minor_breaks = NULL,
-                      labels = month.abb_sp, 
-                      name = "Month", expand = c(0, 0)) +
+                      labels = month.abb,
+                      name = "", expand = c(0, 0)) +
    coord_quickmap(xlim = lon.lims, ylim = c(-65, -25)) 
 ```
 
-```{r}
-
+```{r fase-boxplot-nz}
 lon.lims.nz <- c(120, 240) - 20
 
 map.data.nz <- BuildMap(countries = T) %>% 
@@ -539,7 +458,7 @@ map.nz <- geom_polygon(data = map.data.nz, aes(long, lat, group = group),
                        fill = "gray90", color = "black", size = 0.1,
                        inherit.aes = F)
 
-index %>% 
+nz <- index %>% 
    .[, .(phase = mean.wave(amplitude, phase, 3)$phase*180/pi + 120,
          phase.sd = sd.circular(phase.c)/3),
      by = .(month(time))] %>% 
@@ -557,153 +476,116 @@ index %>%
    geom_errorbarh(aes(xmin = (phase - phase.sd*180/pi), 
                       xmax = (phase + phase.sd*180/pi))) +
    geom_vline(xintercept = lon.lims.nz, linetype = 3) +
-   scale_x_longitude(ticks = 20, name = "Longitude") +
+   scale_x_longitude(ticks = 20, name = "Longitude", position = "top") +
    scale_y_continuous(breaks = (-(1:12) + 6)*2.6 - 45, 
                       minor_breaks = NULL,
-                      labels = month.abb_sp, 
-                      name = "Month", expand = c(0, 0)) +
+                      labels = month.abb, 
+                      name = "", expand = c(0, 0)) +
    coord_quickmap(xlim = lon.lims.nz, ylim = c(-65, -25)) 
 ```
 
+```{r fase-boxplot, fig.cap = "Phase of the mean wave for each month and $\\pm$ 1 standrad deviation (black dots and error bars). In red and blue, phase of the most intense 20 events for each month, representing the location of the ridge and throuht respectively."}
+nz + arg + plot_layout(ncol = 1) + plot_annotation(tag_levels = "a", tag_suffix = ")")
+```
 
+Figure \ref{fig:fase-boxplot} shows the mean phase of ZW3. Red circles and blue diamonds represent the position of the geopotential maximum and minimum, respectively. Mean position and $\pm$ 1 standard deviation is shown by black squares and error bars. (XX more about background and x y axis?). The importance of the phase variability in ZW3 can be apreciated in the context of the position of throughs and ridges in relationship to the continents. Ridges can be to the west or to the east of Oceania and South America even on the same month of the year. These very different forced circulations have oposite effects (i.e. advection of cold or warm air), which underscores not only the importance of taking location into account, but also the possiblity that this variability could mask those impacts at a climatological level. Also of note is the non-trivial cases of throughs located in areas climatologically high pressure areas. This is specially evident in november. 
 
-```{r fun-similar.field}
-similar.field <- function(months = 1:12, n = 1:4, min.amplitude = 25) {
-   index.subset <- index[month(time) %in% months] %>% 
-      .[amplitude >= min.amplitude] 
-   
-   x <- index.subset[, .(amplitude/sd(amplitude), phase/sd(phase))] %>%
-      as.matrix() %>% 
-      dist() -> x
-   
-   ranks <- sort(c(x[x != 0]))
-   
-   x <- as.matrix(x)
-   tops <- lapply(n, function(i) as.numeric(which(x == ranks[i], arr.ind = TRUE)[1, ]))
-   
-   similar <- rbindlist(lapply(n, function(i) index.subset[tops[[i]]]), 
-                        idcol = TRUE)
-   similar[, field := 1:.N, by = .id]
-   similar[, dist := ranks[.GRP], by = .id]
-   similar.fields <- ncep[lev == 200 & lat < 0] %>% 
-      .[, gh.a := Anomaly(gh), by = .(lon, lat, month(time))] %>% 
-      .[time %in% similar$time] %>%
-      .[similar[, .(time, field, .id, dist = dist*100)], 
-        on = "time", allow.cartesian = TRUE] %>% 
-      .[, gh.z := FilterWave(gh, -2:0), by = .(lat, time)]
-   
-   dist_lab <- . %>% 
-      as.numeric() %>% 
-      round(3) %>% 
-      AddPreffix("Distancia = ")(.)
-      
-   print(
-      ggplot(similar.fields, aes(lon, lat)) +
-         geom_contour_fill(aes(z = gh.z), breaks = AnchorBreaks(0, 20, 0), 
-                           xwrap = c(0, 360))  +
-         geom_contour2(aes(z = gh.a), size = 0.3, breaks = AnchorBreaks(0, 20, 0), 
-                       xwrap = c(0, 360)) +
-         geom_text_contour(aes(z = gh.a), breaks = AnchorBreaks(0, 20, 0), 
-                           xwrap = c(0, 360), stroke = 0.1, rotate = FALSE,
-                           size = 3) +
-         stat_subset(aes(subset = lat == -90 & lon == 0, 
-                         label = time, x = 25, y = -85),
-                     geom = "label", label.r = grid::unit(0, "lines")) +
-         map.SH +
-         scale_fill_divergent() +
-         scale_s_map() +
-         coord_quickmap() +
-         facet_grid(dist~field, labeller = labeller(dist = dist_lab))
-   )
-   
-   dcast(similar.fields, lon + lat + .id ~ field, value.var = "gh.z") %>% 
-      .[, cor(`1`, `2`), by = .(.id)] %>% 
-      .$V1
-}
+Ignoring for now the issues of representation, ZW3 index can be regressed with various atmospheric variables to infer the typical structure of the circulation related to high ZW3 activity.
+
+```{r read-psi}
+psi.file <- here("DATA", "NCEP Reanalysis", "psi.mon.mean.nc")
+levs <-  ReadNetCDF(psi.file, out = "vars")$dimensions$level
+levs <- levs[levs %~% 0.21]
+stream <- ReadNetCDF(psi.file, subset = list(lat = -90:40,
+                                             level = levs,
+                                             time = subset.time)) %>% 
+   # setnames(c("level", "time"), c("lev", "date")) %>% 
+   .[, psi.z := Anomaly(psi), by = .(lat, time)]
+stream[, time := as.Date(time[1]), by = time]
+```
+
+```{r read-sst}
+sst <- ReadNetCDF(here("DATA", "sst.mnmean.nc"), 
+                  subset = list(time = subset.time, 
+                                lat = -90:20), vars = "sst")
+sst[, time := as.Date(time[1]), by = time]
 ```
 
 
-```{r top4, fig.cap = "Four most similar field tuples in standarized wave 3 amplitude and phase space. Temporal anomaly of 200hPa geopotential (contours) and zonal anomaly of 200hPa geopotential with waves 1 and 2 filtered out (shaded).", dependson="fun-similar",  fig.height=6.8, fig.width = 10}
-cors <- similar.field(min.amplitude = 50)
-```
+```{r calc-regrs}
+index_sd <- copy(index) %>% 
+   .[, amplitude := amplitude/sd(amplitude)]
 
-::: notes
 
-Se muestran los cuatro pares de campos más similares en cuanto a amplitud y fase. Aún en esta muestra puede verse grandes heterogeneidades. En el primer par de campos, por ejemplo, uno muestra anomalías zonales significativas principalmente sobre el Atlántico y el Índico mientrs que en el otro éstas ocupan todo el dominio. La latitud de las anomal ías también cambia mucho entre ambos casos. La correlación de campo es de `r round(cors[1], 2)`. El segundo y tercer par de campos presenta mayor similaridad (correlación de campo `r round(cors[2], 2)` y `r round(cors[3], 2)` respectivamente). El cuarto par no sólo presenta poca correlación (`r round(cors[4], 2)`) sino que presenta una gran diferencia en el área de máximas anomalías.
+sst.reg <- sst[index_sd, on = "time"] %>% 
+   # .[complete.cases(.)] %>%
+   .[, FitLm(sst, amplitude, phase), by = .(lon, lat, month(time))] %>% 
+   .[term == "amplitude"] 
 
-Los campos de anomalías temporales, por su parte, casi no presentan similitudes entre los campos. Esto se debe principalmente a que no se está filtrando las ondas 1 y 2.
+sst.reg[, estimate_impute := Impute2D(estimate ~ lon + lat), by = month]
 
-:::
+stream.reg <- stream[, .(lon, lat, time, psi.z)] %>% 
+   .[index_sd, on = "time"] %>% 
+   .[, FitLm(psi.z, amplitude, phase = phase, 
+             se = TRUE), 
+     by = .(lat, lon, month(time))] %>% 
+   .[term == "amplitude"] %>% 
+   .[, psi.z := estimate] %>% 
+   .[, c("f.x", "f.y") := WaveFlux(.SD), by = .(month)] %>% 
+   .[complete.cases(.)]
 
-```{r top4-sep, fig.cap = "Four most similar september field tuples in standarized wave 3 amplitude and phase space. Temporal anomaly of 200hPa geopotential (contours) and zonal anomaly of 200hPa geopotential with waves 1 and 2 filtered out (shaded).", dependson="fun-similar",  fig.height=6.8, fig.width = 10}
-cors <- similar.field(months = 9, min.amplitude = 50)
-```
-
-```{r percentiles, fig.cap = "Relationship between QS3 index at each month with QS3 index at the subsequent month"}
-index <- index[, percentile := Percentile(amplitude), by = month(time)]
-index[, next.percentile := shift(percentile, 1, type = "lead")]
-
-breaks <- seq(0, 1, by = .25)
-set.seed(42)
-ggplot(index, aes(percentile, next.percentile)) +
-   # geom_density2d(aes(color = ..level..), h = c(0.25, 0.25)) +
-   geom_jitter(width = 0.005, height = 0.005) +
-   geom_smooth(method = "lm") +
-   scale_x_continuous("Percentile of month", breaks = breaks,
-                      minor_breaks = NULL) +
-   scale_y_continuous("Percentile of next month", breaks = breaks,
-                      minor_breaks = NULL) +
-   scale_color_viridis_c() +
-   coord_equal()
-```
-
-::: notes
-
-Se muestra la (falta de) relación entre el percentil de cada mes con el percentil del mes siguiente. No sólo no hay relación (lineal) sino que si hubiera una persistencia en los valores más altos, tendría que haber una concentración de puntos en la esquina superior derecha o en la inferior izquierda. 
-
-:::
-
-```{r ac-index, fig.cap = "Autocorrelation function of QS3 index. Shaded area indicates p-values greater than 0.01"}
-acf.sig(index$percentile, lag.max = 60, alpha = 0.01) %>% 
-   .[-1, ] %>% 
-   ggplot(aes(lag, acf)) +
-   geom_ribbon(aes(ymin = -sig.cut, ymax =  sig.cut), alpha = 0.1) +
-   geom_line() +
-   scale_x_continuous(expand = c(0, 0))
+gh.reg <- ncep[lev == 200][index_sd, on = "time"] %>% 
+   .[, FitLm(gh, amplitude, phase), 
+     by = .(lat, lon, month(time))] %>% 
+   .[term == "amplitude"]
 ```
 
 
-::: notes 
+```{r regressions, fig.cap = "Regression between scaled ZW3 index and SST (shaded) and geopotential height (contours), and wave activity flux derived from regression between ZW3 index and streamfunction at 0.2101 sigma (streamlines).", fig.height=(297 - 10)/24.5, fig.width=(210-10)/24.5}
+months <- 1:12 # c(1, 3, 4, 7, 8, 12)
+binwidth <- 10
+stream.g <- stream.reg[lat <= 15 & month %in% months] 
+gh.g <- gh.reg[month %in% months] #%>% 
+   # .[, estimate := Anomaly(estimate), by = .(month, lat)]
 
-El autocorrelograma confirma esta falta de relación.
+gh.g <- periodic(gh.g, lon = c(0, 360))
+stream.g <- periodic(stream.g, lon = c(0, 360))
+sst.reg <- periodic(sst.reg, lon = c(0, 360))
 
-:::
-
-```{r conditional-prob, fig.cap = "Conditional probability of persistence"}
-p.cuts <- seq(0.2, 0.9, by = 0.05)
-
-probs <- lapply(p.cuts, function(x) {
-   index[percentile >= x, 
-         .(p.cut = x,
-           prob = mean(next.percentile >= x),
-           N = .N)]
-}) %>% 
-   rbindlist()
-
-ggplot(probs, aes(1-p.cut, prob)) +
-   geom_ribbon(aes(ymin = prob - sqrt(1/N), ymax = prob + sqrt(1/N)), 
-               fill = "gray90") +
-   geom_point() +
-   geom_abline(linetype = 3) +
-   geom_point() + geom_line() +
-   scale_y_continuous("P(percentile_i >= x | percentile_i-1 >= x)") +
-   scale_x_continuous("1 - percentile") +
-   coord_equal(expand = FALSE)
+ggplot(gh.g, aes(lon, lat)) +
+   geom_contour_fill(data = sst.reg, aes(z = estimate), na.fill = 0,
+                     breaks = AnchorBreaks(0, 0.1, 0))  +
+   geom_contour2(data = sst.reg, aes(z = estimate, 
+                                     linetype = factor(-sign(stat(level)))),
+                  breaks = AnchorBreaks(0, 0.1, 0), na.fill = 0, size = 0.1) +
+   stat_subset(data = sst.reg, aes(subset = is.na(estimate)), fill = "white", 
+               geom = "raster") +
+   geom_contour2(aes(z = estimate, linetype = factor(-sign(stat(level)))),
+                 breaks = AnchorBreaks(0, binwidth, 0),
+                 size = 0.5) +
+   geom_streamline(aes(dx = f.x, dy = f.y), skip = 5, min.L = 3,
+                   xwrap = c(0, 360),
+                   res = 4, L = 10, arrow.length = 0.2, size = 0.2,
+                   data = stream.g) +
+   map.world +
+   scale_s_map(ylim = c(-90, 15)) +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 0.1, 0),
+                        na.value = "white",
+                        guide = guide_colorstrip_bottom()) +
+   coord_quickmap(ylim = c(-90, 15)) +
+   facet_wrap(~month, dir = "h", ncol = 2,
+              labeller = labeller(month = month.abb)) +
+   # facet_wrap_paginate(~month, page = 1, nrow = 1, ncol = 1)
+   theme(panel.spacing.y = unit(0, "lines"))
 ```
 
-::: notes
+Figure \ref{fig:regressions} shows regressions between scaled ZW3 index and SST, and 200hPa geopotential height and wave activity flux derived from regressions between scaled ZW3 index and streamfunction at `r levs` $\sigma$ for each month. All months show evidence of planetary wave 3 activity, but with considerable heterogeneity in its characteristics. In particular, it can be seen that some months (January, May, September and December) are characterised by a wave train emanating from the tropical western Pacific propagating to the southeast and then turning to the northeast. Other months (March, April, July and October) show a much more zonally coherent wave 3 pattern that extends along latitude circles without such a dramatic meridional propagation. 
 
-Esta figura muestra la probabilidad condicional de que un mes sea del percentil mayor o igual a un determinado valor sabiendo que el anterior mes estaba en el percentil mayor o igual al valor de corte. La línea punteada es la hipótesis nula (la probabilidad condicional es igual a la porbabilidad incondicional). Se confirma que no hay persistencia (o, más bien, que no se puede detectar persistencia en estos datos).
+Patterns of SST variation are similarly mixed. There's a strong signal in the equatorial pacific, but it is not consistent, varying between positive (February, May and September) and negative (January, March, November and December). This variability is masked when performing regressions or compositions for all months together (not shown) and can probably explain the small signal mentioned in @Renwick2005. 
 
-:::
-
+Moreover, the aforementioned problems of usind ZW3 amplitude as a measure of QS3 activity puts into question the fundamental validity of the regression analysis using this variable. 
+
+
+# Discussion
+
+ZW amplitude is not a good measure for characterising QS behaviour for several reasons. By ignoring the phase component, it captures waves with one common wavenumber that nevertheless are very different and are exited by different procesess. This problem is exacerbated for periods or months that exibit low levels of steadiness. 

@@ -769,7 +769,10 @@ SmoothContour <- function(data, nx = 64, ny = 64, breaks,
    return(contours)
 }
 
-
+RunMean <- function(data, weights = NULL, k) {
+   data$y <- with(data, RcppRoll::roll_mean(y, k, fill = NA))
+   data
+}
 
 
 notify <- function(title = "title", text = NULL, time = 2) {
@@ -1003,7 +1006,7 @@ stationarity.wave2 <- function(waves, method = c("amoma", "avar")) {
    waves <- transpose(waves)
    if (length(waves) == 3) {
       names(waves) <- c("amplitude", "phase", "k")
-      waves$phi.s <- with(waves, mean.phase(amplitude, phase, k))
+      waves$phi.s <- with(waves, mean.phase(amplitude, phase, k[1]))
    } else {
       names(waves) <- c("amplitude", "phase", "k", "phi.s")
    }
