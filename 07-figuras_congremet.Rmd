@@ -52,6 +52,11 @@ knitr::knit_hooks$set(error = function(x, options) {
 source("scripts/helperfun.R")
 # Plot thingys
 
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+  guide_colorstrip(barwidth = width, title.vjust = 1.2, barheight = height)
+}
+
+
 data.world <- BuildMap(res = 1, smooth = 1)
 map.world <- geom_map2(data.world)
 map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
@@ -72,7 +77,8 @@ d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
 write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
 extrafont::loadfonts()
 
-theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 18, 
+theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 16, 
+                                         axis_title_size = 16,
                                          plot_title_size = 22) +
    # theme_minimal(base_size = 11) +
    theme(
@@ -81,9 +87,10 @@ theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 18,
       panel.spacing.x = unit(5, "mm"),
       legend.spacing = unit(2, "mm"),
       plot.margin = grid::unit(rep(3, 4), "mm"),
-      legend.title = element_blank(),
+      # legend.title = element_blank(),
       legend.box.spacing = unit(3, "mm"),
-      legend.margin = margin(t = -5),
+      legend.margin = margin(t = -5), 
+      # axis.title = element_text(size = 18/1.2),
       # panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
       panel.grid = element_blank(), 
       panel.grid.major = element_blank(),
@@ -236,7 +243,7 @@ gh.season <- gh.season[, qs3 := FilterWave(gh, 3), by = .(lat, lev, season)]
 
 ```{r gh3-season, fig.cap = "Wave 3 component of the geopotential field of each season at 200hPa.", fig.height=3.36, fig.width=7}
 binwidth <- 10
-g <- ggplot(gh.season[lev == 200], aes(lon, lat)) +
+ggplot(gh.season[lev == 200], aes(lon, lat)) +
    geom_contour_fill(aes(z = qs3), breaks = AnchorBreaks(0, binwidth, 0), 
                      xwrap = c(0, 360)) +
    geom_contour2(aes(z = qs3), breaks = AnchorBreaks(0, binwidth, 0),
@@ -244,7 +251,7 @@ g <- ggplot(gh.season[lev == 200], aes(lon, lat)) +
    map.SH +
    scale_s_map(ylim = c(-90, 20)) +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
-                        name = "QS3",
+                        name = "Altura geopotencial   ",
                         guide = guide_colorstrip_bottom()) +
    facet_wrap(~season, ncol = 2) +
    coord_quickmap()
@@ -268,7 +275,7 @@ ggplot(gh.season[lat %between% cutlats, .(qs3 = mean(qs3)),
    scale_y_level(breaks = lev.breaks) +
    scale_x_longitude(name = "lon") +
    scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
-                        name = "QS3",
+                        name = "Altura geopotencial   ",
                         guide = guide_colorstrip_bottom()) +
    facet_wrap(~season, ncol = 2) 
 ```
@@ -290,14 +297,16 @@ binwidth.stat <- 0.1
 breaks <- 2^seq(0, log2(650), by = 1)
 ggplot(ncep.qs[lat <= 0 & k == 3], aes(lat, lev)) +
    geom_contour_fill(aes(z = mean.amplitude), breaks = MakeBreaks(10)) + 
-   geom_contour_tanaka(aes(z = asin(amoma)*2/pi), breaks = MakeBreaks(0.1),
-                       range = c(0.02, 0.3)) +
+   # geom_contour_tanaka(aes(z = asin(amoma)*2/pi), breaks = MakeBreaks(0.1),
+                       # range = c(0.02, 0.3)) +
    # geom_text_contour(aes(z = asin(amoma)*10*2/pi), breaks = c(7, 9), skip = 0, 
    #                   rotate = FALSE, stroke = 0.1, stroke.color = "#2B828C") +
    surface +
    geom_index.region(rect.annotation) +
-   scale_fill_viridis_c(name = "Amplitud (escala logarítmica)",
-                        guide = guide_colorstrip_bottom(),
+   scale_fill_viridis_c(name = "Amplitud   ",
+                        guide = guide_colorstrip(barwidth = 20,
+                                                 title.vjust = 1.2,
+                                                 barheight = 0.5),
                         oob = scales::squish,
                         limits = c(0, 70),
                         breaks = MakeBreaks(10),
@@ -305,8 +314,35 @@ ggplot(ncep.qs[lat <= 0 & k == 3], aes(lat, lev)) +
    scale_y_level(breaks = lev.breaks) +
    scale_x_latitude(name = "latitud", trans = "reverse", ticks = 15) +
    coord_latlev() +
-   facet_wrap(~season)
+   facet_wrap(~season) 
 ```
+
+
+```{r stat, fig.cap = "Mean wave amplitude (shaded) and stationarity (contours).", fig.width=10, fig.height=6}
+binwidth.ampl <- 10
+binwidth.stat <- 0.1
+breaks <- 2^seq(0, log2(650), by = 1)
+ggplot(ncep.qs[lat <= 0 & k == 3], aes(lat, lev)) +
+   # geom_contour_fill(aes(z = mean.amplitude), breaks = MakeBreaks(10)) + 
+   geom_contour_fill(aes(z = asin(amoma)*2/pi), breaks = MakeBreaks(0.1)) +
+   # geom_text_contour(aes(z = asin(amoma)*10*2/pi), breaks = c(7, 9), skip = 0, 
+   #                   rotate = FALSE, stroke = 0.1, stroke.color = "#2B828C") +
+   surface +
+   geom_index.region(rect.annotation) +
+   scale_fill_viridis_c(name = "Estacionariedad   ",
+                        guide = guide_colorstrip(barwidth = 20,
+                                                 title.vjust = 1.2,
+                                                 barheight = 0.5),
+                        oob = scales::squish,
+                        limits = c(0, 1),
+                        breaks = MakeBreaks(0.1),
+                        option = "D") +
+   scale_y_level(breaks = lev.breaks) +
+   scale_x_latitude(name = "latitud", trans = "reverse", ticks = 15) +
+   coord_latlev() +
+   facet_wrap(~season) 
+```
+
 
 ::: notes
 
@@ -314,15 +350,23 @@ ggplot(ncep.qs[lat <= 0 & k == 3], aes(lat, lev)) +
 
 :::
 
+```{r qs3-monthly}
+ncep[lat %between% c(-60, -45) & lev %between% c(100, 700), 
+     mean(gh), by = .(lon, lat, lev, month(time))] %>% 
+   .[, FitWave(V1, 3), by = .(lat, lev, month)] %>% 
+   .[, .(QS3 = mean(amplitude)), by = .(month)] -> qs3
+```
 
-```{r boxplot-index, fig.cap = "Seasonal cicle of QS3 index.", fig.width=10, fig.height=4.36}
+```{r boxplot-index, fig.cap = "Seasonal cicle of QS3 index.", fig.width=190/25.4, fig.height=113/25.4}
 set.seed(42)
 ggplot(index, aes(factor(month(time)), amplitude)) +
    geom_boxplot(outlier.alpha = 0, fill = "gray95") +
-   geom_sina(alpha = 0.5, size = 0.7) +
-   scale_x_discrete(name = "Month", labels = month.abb) +
-   scale_y_continuous(name = "Amplitude") +
-   theme(panel.grid.major.x = element_blank())
+   geom_line(data = qs3, aes(x = month, y = QS3)) +
+   # geom_sina(alpha = 0.5, size = 0.7) +
+   scale_x_discrete(name = "Mes", labels = month.abb_sp) +
+   scale_y_continuous(name = "Amplitud") +
+   theme(panel.grid.major.x = element_blank()) +
+   coord_cartesian(ylim = c(0, 100))
 ```
 
 ::: notes
@@ -371,6 +415,7 @@ gh.reg <- ncep[lev == 200][index, on = "time"] %>%
 
 
 ```{r regr-psi-ncep, fig.cap = "Regression of 200hPa geopotential height and QS3 standarized index, and wave acivity flux computed from regression of 0.201 sigma.", fig.height=10, fig.width=15}
+
 months <- 1:12 # c(1, 3, 4, 7, 8, 12)
 binwidth <- 10
 stream.g <- stream.reg[lat <= 0 & month %in% months] 
@@ -387,11 +432,14 @@ ggplot(gh.g, aes(lon, lat)) +
                    res = 4, L = 10, arrow.length = 0.2, size = 0.2,
                    data = stream.g) +
    map.world +
-   scale_s_map() +
-   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), 
+   # scale_s_map() +
+   scale_x_longitude(ticks = 90) +
+   scale_y_latitude(ticks = 60) +
+   scale_fill_divergent("Altura geopotencial   ",
+      breaks = AnchorBreaks(0, binwidth, 0), 
                         guide = guide_colorstrip_bottom()) +
    coord_quickmap(ylim = c(-90, -15)) +
-   facet_wrap(~month, dir = "h", ncol = 3,
+   facet_wrap(~month, dir = "h", ncol = 5,
               labeller = labeller(month = month.abb)) +
    theme(panel.spacing.y = unit(0, "lines"))
 ```
@@ -406,7 +454,7 @@ En enero, se observa un patrón hemisférico de onda 3, con un centro anómalame
 
 
 
-```{r fase-boxplot, fig.cap = "Phase of the mean wave for each month and $\\pm$ 1 standrad deviation (black dots and error bars). In red and blue, phase of the most intense 20 events for each month, representing the location of the ridge and throuht respectively.", fig.height=6, fig.width=13}
+```{r fase-boxplot, fig.cap = "Phase of the mean wave for each month and $\\pm$ 1 standrad deviation (black dots and error bars). In red and blue, phase of the most intense 20 events for each month, representing the location of the ridge and throuht respectively.", fig.height=109/25.4, fig.width=226/25.4}
 lat.lims <- c(-60, -22)
 lon.lims <- c(240, 360)
 
