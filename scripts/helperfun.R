@@ -254,10 +254,10 @@ yearly <- function(date, day = 182) {
    d
 }
 
-geom_index.region <- function(data) {
+geom_index.region <- function(data, color = "black") {
    geom_rect(data = data, aes(xmin = latmin, xmax = latmax,
                               ymin = levmin, ymax = levmax),
-             inherit.aes = F, linetype = 3, color = "black", fill = NA)
+             inherit.aes = F, linetype = 3, color = color, fill = NA)
 }
 
 
@@ -1508,4 +1508,17 @@ harmonics <- function(x, n = 4) {
    n <- as.numeric(seq(1, by = 1, length.out = n))
    h <- c(vapply(x, function(i) i/n, n))
    sort(h)
+}
+
+
+addkey <- function(x, ..., verbose=getOption("datatable.verbose"), physical = TRUE) {
+   cols = as.character(substitute(list(...))[-1L])
+   if (!length(cols)) {
+      cols = colnames(x)
+   }
+   else if (identical(cols, "NULL")) 
+      cols = NULL
+   prev_keys <- key(x)
+   
+   setkeyv(x, c(prev_keys, cols), verbose = verbose, physical = physical)
 }
