@@ -5,7 +5,7 @@ El objetivo de este trabajo es representar la QS3, en amplitud, fase y estaciona
 
 Métodos
 
-Datos mensuales de reanálisis NCEP del 1979 al 2017. La amplitud de QS3 se calculó a partir de la descomposición de Fourier de los campos de geopotencial medios trimestrales. La estacionariedad se calculó como la amplitud de la onda media sobre la media de la amplitud. Se definió un índice de la actividad de la onda zonal 3 de cada mes (ZW3) como el promedio de la amplitud de la onda 3 entre 45°S y 60°S y 700hPa y 100hPa. Este índice se utilizó para calcular regresiones con SST, altura geopotencial  y función corriente, sobre la cual se calculó el flujo de acción de onda.
+Datos mensuales de reanálisis NCEP del 1979 al 2017. La amplitud de QS3 se calculó a partir de la descomposición de Fourier de los campos de geopotencial medios trimestrales. La estacionariedad se calculó como la amplitud de la onda media sobre la media de la amplitud. Se definió un índice de la actividad de la onda zonal 3 de cada mes (ZW3) como el promedio de la amplitud de la onda 3 entre 45°S y 60°S y 700hPa y 100hPa. Este índice se utilizó para calcular regresiones con SST, altura geopotencial en 200hPa y función corriente, sobre la cual se calculó el flujo de acción de onda.
 
 Fig.1 
 
