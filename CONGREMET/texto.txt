@@ -1,0 +1,47 @@
+Objetivos
+
+Las ondas planetarias de número de onda 1 y 3 (QS1 y QS3) son las principales asimetrías zonales presentes en el flujo medio del hemisferio sur. Estas ondas zonales tienden a ser cuasi-estacionarias y exhiben importantes variabilidades temporales en su amplitud y fase. 
+El objetivo de este trabajo es representar la QS3, en amplitud, fase y estacionariedad, explorar un indicador de su actividad y caracterizar la circulación del hemisferio sur asociada a la onda 3 a través de variables que influyan en su intesidad. 
+
+Métodos
+
+Datos mensuales de reanálisis NCEP del 1979 al 2017. La amplitud de QS3 se calculó a partir de la descomposición de Fourier de los campos de geopotencial medios trimestrales. La estacionariedad se calculó como la amplitud de la onda media sobre la media de la amplitud. Se definió un índice de la actividad de la onda zonal 3 de cada mes (ZW3) como el promedio de la amplitud de la onda 3 entre 45°S y 60°S y 700hPa y 100hPa. Este índice se utilizó para calcular regresiones con SST, altura geopotencial en 200hPa y función corriente, sobre la cual se calculó el flujo de acción de onda.
+
+Fig.1 
+
+En la amplitud de la ZW3 hay un máximo bien definido en latitudes medias en todas las estaciones pero con importantes variaciones en su intensidad y extensión vertical. Hay un segundo máximo secundario en la alta tropósfera tropical de verano.
+Los máximos de amplitud coinciden con máximos de estacionariedad salvo en primavera. 
+
+Fig.2 
+
+Se observa una inclinación meridional de los centros que es más importante en las estaciones de transición, pero menor en verano y no detectable en el invierno. Esto está asociado a transportes perturbados de cantidad de movimiento hacia el polo. 
+También se observa una ligera inclinación vertical en otoño e invierno, que se asocia con el transporte perturbado de calor hacia el polo. 
+
+Fig.3
+
+La amplitud de la ZW3 tiene un ciclo anual tanto en magnitud como en variabilidad. El ciclo anual de la QS3 (líneas negras) no coincide con la mediana de ZW3 en los meses con baja estacionariedad. 
+No hay evidencias de persistencia mes a mes, periodicidades o tendencia a largo plazo (no mostrado).
+
+Fig.4
+
+La fase de la ZW3 mes a mes varía considerablemente con respecto a la fase media. Hay casos con máximos al oeste del continente que favorecen vientos del Sur y casos con máximos al este que favorecen vientos del Norte. Incluso hay casos con mínimos sobre el continente.
+
+Fig.5
+
+El campo medio de enero de anomalía zonal de altura geopotential eliminando la QS1 es un ejemplo de la variación meridional y zonal de la QS3 que no puede capturarse con una descomposición de Fourier.
+
+Fig.6
+
+Las regresiones muestran en todos los meses evidencias de la ZW3, aunque embebidas en condiciones muy distintas. Algunos meses muestran un tren de ondas con propagación meridional emanando desde el Pacífico occidental mientras que otros tienen una estructura más zonal. Hay una señal en la temperatura superficial del Pacífico ecuatorial, pero varía entre anomalías positivas y negativas.  
+
+Conclusiones:
+
+Este trabajo confirma que la ZW3 contribuye de manera significativa a la circulacion en latitudes medias del HS. Sin embargo, la amplitud de Fourier es una variable de limitada utilidad para representar la onda cuasiestacionaria 3. Al no ser sensible a la fase de la onda, no funciona bien en los meses con poca estacionariedad. Como da una amplitud "promedio" por círculo de latitud, no es sensible a la modulación de la amplitud con la latitud ni al movimiento meridional. 
+Estos resultados, dan evidencia de posibles influencias de la dinámica tanto tropical como polar en la actividad de la QS3 que podrían contribuir a su predictibilidad.
+
+Futuro:
+
+Buscar una mejor forma de caracterizar la QS3 que capture la variación meridional y zonal. Dos posibilidades son PCA filtrado y Wavelets. 
+Analizar la estacionariedad a lo largo del tiempo y qué factores están asociados con una onda más estacionaria. 
+
+

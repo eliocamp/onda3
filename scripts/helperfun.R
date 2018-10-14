@@ -261,15 +261,21 @@ geom_index.region <- function(data, color = "black") {
 }
 
 
-PeriodicWavelet <- function(x, k) {
+PeriodicWavelet <- function(x, k, normalize = FALSE) {
    period <- length(x)/k
    x1 <- rep(x, 3)
    keep <- (length(x)+1):(2*length(x))
    res <- list()
+   if (isFALSE(normalize)) {
+      mult <- sd(x) 
+   } else {
+      mult <- 1
+   }
    for (p in seq_along(period)) {
       w <- WaveletComp::WaveletTransform(x1, dt = 1, upperPeriod = period[p],
                                          lowerPeriod = period[p])
-      res[[paste0("k", ".", k[p])]] <- w$Ampl[keep]*sd(x)
+      
+      res[[paste0("k", ".", k[p])]] <- w$Ampl[keep]*mult
       
    }
    return(res)

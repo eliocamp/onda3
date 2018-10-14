@@ -1,0 +1,310 @@
+---
+title: "Figuras congremet extra"
+author: "Elio"
+date: "October 13, 2018"
+output: 
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 10
+        fig_width: 22
+        reference_doc: template.pptx
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+cache.num <- 2
+
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE, cache.lazy = TRUE,
+                      cache.path = paste0("cache/", name, "/"),
+                      cache.extra = cache.num,
+                      fig.path = paste0("fig/", name, "/"),
+                      warning = FALSE,
+                      message = FALSE,
+                      dev = "png"
+)
+
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(metR) 
+library(circular)
+library(hrbrthemes)
+library(extrafont)
+library(patchwork)
+library(officer)
+library(here)
+library(ggperiodic)
+
+here <- here::here
+
+knit_error <-  knitr::knit_hooks$get("error")
+knitr::knit_hooks$set(error = function(x, options) {
+   notify("Error knitting!", time = 5)
+   knit_error(x, options)
+})
+
+
+source("scripts/helperfun.R")
+# Plot thingys
+
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(barwidth = width, title.vjust = 1.2, barheight = height)
+}
+
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+
+pres <- ReadNetCDF("DATA/srfp.mon.mean.nc")
+pres.mean <- pres[, .(pres = median(pres)), by = lat]
+pres.mean <- rbind(data.table(lat = 0.0, pres = Inf), 
+                   pres.mean, 
+                   data.table(lat = -90.0, pres = Inf))
+surface <- geom_polygon(data = pres.mean, aes(y = pres), fill = "white", 
+                        alpha = 1, color = "gray30", size = 0.5)
+pres <- pres[, .(pres = mean(pres)), by = .(lon, lat)]
+
+# From https://github.com/hrbrmstr/hrbrthemes/issues/18
+d <- read.csv(extrafont:::fonttable_file(), stringsAsFactors = FALSE)
+d[grepl("Light", d$FontName),]$FamilyName <- font_rc_light
+write.csv(d,extrafont:::fonttable_file(), row.names = FALSE)
+extrafont::loadfonts()
+
+theme_elio <- hrbrthemes::theme_ipsum_rc(base_size = 16, 
+                                         axis_title_size = 16,
+                                         plot_title_size = 20) +
+   # theme_minimal(base_size = 11) +
+   theme(
+      legend.title = element_blank(), 
+      plot.title = element_text(hjust = 0.5, 
+                                margin = margin(0, 0, -10, 0)),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      # legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5), 
+      strip.text = element_text(hjust = 0.5),
+      # axis.title = element_text(size = 18/1.2),
+      # panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.grid = element_blank(), 
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+update_geom_defaults(metR:::GeomTextContour, list(family = font_rc))
+hrbrthemes::update_geom_font_defaults()
+update_geom_defaults("contour2", list(color = "black"))
+update_stat_defaults("contour2", aes(linetype = factor(-sign(..level..))))
+
+options(ggplot2.continuous.fill = "viridis", 
+        ggplot2.continuous.color = "viridis")
+
+coord_quickmap <- function(..., ylim = c(-90, -15)) {
+   ggplot2::coord_quickmap(ylim = ylim, ...) 
+} 
+
+geom_contour_ <- function(..., gap = 0, rotate = FALSE) {
+   if (gap != 0) {
+      list(geom_contour2(..., gap = gap),
+           geom_text_contour(..., rotate = rotate))
+   } else {
+      geom_contour2(...)
+   }
+}
+
+# For vertical cross-sections
+coord_latlev <- function(ratio = 20, ...) coord_fixed(ratio = ratio, ...)
+coord_lonlev <- function(ratio = 20*4, ...) coord_fixed(ratio = ratio, ...)
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+season <- function(...) {
+   metR::season(..., lang = "es")
+}
+
+
+## Options for generating ppt output
+ppt <- FALSE
+pptfile <- "figuras.pptx"
+ppttemplate <- "ppttemplate.pptx"
+# Initial ppt
+if (ppt == TRUE){
+   my_pres <- read_pptx(ppttemplate)
+   print(my_pres, pptfile)   
+}
+
+# Add a plot to ppt 
+knit_plot <- knitr::knit_hooks$get("plot")
+
+knitr::knit_hooks$set(plot = function(x, options) {
+   if (ppt == TRUE) {
+      # print(options)
+      if (inherits(last_plot(), "gg")) {
+         read_pptx(pptfile)  %>%
+            add_slide(layout = "figure", master = "Office Theme") %>%
+            ph_with_gg(last_plot(), type = "pic") %>%
+            ph_with_text(options$fig.cap, type = "body") %>%
+            print(pptfile)
+         set_last_plot(NULL)   # remove last_plot()
+      } else {
+         read_pptx(pptfile ) %>%
+            add_slide(layout = "figure", master = "Office Theme") %>%
+            rvg::ph_with_vg(code = eval(parse(text = options$code)), 
+                            type = "pic") %>%
+            ph_with_text(options$fig.cap, type = "body") %>% 
+            print(pptfile)
+      }
+   }
+   knit_plot(x, options)
+})
+
+# Turn off cache for figures
+knitr::opts_hooks$set(fig.cap = function(options) {
+   if (ppt == TRUE) options$cache <- FALSE
+   options
+})
+
+```
+
+```{r read-ncep}
+subset.time <- lubridate::as_datetime(c("1979-12-01", "2017-12-01"))
+ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"),
+                   vars = c(gh = "hgt"),
+                   subset = list(time = subset.time, level = 200)) %>% 
+   setnames("level", "lev") %>% 
+   .[, time := as.Date(time[1]), by = time]
+
+# ncep.f <- memoise::memoise(function(lat = -90:40, 
+#                                     lon = 0:360,
+#                                     time = lubridate::as_datetime(c("1979-12-01",
+#                                                                     "2017-12-01")),
+#                                     level = 10:1000,
+#                                     vars = "gh"){
+#    subset <- list(lat = lat, lon = lon, level = level,
+#                   time = time)
+#    n <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+#                    subset = subset) %>% 
+#       setnames(., c("level"), c("lev"))
+#    if ("u" %in% vars) {
+#       n[, u := ReadNetCDF("DATA/NCEP Reanalysis/uwnd.mon.mean.nc", out = "vector",
+#                           subset = subset)[[1]]] 
+#    }
+#    if ("v" %in% vars) {
+#       n[, v := ReadNetCDF("DATA/NCEP Reanalysis/vwnd.mon.mean.nc", out = "vector",
+#                           subset = subset)[[1]]]
+#    }
+#    n[, time := as.Date(time[1]), by = time]
+#    return(n)
+# }, cache = memoise::cache_filesystem(".rcache"))
+# ncep <- ncep.f()
+```
+
+
+```{r calc-ceof}
+region <- expand.grid(lat = c(-65, -40),
+                      lev = c(100, 700))
+lats.eof <- c(-80, -30)
+qs.ceof <-  copy(ncep[lev == 200 & lat %between% lats.eof]) %>%
+   .[, gh.minus := FilterWave(gh, k = 0:-1), by = .(lat, time, lev)] %>% 
+   .[, gh := gh.minus*sqrt(cos(lat*pi/180))] %>%
+   .[, gh := Detrend(gh, time),
+     by = .(lon, lat, month(time))] %>%
+   # .[, gh := Anomaly(gh), 
+   #   by = .(lon, lat, month(time))] %>% 
+   .[, c("R", "I") := ReIm(spectral::analyticFunction(gh)), 
+     by = .(lat, time)] %>% 
+   .[, gh := R + I*1i] %>% 
+   EOF(data = ., gh ~ time | lon + lat, n = 1:10, B = 5000, suffix = "cPC")
+```
+
+```{r spatial-eofs, fig.cap = "Parte real (sombreado) e imaginaria (contornos) de la primera componente principal compleja."}
+ceof <- periodic(cut(qs.ceof, 1)$right, lon = c(0, 360))
+binwidth <- 0.01
+ggplot(ceof, aes(lon, lat)) +
+   geom_contour_fill(aes(z = Re(gh)), breaks = AnchorBreaks(0, binwidth, 0)) +
+   geom_contour3(aes(z = Im(gh)), breaks = AnchorBreaks(0, binwidth, 0)) +
+   map.SH +
+   geom_hline(yintercept = lats.eof, linetype = 2) +
+   scale_s_map() +
+   scale_fill_divergent(breaks = AnchorBreaks(0, binwidth, 0), #) +
+                        guide = guide_colorstrip_bottom()) +
+   coord_quickmap(ylim = c(-90, -20)) +
+   facet_wrap(~cPC, ncol = 3, dir = "h", 
+              labeller = labeller(cPC = labeller.eof(qs.ceof)))
+```
+
+```{r ceof-mag, fig.cap = "Amplitud de la primera componente principal compleja."}
+ggplot(ceof, aes(lon, lat)) +
+   geom_contour_fill(aes(z = abs(gh)), breaks = MakeBreaks(0.005)) +
+   map.SH +
+   geom_hline(yintercept = lats.eof, linetype = 2) +
+   scale_s_map() +
+   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
+                         breaks = MakeBreaks(0.005)) +
+   coord_quickmap(ylim = c(-90, -20)) +
+    facet_wrap(~cPC, ncol = 3, dir = "h", 
+              labeller = labeller(cPC = labeller.eof(qs.ceof)))
+```
+
+
+```{r calc-wavelets}
+wv <- ncep[lev == 200] %>% 
+   .[, amplitude := PeriodicWavelet(gh, 3), keyby = .(lat, time)] %>% 
+   .[, .(amplitude = mean(amplitude)), keyby = .(lon, lat)] %>% 
+   periodic(lon = c(0, 360))
+```
+
+```{r wavelets, fig.cap = "Amplitud media de onda 3 usando Wavelets."}
+ggplot(wv, aes(lon, lat)) +
+   geom_contour_fill(aes(z = amplitude), breaks = MakeBreaks(5)) +
+   map.SH +
+   scale_fill_viridis_c(guide = guide_colorstrip_bottom(),
+                         breaks = MakeBreaks(5)) +
+   scale_s_map() +
+   coord_quickmap()
+```
+
+
+```{r wavelets-pca, fig.cap = "Anomalía zonal de la amplitud media de la onda 3 (sombreado) y anomalía zonal de la amplitud de la primera componente principal compleja (contornos)."}
+ceof %>% 
+   .[, mag := abs(gh)] %>% 
+   .[, mag.z := Anomaly(abs(mag)), by = .(lat)] -> ceof
+
+wv %>% copy() %>% 
+   .[, amplitude.z := Anomaly(amplitude), by = .(lat)] %>% 
+ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = amplitude.z), breaks = AnchorBreaks(0, 0.5, 0)) +
+   geom_contour_tanaka(data = ceof, aes(z = mag.z), linetype = 1, 
+                       range = c(0.3, 0.9),
+                       breaks = MakeBreaks(0.003)) +
+   geom_hline(yintercept = lats.eof, linetype = 2) +
+   map.SH +
+   scale_fill_divergent(breaks = AnchorBreaks(0, 0.5, 0),
+                        guide = guide_colorstrip_bottom()) +
+   scale_s_map() +
+   coord_quickmap()
+```
+
+
