@@ -175,3 +175,54 @@ comp[, FitWave(hgt.z, 3), by = .(sign, lag, lat)] %>%
    facet_wrap(~sign)
 ```
 
+```{r}
+time.range <- range_overlap(olr$time, gh$time)
+
+gh <- gh[time %between% time.range] %>% 
+   .[olr[time %between% time.range, .(time, olr)], on = "time"]
+```
+
+```{r}
+stream <- ReadNetCDF(here("DATA/stream.daily.1975-1985.nc"), 
+                     subset = list(lat = c(-90, 20)))
+
+time.range <- range_overlap(stream$time, olr$time)
+
+stream <- stream[time %between% time.range] %>% 
+   .[olr[time %between% time.range, .(time, olr)], on = "time"]
+stream[, psi.z := Anomaly(psi), by = .(time, lat)]
+```
+
+
+```{r}
+cors <- stream[, shiftcor(olr, psi.z, seq(-10, 50, by = 3)), by = .(lon, lat)] 
+
+```
+
+
+```{r}
+regr <- stream[, 
+               shiftregr(olr, psi.z, seq(0, 30, by = 3)), by = .(lon, lat)] 
+```
+
+```{r}
+regr[, psi.z := regr]
+regr[, c("f.x", "f.y") := WaveFlux(.SD), by = .(lag)]
+
+```
+
+```{r}
+anim <- ggplot(regr, aes(lon, lat)) +
+   geom_raster(aes(fill = regr)) +
+   geom_streamline(aes(dx = f.x, dy = f.y), skip = 4, L = 10) +
+   annotate("rect", xmin = lons[1], xmax = lons[2], ymin = -5, ymax = 5, 
+            fill = NA, color = "black") +
+   scale_fill_divergent() +
+   # facet_wrap(~lag) +
+   transition_time(lag) +
+   labs(subtitle = "{frame_time}") +
+   NULL
+animate(anim, 30)
+```
+
+Hacer todo esto con función corriente. 

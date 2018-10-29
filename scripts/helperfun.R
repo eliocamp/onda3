@@ -513,7 +513,15 @@ shift2 <- function(x, n = 1L, fill = NA, give.names = FALSE) {
 }
 
 shiftcor <- function(x, y, lags) {
-   vapply(lags, function(i) cor(x, shift2(y, i), use = "complete.obs"), 1)
+   cors <- vapply(lags, function(i) cor(x, shift2(y, i), use = "complete.obs"), 1)
+   return(list(cor = cors, lag = lags))
+}
+
+shiftregr <- function(x, y, lags, ...) {
+   regr <- vapply(lags, function(i) {
+      FitLm(x, y = shift2(y, i), ...)$estimate[[2]]
+   }, 1)
+   return(list(regr = regr, lag = lags))
 }
 
 BuildEOF <- function(formula, value.var = NULL, data = NULL, n = 1, 
@@ -1530,6 +1538,10 @@ addkey <- function(x, ..., verbose=getOption("datatable.verbose"), physical = TR
 }
 
 
-herepath <- function(path) {
-   do.call(here::here, as.list(strsplit(path, "/")[[1]]))
+range_overlap <- function(x, y) {
+   rx <- range(x)
+   ry <- range(y)
+   
+   c(max(c(rx[1], ry[1])), min(c(rx[2], ry[2])))
 }
+
