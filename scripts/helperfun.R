@@ -1528,3 +1528,8 @@ addkey <- function(x, ..., verbose=getOption("datatable.verbose"), physical = TR
    
    setkeyv(x, c(prev_keys, cols), verbose = verbose, physical = physical)
 }
+
+
+herepath <- function(path) {
+   do.call(here::here, as.list(strsplit(path, "/")[[1]]))
+}

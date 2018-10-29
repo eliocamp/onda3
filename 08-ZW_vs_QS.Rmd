@@ -1,0 +1,157 @@
+---
+title: "Ondas zonales vs. ondas cuasiestacionarias"
+author: "Elio"
+date: "July 20, 2018"
+output: 
+   pdf_document
+urlcolor: blue
+bibliography: "99 - biblio.bib"
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE, message = FALSE,
+                      out.extra = "", 
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/"))
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(metR)
+library(magrittr)
+library(circular)
+library(RcppRoll)
+library(patchwork)
+library(lubridate)
+
+here <- here::here
+source("scripts/helperfun.R")
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+```
+
+```{r}
+ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), c(gh = "hgt") ,
+                   subset = list(lat = -60, 
+                              time = as_datetime(c("1950-01-01", "1998-12-01"))))
+setnames(ncep, "level", "lev")
+
+ncep %>% 
+   .[lat == -60, .(gh = mean(gh)), by = .(lon, lev, month(time))] %>% 
+   .[, FitWave(gh, 1:3), keyby = .(lev, month)] %>% 
+   addkey(k) %>% 
+   .[, c("phase", "r2") := NULL] -> qs
+setnames(qs, "amplitude", "QS")
+
+qs <- ncep %>%
+   .[lat == -60, FitWave(gh, 1:3), by = .(lev, time)] %>% 
+   .[, .(ZW = mean(amplitude)), keyby = .(k, lev, month(time))] %>% 
+   .[qs, on = key(qs)] 
+
+qs <- melt(qs, id.vars = key(qs), measure.vars = c("ZW", "QS"))
+
+plot_crossection <- function(k, binwidth) {
+   ks <- k
+   ggplot(qs[k == ks], aes(month, lev)) +
+      geom_contour2(aes(z = value), binwidth = binwidth) +
+      geom_text_contour(aes(z = value), binwidth = binwidth, rotate = F, skip = 0) +
+      scale_y_level() +
+      scale_x_continuous(breaks = 1:12, labels = month.abb) +
+      facet_grid(k ~ variable)
+}
+
+binwidths <- c(50, 10, 5)
+```
+
+Para más claridad, voy a definir dos conceptos similares pero que hacen referencias a cosas ditinas.
+
+Onda zonal (ZW)   
+: son las ondas planetarias que se pueden observar en los campos individuales
+
+Onda cuasietacionaria (QS)   
+: son las ondas planetarias que surgen en el campo promedio. 
+
+Es una distinción de escala y depende mucho de a qué se llaman "campos individuales" (¿campos diarios, horarios, promedios mensuales?) y "campos promedio" (¿todo el período, promedio por meses, promedio móvil?). 
+
+@Rao2004 cometen el error de confundir ambos en su Figura 3 (reproducida en la columna izquierda de la Figura \ref{fig:rao}). Muestran la amplitud promedio de la onda zonal 1 a 3 y la identifican con la onda cuasiestacionaria cuando en realidad están mostrando la onda zonal promedio. La onda cuasiestacionaria, computada como la amplitud de las ondas 1 a 3 del *campo medio* se muestran en la columna derecha de la Figura \ref{fig:rao}. Se observa que a grandes razdos la estructura vertical y temporal no es muy distinta pero que hay grandes diferencias en la magnitud, especialmente para el número de onda zonal 2. Según este análisis, su concusión de que "en comparación con las QS1 y 2, la amplitud de la QS3 es mucho menor" resulta falsa para las QS pero cierta para las ZW.
+
+```{r rao, fig.cap = "Amplitud de la onda zonal (ZW) y onda quasiestacionaria (QS)"}
+plots <- lapply(1:3, function(x) plot_crossection(x, binwidths[x]))  
+Reduce("+", plots) + plot_layout(ncol = 1)
+
+```
+
+De forma similar, su comparación con los resultados de @Hurrell1998 (reproducidos en la Figura \ref{fig:hurrell}) son falaces, ya que éstos últimos realizan el cálculo de la QS usando la amplitud de la onda media (columna derecha) en vez de la amplitud media de cada onda (columna izquierda). 
+
+```{r hurrell, fig.cap = "Amplitud de la onda zonal (ZW) y onda quasiestacionaria (QS)"}
+ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), c(gh = "hgt") ,
+                   subset = list(level = 300, 
+                              time = as_datetime(c("1979-01-01", "1993-12-01"))))
+setnames(ncep, "level", "lev")
+
+ncep %>% 
+   .[, .(gh = mean(gh)), by = .(lon, lat, month(time))] %>% 
+   .[, FitWave(gh, 1:3), keyby = .(lat, month)] %>% 
+   addkey(k) %>% 
+   .[, c("phase", "r2") := NULL] -> qs
+setnames(qs, "amplitude", "QS")
+
+qs <- ncep %>%
+   .[, FitWave(gh, 1:3), by = .(lat, time)] %>% 
+   .[, .(ZW = mean(amplitude)), keyby = .(k, lat, month(time))] %>% 
+   .[qs, on = key(qs)] 
+
+qs <- melt(qs, id.vars = key(qs), measure.vars = c("ZW", "QS"))
+
+ggplot(qs, aes(month, lat)) +
+   geom_contour_fill(aes(z = value), breaks = 60) +
+   geom_contour2(aes(z = value), binwidth = 20) +
+   geom_text_contour(aes(z = value), binwidth = 20, rotate = FALSE) +
+   scale_y_latitude(limits = pm(90)) +
+   scale_x_continuous(breaks = 1:12, labels = month.abb, expand = c(0, 0)) +
+   facet_grid(k ~ variable)
+```
+
+No es que una forma sea más correcta que la otra sino que dan información sobre distintas propiedades de la atmósfera. 

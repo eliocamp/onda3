@@ -184,6 +184,14 @@ ncep.qs <- ncep[lat != -90, FitWave(gh, 1:3), by = .(lat, lev, time)] %>%
 
 # Introduction
 
+Planetary waves with wave numbers 1 and 3 (QS1 and QS3) are the main zonal asymmetries of the mean circulation of the southern hemisphere (SH) [@Loon1972; @Trenberth1980a]. These zonal waves tend to be quasi-stationary but exhibit significant temporal variability in amplitude and phase [@Loon1972]. In particular, it has been documented that QS3 have an equivalent barotropic structure with  variability in daily, weekly [@Kidson1988], seasonal [@Mo1985] and longer scales [@Karoly1989]. @Mo1985 showed that there exist preferential locations for QS3 action centers. However, due to the age of many of these works, their climatologies have inherent limitations from the small amount of data available in the SH prior to the satellite era.
+
+@Trenberth1985 noted a recurrence in the occurrence of simultaneous blocking anticyclones in different regions of the SH (southern South America, southern New Zealand and central Indian Ocean) favored by the establishment of a QS3 pattern, although they left open the possibility that this is a localized wave train rather than a true zonal wave. @Renwick2005, using clustering techiques, suggestedd that wave 3 blocking was indeed a common occurrence, but noted that this conclusion was sensitive to some data processing decisions. From that time until now, different studies have focused on understanding the influence of blocking on South American climate and their relationship to QS3 [e.g. @Rao2004] or their effect on sea ice [e.g. @Raphael2007] but very little attention has been paid to the study of the causes that lead to the establishment of this pattern in the first place. @Quintanar1995 conducted sensitivity experiments trying to identify the important factors in the maintenance of QS1. They found that the thermal-orographic conditions over Antarctica were not sufficient to explain the QS1 of subpolar latitudes, so they concluded that remote forcers should play an important role. @Wang2013 found that the destruction and recovery of the ozone layer is associated with an increase and decrease in planetary wave activity respectively, but their analysis does not distinguish in the activity of different wave numbers. On the other hand, @Hobbs2010 questioned the usefulness of analyzing SH circulation in zonally symmetric planetary waves and proposed that geopotential zonal anomalies are best characterized by a pair of anticyclones in southern New Zealand and southern South America. 
+
+@Cai1999 evaluated the ability of the CSIRO model to represent QS3 and found that it provided an adequate representation. @Raphael1998 examined QS3 in the NCAR CCM model (versions 1 and 3) and found differences in how each version simulated it, the results being sensitive to the degree of model representation of both sea-atmosphere interaction and sea-ice conditions in polar areas. This is an important result because although QS3 can arrise by the internal dynamics of the atmosphere [e.g. @Simpson2013], there is evidence that surface conditions can influence its activity. Also, @Raphael2003 found important interannual variations experienced by QS3 between 1958 and 1996, apparently related to variations in ENSO frequency, which also influenced SAM asymmetries [@Fogt2012].
+
+
+
 ## Description and literature
 
 
@@ -583,9 +591,14 @@ Figure \ref{fig:regressions} shows regressions between scaled ZW3 index and SST,
 
 Patterns of SST variation are similarly mixed. There's a strong signal in the equatorial pacific, but it is not consistent, varying between positive (February, May and September) and negative (January, March, November and December). This variability is masked when performing regressions or compositions for all months together (not shown) and can probably explain the small signal mentioned in @Renwick2005. 
 
-Moreover, the aforementioned problems of usind ZW3 amplitude as a measure of QS3 activity puts into question the fundamental validity of the regression analysis using this variable. 
+The aforementioned problems of usind ZW3 amplitude as a measure of QS3 activity puts into question the fundamental validity of the regression analysis using this variable. 
 
 
 # Discussion
 
-ZW amplitude is not a good measure for characterising QS behaviour for several reasons. By ignoring the phase component, it captures waves with one common wavenumber that nevertheless are very different and are exited by different procesess. This problem is exacerbated for periods or months that exibit low levels of steadiness. 
+ZW amplitude is not a good measure for characterising QS behaviour for several reasons. By ignoring the phase component, it captures waves with one common wavenumber that nevertheless are very different and are exited by different procesess. This problem is exacerbated for periods or months that exibit low levels of steadiness. Moreover, fourier decomposition imposes a sinusoidal form and restriscts the analisys to waves at constant latitude. However, actual waves in the atmosphere can have meridional displacements and different amplitudes within the same latitude circle (Figure??). 
+
+Some alternatives seem promising. 
+
+Applying wavelets in the spatial domain relaxes the sinusoidal form restriction in fourier and allows amplitude to vary with longitude (Figure?). With this information, it becomes possible to distinguish between trully planteary-scale waves and more localized wave paquets. In the atmospherics sciences, wavelets are used extensively in timeseries analisys [ej. @Raphael2004; @Kinnard2011] and image processing [ej. @Desrochers1999], but it's not often used in the spatial domain [ej. @Pinault2016]. It is used in the ecological literautre [ej, @Mi2005].
+
