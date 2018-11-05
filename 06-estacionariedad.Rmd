@@ -403,8 +403,15 @@ La Figura \ref{fig:ts} muestra la serie temporal de estacionariedad con una vent
 Una forma alternativa --aunque conceptualmente equivalente-- de obtener una serie temporal, es la de calcular la medida de distancia para cada mes y luego ajustar un modelo LOWESS usando la amplitud como los pesos. El resultado de este método (Figuras \ref{fig:cor-smooth} y \ref{fig:cor-smooth-corte}) tiene menor varianza en la alta frecuencia pero captura las variaciones temporales de más baja frecuencia correctamente. 
 
 ```{r calc-amoma-loess}
-qs[, phi.s := mean.phase(amplitude, phase, 3), by = .(lev, lat)]
-qs[, rho := cos(3*(phase - phi.s))]
+window <- 5
+qs[, c("R", "I") := .(amplitude*cos(3*phase), amplitude*sin(3*phase))]
+qs[, R.s := smooth.loess(R ~ as.numeric(time), span = 365*window/.N), 
+   by = .(lev, lat)]
+qs[, I.s := smooth.loess(I ~ as.numeric(time), span = 365*window/.N),
+   by = .(lev, lat)]
+
+# qs[, phi.s := mean.phase(amplitude, phase, 3), by = .(lev, lat)]
+qs[, rho := cos(3*phase - phi.s)]
 
 qs <- qs[!is.na(rho) & lat != -90,
          c("amoma", "ci") := 

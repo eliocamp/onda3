@@ -95,7 +95,7 @@ olr <- ReadNetCDF(here("DATA/olr.daily.sub.nc"), "olr",
                   subset = list(lat = pm(5))) 
 lons <- range(olr$lon)
 lats <- range(olr$lat)
-olr <- olr[, .(olr = mean(olr)), by = time]
+olr <- olr[, .(olr = mean(olr, na.rm = TRUE)), by = time]
 ```
 
 ```{r}
@@ -195,34 +195,52 @@ stream[, psi.z := Anomaly(psi), by = .(time, lat)]
 
 
 ```{r}
-cors <- stream[, shiftcor(olr, psi.z, seq(-10, 50, by = 3)), by = .(lon, lat)] 
-
+lags <- -30:30
+pos <- onset[sign == 1, time]
+neg <- onset[sign == -1, time]
+mgh <- list()
+for (l in seq_along(lags)) {
+   times <- pos
+   day(times) <- day(times) + lags[l]
+   mgh[[2*l]] <- stream[time %in% times,
+                      .(psi.z = mean(psi.z, na.rm = TRUE),
+                        psi = mean(psi, na.rm = TRUE), 
+                        lag = lags[l], sign = 1),
+                      by = .(lon, lat)]
+   
+   times <- neg
+   day(times) <- day(times) + lags[l]
+   mgh[[2*l - 1]] <- stream[time %in% times,
+                      .(psi.z = mean(psi.z, na.rm = TRUE),
+                        psi = mean(psi, na.rm = TRUE), 
+                        lag = lags[l], sign = -1),
+                      by = .(lon, lat)]
+}
+comp <- rbindlist(mgh)
+remove(mgh)
 ```
 
 
 ```{r}
-regr <- stream[, 
-               shiftregr(olr, psi.z, seq(0, 30, by = 3)), by = .(lon, lat)] 
-```
+lats <- c(-65, -50)
+hov.z <- comp[lat %between% lats] %>% 
+   .[, .(psi.z = mean(psi.z)), by = .(lon, lag, sign)]
 
-```{r}
-regr[, psi.z := regr]
-regr[, c("f.x", "f.y") := WaveFlux(.SD), by = .(lag)]
-
-```
-
-```{r}
-anim <- ggplot(regr, aes(lon, lat)) +
-   geom_raster(aes(fill = regr)) +
-   geom_streamline(aes(dx = f.x, dy = f.y), skip = 4, L = 10) +
-   annotate("rect", xmin = lons[1], xmax = lons[2], ymin = -5, ymax = 5, 
-            fill = NA, color = "black") +
+stream[lat %between% lats, .(psi.z.m = mean(psi.z)), by = .(lon)] %>% 
+   .[hov.z, on = "lon"] %>% 
+   ggplot(aes(lon, lag)) + 
+   geom_contour_fill(aes(z = psi.z - psi.z.m), breaks = AnchorBreaks(0, 15, 0)) +
    scale_fill_divergent() +
-   # facet_wrap(~lag) +
-   transition_time(lag) +
-   labs(subtitle = "{frame_time}") +
-   NULL
-animate(anim, 30)
+   annotate("segment", y = 0, yend = 0, x = lons[1], xend = lons[2], size = 2) +
+   facet_wrap(~sign)
 ```
 
-Hacer todo esto con función corriente. 
+```{r}
+hov.z %>% 
+   ggplot(aes(lon, lag)) + 
+   geom_contour_fill(aes(z = psi.z - psi.z.m), breaks = AnchorBreaks(0, 15, 0)) +
+   scale_fill_divergent() +
+   annotate("segment", y = 0, yend = 0, x = lons[1], xend = lons[2], size = 2) +
+   facet_wrap(~sign)
+```
+

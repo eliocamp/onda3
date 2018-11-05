@@ -1395,7 +1395,7 @@ as.data.table.analyze.wavelet <- function(object) {
    }
    df[, phase := c(object$Phase)]
    df[, power := c(object$Power)]
-   df[, p.value := c(object$Power.pval)]
+   if (!is.null(object$Power.pval)) df[, p.value := c(object$Power.pval)]
    df <- df[, ridge := c(object$Ridge)]
    
    coi <- get_coi(object)
@@ -1545,3 +1545,26 @@ range_overlap <- function(x, y) {
    c(max(c(rx[1], ry[1])), min(c(rx[2], ry[2])))
 }
 
+nsign <- function(x, ref = 0) {
+   factor(-sign(x - ref))
+}
+
+
+
+smooth.loess <- function(formula, span = 0.75, degree = 1, ...) {
+   predict(loess(formula, span = span, degree = degree, ...))
+}
+
+                           
+.daymonth <- function(x) {
+   paste0(formatC(month(x), width = 2, flag = "0"), "-", 
+          formatC(day(x), width = 2, flag = "0"))
+}
+.daymonth.levels <- .daymonth(seq.Date(as.Date("2000-01-01"), 
+                                       as.Date("2000-12-31"), by = "1 day"))
+
+daymonth <- function(x) {
+   factor(paste0(formatC(month(x), width = 2, flag = "0"), "-", 
+          formatC(day(x), width = 2, flag = "0")),
+          levels = .daymonth.levels)
+}
