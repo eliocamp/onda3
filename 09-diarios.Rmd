@@ -39,6 +39,8 @@ library(RcppRoll)
 library(patchwork)
 library(lubridate)
 library(here)
+library(ggperiodic)
+
 here <- here::here
 source("scripts/helperfun.R")
 
@@ -78,17 +80,7 @@ hgt.m <- ReadNetCDF("~/DATOS/NCEP Reanalysis/hgt.mon.mean.nc", "hgt",
                     subset = list(lat = -55, level = 200))
 ```
 
-Dado que al fin conseguí bajar y juntar los datos diarios de geopotential de NCEP, veamos qué pasa. Obviamente leer todos los datos es una bestialidad, así que me concentro en 200hPa y 55°S.
-
-```{r}
-(hgt[, FitWave(hgt, 3), by = time] %>% 
-   ggplot(aes(time, amplitude)) +
-   geom_line() +
-    scale_x_datetime(expand = c(0, 0))) %>% 
-   ggwrap::ggwrap(3)
-```
-
-Obviamente no se ve nada. Esta es la amplitud de la ZW3 del geopotencial con un suavizado de 31 días comparado con la ZW3 de los campos mensuales (en rojo)
+Dado que al fin conseguí bajar y juntar los datos diarios de geopotential de NCEP, veamos qué pasa. Obviamente leer todos los datos es una bestialidad, así que me concentro en 200hPa y 55°S. Esta es la amplitud de la ZW3 del geopotencial con un suavizado de 31 días comparado con la ZW3 de los campos mensuales (en rojo)
 
 ```{r}
 hgt[, hgt.s := RcppRoll::roll_mean(hgt, 31, fill = NA), by = lon]
@@ -103,7 +95,9 @@ hgt[!is.na(hgt.s), FitWave(hgt.s, 3), by = time] %>%
    ggwrap::ggwrap(3)
 ```
 
-Es básicamente lo mismo, jeje. Pero se puede hacer un ciclo anual muy detallado haciendo la QS3 de cada día del año
+Es básicamente lo mismo, jeje. 
+
+Pero se puede hacer un ciclo anual muy detallado haciendo la QS3 de cada día del año
 
 ```{r}
 qs <- hgt[!is.na(hgt.s), FitWave(hgt.s, 3), by = .(time)]
@@ -112,25 +106,21 @@ hgt[!is.na(hgt.s),
     mean(hgt.s), by = .(lon, daymonth(time))] %>%
    .[, FitWave(V1, 3), by = daymonth] -> qs.m
 
-melt(qs.m[, .(daymonth, amplitude, phase)], id.vars = c("daymonth")) %>%
-   ggplot(aes(daymonth, value)) +
-    geom_line(aes(x = as.numeric(daymonth))) +
-   facet_wrap(~variable, scales = "free", ncol = 1)
-```
-
-No hay grandes novedades sobre la amplitud, aunque se ve un poco mejor el gran minimo en noviembre y que el resto del año es más constante. En el caso de la fase, se nota mejor cómo es la forma del ciclo anual. Se desplaza lentamente entre verano e invierno y luego aumenta rápidamente pero no llega a la misma posición. En comparación, la visión desde los datos mensuales es bastante más rústica. 
-
-```{r}
 hgt.m[, mean(hgt), by = .(lon, month(time))] %>% 
    .[, FitWave(V1, 3), by = month] %>% 
    .[, .(month, amplitude, phase)] %>% 
-   melt(id.vars = c("month")) %>% 
-      ggplot(aes(month, value)) +
-    geom_line() +
+   melt(id.vars = c("month")) -> qs.m.m
+
+melt(qs.m[, .(daymonth, amplitude, phase)], id.vars = c("daymonth")) %>%
+   ggplot(aes(daymonth, value)) +
+    geom_line(aes(x = as.numeric(daymonth))) +
+   geom_line(data = qs.m.m, color = "red",
+             aes(x = as.numeric(daymonth(paste0("2018-", month, "-15"))))) +
+   scale_x_continuous(limits = c(1, 366)) +
    facet_wrap(~variable, scales = "free", ncol = 1)
-   
 ```
 
+No hay grandes novedades sobre la amplitud. En el caso de la fase, se nota mejor cómo es la forma del ciclo anual. Se desplaza lentamente entre verano e invierno y luego aumenta rápidamente pero no llega a la misma posición. En comparación, la visión desde los datos mensuales es bastante más rústica. 
 
 En cuanto la estacionariedad. Los datos diarios se comportan igual que los mensuales (en rojo).
 
@@ -172,28 +162,52 @@ ggplot(qs, aes(time, amoma)) +
 ```
 
 
-
-```{r}
-periodic(qs, phi.s = c(-pi, pi)) %>% 
-   wrap(phi.s = c(0, 2*pi)) %>% 
-ggplot( aes(time, phi.s)) +
-   geom_line() +
-   geom_line(aes(y = amoma*2*pi), color = "red") +
-   scale_y_continuous(limits = c(0, 2*pi), sec.axis = ~./2/pi) +
-   scale_x_datetime(date_breaks = "5 years", date_labels = "%Y", 
-                    date_minor_breaks = "1 year")
+```{r, cache = FALSE}
+remove(hgt)
+lats.eof <- c(-80, -30)
+hgt <- ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.daily.nc"), "hgt", 
+                       subset = list(level = 200, 
+                                     lat = lats.eof))
 ```
 
-Está más que claro que algo pasó en ~1953 (el cambio es en ese año precisamente). Ese salto enorme en la fase, que además está acompañado por una disminución de la estacionariedad no parece normal y podría estar relacionado con alguna inhomogeneidad. 
-
-```{r}
-amoma.m[] %>%
-   qwrap(phi.s = c(-pi, pi) ~ c(0, 2*pi)) %>% 
-   # .[year(time) > 1960] %>% 
-   .[, date := time] %>% 
-   .[, Wavelets(.SD, "phi.s" , loess.span = 0)] -> wv
-
-autoplot(wv, geom = "tanaka")
+```{r, cache = FALSE}
+hgt <- hgt[, level := NULL]
+hgt[, hgt.s := RcppRoll::roll_mean(hgt, 31, fill = NA), by = .(lat, lon)]
 ```
 
+
+```{r}
+hgt[is.finite(hgt.s)] %>% 
+   .[, hgt.z := Anomaly(hgt.s)*sqrt(cos(lat*pi/180)), by = .(time, lat)] %>% 
+   .[, hgt.z := FilterWave(hgt.z , -1), by = .(time, lat)] %>% 
+   EOF(hgt.z ~ lon + lat | time, 1:4, data = .) -> eof
+```
+
+```{r}
+lats.eof <- c(-80, -30)
+hgt.m <- ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.mon.mean.nc"), "hgt", 
+                       subset = list(level = 200, 
+                                     lat = lats.eof))
+hgt.m[, level := NULL]
+hgt.m[, hgt.s := hgt, by = .(lat, lon)]
+
+hgt.m[is.finite(hgt.s)] %>% 
+   .[, hgt.z := Anomaly(hgt.s)*sqrt(cos(lat*pi/180)), by = .(time, lat)] %>% 
+   .[, hgt.z := FilterWave(hgt.z , -1), by = .(time, lat)] %>% 
+   EOF(hgt.z ~ lon + lat | time, 1:4, data = .) -> eof.m
+```
+
+El EOF es idéndico para los datos diarios (en sombreado) y los datos mensuales (contornos).
+
+```{r}
+ggplot(cut(eof, 1:4)$left, aes(lon, lat)) + 
+   geom_contour_fill(aes(z = hgt.z), breaks = AnchorBreaks(0, 0.01, 0)) +
+   geom_contour2(data = eof.m$left, breaks = AnchorBreaks(0, 0.01, 0),
+                 aes(z = hgt.z, linetype = nsign(..level..))) +
+   scale_fill_divergent() +
+   facet_wrap(~PC)
+```
+
+
+¿Conclusión? Usar datos diarios con una media movil de 31 días probablemente sólo ayude marginalmente y no valga la pena en cuanto a ver los movimientos a largo plazo. Quizás sí sirva para cosas a más corto plazo o procesos más rápidos, obviamente (con un suavizado menor, además). 
 

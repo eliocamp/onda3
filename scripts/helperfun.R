@@ -1513,7 +1513,8 @@ scale_range <- function(scale, limits = NULL, expand = TRUE) {
 assignInNamespace("scale_range", scale_range, ns = "ggplot2")
 
 
-Wavelets <- function(...) {
+Wavelets <- function(..., seed = 42) {
+   set.seed(seed)
    invisible(capture.output(w <- invisible(WaveletComp::analyze.wavelet(..., verbose = FALSE))))
    return(w)
 }
@@ -1567,4 +1568,36 @@ daymonth <- function(x) {
    factor(paste0(formatC(month(x), width = 2, flag = "0"), "-", 
           formatC(day(x), width = 2, flag = "0")),
           levels = .daymonth.levels)
+}
+
+
+
+.signal.random <- function() {
+   x <- rnorm(12*(2018-1948 +1))
+   r.s <- RcppRoll::roll_mean(x, 12*10, fill = NA)
+   r.s[!is.na(r.s)]
+}
+
+wavelet.boot <- function(null.fun, probs = 0.95, B = 10, seed = 42) {
+   set.seed(seed)
+   null <- match.fun(null.fun)
+   
+   list <- lapply(seq_len(B), function(b) {
+      x <- null()
+      dt <- c(WaveletComp::WaveletTransform(x)$Ampl)
+   })
+   
+   data.table::transpose(lapply(data.table::transpose(list), quantile, probs = probs, names = FALSE))
+}
+
+WaveEnvelope <- function(y, k = "all") {
+   N <- length(y)
+   x_hat <- fft(y)/N
+   
+   if (k[1] == "all") {
+      k <- 1:ceiling(l/2)
+   }
+   
+   x_hat[-k] <- 0
+   Mod(fft(x_hat, inverse = T))*2
 }
