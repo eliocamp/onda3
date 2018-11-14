@@ -184,29 +184,12 @@ knitr::opts_hooks$set(fig.cap = function(options) {
 
 ```{r read-ncep}
 subset.time <- lubridate::as_datetime(c("1979-12-01", "2017-12-01"))
-ncep.f <- memoise::memoise(function(lat = -90:40, 
-                                    lon = 0:360,
-                                    time = lubridate::as_datetime(c("1979-12-01",
-                                                                    "2017-12-01")),
-                                    level = 10:1000,
-                                    vars = "gh"){
-   subset <- list(lat = lat, lon = lon, level = level,
-                  time = time)
-   n <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", vars = c(gh = "hgt"),
+subset <- list(lat = -90:40, 
+               time = subset.time)
+
+ncep <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", vars = c(gh = "hgt"),
                    subset = subset) %>% 
       setnames(., c("level"), c("lev"))
-   if ("u" %in% vars) {
-      n[, u := ReadNetCDF("DATA/NCEP Reanalysis/uwnd.mon.mean.nc", out = "vector",
-                          subset = subset)[[1]]] 
-   }
-   if ("v" %in% vars) {
-      n[, v := ReadNetCDF("DATA/NCEP Reanalysis/vwnd.mon.mean.nc", out = "vector",
-                          subset = subset)[[1]]]
-   }
-   n[, time := as.Date(time[1]), by = time]
-   return(n)
-}, cache = memoise::cache_filesystem(".rcache"))
-ncep <- ncep.f()
 ```
 
 
