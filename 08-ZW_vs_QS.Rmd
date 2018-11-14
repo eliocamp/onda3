@@ -155,3 +155,8 @@ ggplot(qs, aes(month, lat)) +
 ```
 
 No es que una forma sea más correcta que la otra sino que dan información sobre distintas propiedades de la atmósfera. 
+
+
+Papers con ese problema:
+* @Rao2004
+* @Turner2017
