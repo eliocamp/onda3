@@ -24,20 +24,20 @@ library(WaveletComp)
 library(circular)
 library(hrbrthemes)
 library(extrafont)
-
+here <- here::here
 source("scripts/helperfun.R")
 # Plot thingys
 
-data.world <- rnaturalearth::ne_coastline(returnclass = "sf")
-proj <- sp::CRS("+proj=longlat +datum=WGS84 +lon_wrap=180")
-sf::st_crs(data.world) <- "+proj=longlat +datum=WGS84 +lon_wrap=180"
-data.world <- fortify(sf::as_Spatial(data.world))
+# data.world <- rnaturalearth::ne_coastline(returnclass = "sf")
+# proj <- sp::CRS("+proj=longlat +datum=WGS84 +lon_wrap=180")
+# sf::st_crs(data.world) <- "+proj=longlat +datum=WGS84 +lon_wrap=180"
+# data.world <- fortify(sf::as_Spatial(data.world))
 # data.world <- sf::sf_projectm(data.world, proj)
 # data.world <- fortify(data.world)
 
-# # data.world <- BuildMap(res = 1, smooth = 1)
+data.world <- BuildMap(res = 1, smooth = 1)
 map.world <- geom_map2(data.world)
-# map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
 
 # options(OutDec = ",")
 
@@ -96,65 +96,25 @@ lev.breaks <- c(10, 30, 100, 200, 500, 1000)
 ```
 
 ```{r read-ncep}
-ncep.f <- memoise::memoise(function(lat = -90:40, 
-                                    lon = 0:360,
-                                    time = lubridate::as_datetime(c("1979-12-01", "2015-12-01")),
-                                    level = 10:1000,
-                                    vars = "gh"){
-   subset <- list(lat = lat, lon = lon, level = level,
-                  time = time)
-   n <- ReadNetCDF("DATA/hgt.mon.mean.nc", vars = c(gh = "hgt"),
-                   subset = subset) %>% 
-      setnames(., c("level", "time"), c("lev", "date"))
-   if ("u" %in% vars) {
-      n[, u := ReadNetCDF("DATA/uwnd.mon.mean.nc", out = "vector",
-                          subset = subset)[[1]]] 
-   }
-   if ("v" %in% vars) {
-      n[, v := ReadNetCDF("DATA/vwnd.mon.mean.nc", out = "vector",
-                          subset = subset)[[1]]]
-   }
-   n[, date := as.Date(date[1]), by = date]
-   return(n)
-}, cache = memoise::cache_filesystem(".rcache"))
-# ncep <- ncep.f()
-```
-
-```{r}
-ggplot(ncep.f(level = 200)[date == date[1]]) +
-   geom_contour(aes(lon, lat, z = gh)) +
-   geom_sf(data = data.world)
+ncep <- ReadNetCDF(here("DATA/hgt.mon.mean.nc"), c(gh = "hgt"),
+                   subset = list(lat = -90:40, 
+                                 level = 200,
+                                 time = c("1979-12-01", "2015-12-03"))) %>% 
+   setnames("level", "lev")
 ```
 
 
 ```{r}
-ncep <- ncep.f(level = 200)
-
-wv <- ncep[lat %between% c(-65, -45), PeriodicWavelet(gh, 3), by = .(lat, date)]
-wv[, sd := sd(k.3), by = .(lat, date)]
+wv <- ncep %>% 
+   .[, .(gh = mean(gh)), by = .(lon, lat)] %>% 
+   .[, gh.z := Anomaly(gh), by = lat] %>% 
+   .[, gh.z_1 := FilterWave(gh.z, -1), by = lat] %>% 
+   .[, amplitude := PeriodicWavelet(gh, 3), by = .(lat)]
 ```
 
 ```{r}
-wv[, lapply(.SD, mean, na.rm = TRUE), by = date] %>% 
-   .[, `:=`(mm = median(k.3), 
-            ms = median(sd)), by = month(date)] %>% 
-   .[, .(ampl = k.3 > mm, 
-         homo = sd < ms,
-         date = date)] -> select
-
-ncep <- ncep.f(level = 200)
-ncep[select, on = "date"] -> ncep
-
-ncep[lat < 0, .(gh = mean(gh)), keyby = .(lon, lat, type = interaction(ampl, homo))] %>% 
-   .[, gh.z := FilterWave(gh, 0:1), by = .(lat, type)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = gh.z), circular = "x") +
-   geom_contour2(aes(z = gh.z), circular = "x") +
-   
-   scale_fill_divergent() +
-   scale_s_map(ylim = c(-90, 0)) +
-   coord_polar() +
-   facet_wrap(~type)
+ggplot(wv, aes(lon, lat)) +
+   geom_contour_fill(aes(z = amplitude)) +
+   geom_contour2(aes(z = gh.z_1))
 ```
-
 

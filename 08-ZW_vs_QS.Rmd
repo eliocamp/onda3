@@ -75,7 +75,7 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 ```{r}
 ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), c(gh = "hgt") ,
                    subset = list(lat = -60, 
-                              time = as_datetime(c("1950-01-01", "1998-12-01"))))
+                              time = c("1950-01-01", "1998-12-01")))
 setnames(ncep, "level", "lev")
 
 ncep %>% 
@@ -128,7 +128,7 @@ De forma similar, su comparación con los resultados de @Hurrell1998 (reproducid
 ```{r hurrell, fig.cap = "Amplitud de la onda zonal (ZW) y onda quasiestacionaria (QS)"}
 ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), c(gh = "hgt") ,
                    subset = list(level = 300, 
-                              time = as_datetime(c("1979-01-01", "1993-12-01"))))
+                              time = c("1979-01-01", "1993-12-01")))
 setnames(ncep, "level", "lev")
 
 ncep %>% 
@@ -158,5 +158,9 @@ No es que una forma sea más correcta que la otra sino que dan información sobr
 
 
 Papers con ese problema:
+
 * @Rao2004
+
 * @Turner2017
+
+* @Irving2015

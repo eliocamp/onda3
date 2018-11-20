@@ -142,30 +142,11 @@ knitr::knit_hooks$set(
 ```
 
 ```{r read-ncep}
-subset.time <- lubridate::as_datetime(c("1979-12-01", "2017-12-01"))
-ncep.f <- memoise::memoise(function(lat = -90:40, 
-                                    lon = 0:360,
-                                    time = lubridate::as_datetime(c("1979-12-01",
-                                                                    "2017-12-01")),
-                                    level = 10:1000,
-                                    vars = "gh"){
-   subset <- list(lat = lat, lon = lon, level = level,
-                  time = time)
-   n <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), vars = c(gh = "hgt"),
-                   subset = subset) %>% 
-      setnames(., c("level"), c("lev"))
-   if ("u" %in% vars) {
-      n[, u := ReadNetCDF(here("DATA", "NCEP Reanalysis", "uwnd.mon.mean.nc"), out = "vector",
-                          subset = subset)[[1]]] 
-   }
-   if ("v" %in% vars) {
-      n[, v := ReadNetCDF(here("DATA", "NCEP Reanalysis", "vwnd.mon.mean.nc"), out = "vector",
-                          subset = subset)[[1]]]
-   }
-   n[, time := as.Date(time[1]), by = time]
-   return(n)
-}, cache = memoise::cache_filesystem(".rcache"))
-ncep <- ncep.f()
+subset.time <- c("1979-12-01", "2017-12-01")
+ncep <- ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.mon.mean.nc"), c(gh = "hgt"),
+                   subset = list(time = subset.time,
+                                 lat = -90:40)) %>% 
+   setnames("level", "lev")
 ```
 
 
@@ -186,7 +167,7 @@ ncep.qs <- ncep[lat != -90, FitWave(gh, 1:3), by = .(lat, lev, time)] %>%
 
 Planetary waves with wave numbers 1 and 3 (QS1 and QS3) are the main zonal asymmetries of the mean circulation of the southern hemisphere (SH) [@Loon1972; @Trenberth1980a]. These zonal waves tend to be quasi-stationary but exhibit significant temporal variability in amplitude and phase [@Loon1972]. In particular, it has been documented that QS3 have an equivalent barotropic structure with  variability in daily, weekly [@Kidson1988], seasonal [@Mo1985] and longer scales [@Karoly1989]. @Mo1985 showed that there exist preferential locations for QS3 action centers. However, due to the age of many of these works, their climatologies have inherent limitations from the small amount of data available in the SH prior to the satellite era.
 
-@Trenberth1985 noted a recurrence in the occurrence of simultaneous blocking anticyclones in different regions of the SH (southern South America, southern New Zealand and central Indian Ocean) favored by the establishment of a QS3 pattern, although they left open the possibility that this is a localized wave train rather than a true zonal wave. @Renwick2005, using clustering techiques, suggestedd that wave 3 blocking was indeed a common occurrence, but noted that this conclusion was sensitive to some data processing decisions. From that time until now, different studies have focused on understanding the influence of blocking on South American climate and their relationship to QS3 [e.g. @Rao2004] or their effect on sea ice [e.g. @Raphael2007] but very little attention has been paid to the study of the causes that lead to the establishment of this pattern in the first place. @Quintanar1995 conducted sensitivity experiments trying to identify the important factors in the maintenance of QS1. They found that the thermal-orographic conditions over Antarctica were not sufficient to explain the QS1 of subpolar latitudes, so they concluded that remote forcers should play an important role. @Wang2013 found that the destruction and recovery of the ozone layer is associated with an increase and decrease in planetary wave activity respectively, but their analysis does not distinguish in the activity of different wave numbers. On the other hand, @Hobbs2010 questioned the usefulness of analyzing SH circulation in zonally symmetric planetary waves and proposed that geopotential zonal anomalies are best characterized by a pair of anticyclones in southern New Zealand and southern South America. 
+@Trenberth1985 noted a recurrence in the occurrence of simultaneous blocking anticyclones in different regions of the SH (southern South America, southern New Zealand and central Indian Ocean) favored by the establishment of a QS3 pattern, although they left open the possibility that this is a localized wave train rather than a true zonal wave. @Renwick2005, using clustering techiques, suggestedd that wave 3 blocking was indeed a common occurrence, but noted that this conclusion was sensitive to some data processing decisions. From that time until now, different studies have focused on understanding the influence of blocking on South American climate and their relationship to QS3 [e.g. @Rao2004] or their effect on sea ice [e.g. @Raphael2007] but very little attention has been paid to the study of the causes that lead to the establishment of this pattern in the first place. @Quintanar1995 conducted sensitivity experiments trying to identify the important factors in the maintenance of QS1. They found that the thermal-orographic conditions over Antarctica were not sufficient to explain the QS1 of subpolar latitudes, so they concluded that remote forcers should play an important role. @Wang2013 found that the destruction and recovery of the ozone layer is associated with an increase and decrease in planetary wave activity respectively, but their analysis does not distinguish in the activity of different wave numbers. On the other hand, @Hobbs2010 questioned the usefulness of analyzing SH circulation in zonally symmetric planetary waves and proposed that geopotential zonal anomalies are best characterized by a pair of anticyclones in southern New Zealand and southern South America.
 
 @Cai1999 evaluated the ability of the CSIRO model to represent QS3 and found that it provided an adequate representation. @Raphael1998 examined QS3 in the NCAR CCM model (versions 1 and 3) and found differences in how each version simulated it, the results being sensitive to the degree of model representation of both sea-atmosphere interaction and sea-ice conditions in polar areas. This is an important result because although QS3 can arrise by the internal dynamics of the atmosphere [e.g. @Simpson2013], there is evidence that surface conditions can influence its activity. Also, @Raphael2003 found important interannual variations experienced by QS3 between 1958 and 1996, apparently related to variations in ENSO frequency, which also influenced SAM asymmetries [@Fogt2012].
 
@@ -205,6 +186,9 @@ XX Needs redaction:
 * QS for a set of fields can be defined as the ZW of the mean field. In that sense, measuring the "activity" of QS waves at a monthly scale is impossible. What *can* be measured is 
   * ZW activity (and asume that is a good proxy for QS activity)
   * monthly field similarity to the QS field --this leads to non-trivial questions about *how* to measure similarity. 
+
+
+This is probably what lead to the differences between the planetary wave index proposed by @Irving2015 and the zonal wave 3 index from @Raphael2004. The latter was measuring the activity of ZW3 that were in phase with the QS3, while the former measured wave activity regardless of phase. 
 
 XX
 
