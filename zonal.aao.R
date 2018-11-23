@@ -72,18 +72,26 @@ temp <- ReadNetCDF(here::here("DATA/NCEP Reanalysis/air.mon.mean.nc"), c(t = "ai
                                  time = as.character(range(aaos$time)))) %>% 
    .[, t.a := Anomaly(t), by = .(lon, lat, month(time))]
 
-aaos[temp, on = "time"] %>% 
+temp.reg <- aaos[temp, on = "time"] %>% 
    .[, FitLm(t.a, asim, sim), by = .(lon, lat)] %>%
    .[term != "(Intercept)"] %>% 
-   ggperiodic::periodic(lon = c(0, 360)) %>% 
-   # dcast(lon + lat ~ term, value.var = "estimate") %>% 
-   ggplot(aes(lon, lat)) +
+   ggperiodic::periodic(lon = c(0, 360))
+
+hgt.reg <- aaos[hgt, on = "time"] %>% 
+   .[, FitLm(hgt.a, asim, sim), by = .(lon, lat)] %>%
+   .[term != "(Intercept)"] %>% 
+   ggperiodic::periodic(lon = c(0, 360))
+
+ggplot(temp.reg, aes(lon, lat)) +
    geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, NULL, 0)) +
+   geom_contour2(data = hgt.reg, aes(z = estimate, linetype = nsign(..level..)),
+                 breaks = AnchorBreaks(0, NULL, 0)) +
    map +
    scale_fill_divergent() +
    annotate("point", 310, -65) +
    coord_polar() +
    facet_wrap(~term)
+
 
 (aaos[temp[lat %~% -65 & lon %~% 310], on = "time"] %>% 
    ggplot(aes(time, t.a)) +
