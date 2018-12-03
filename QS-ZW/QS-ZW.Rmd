@@ -172,7 +172,7 @@ In some latitudes and tiems of the year they exhibit some degree of stationatiry
 
 ...
 
-Zonal waves (ZW; sometimes also called planetary waves) are waves observed in each individual "instantaneous" field. Quasi-stationary waves (QS), on the other hand, are the resulting waves in the mean field. Of course, these definitions depend on which are the "instantaneous field" in question and the averaging timescales used. However, they illustrate that, given a set of fields, ZWs are properties of the *elements* of the set, while the QS is a property of the set as a whole. This is an important distinction with theorical and methodological implications but is not always appreciated in the literature.
+Zonal waves (ZW; sometimes also called planetary waves) are waves observed in each individual "instantaneous" field. Quasi-stationary waves (QS), on the other hand, are the resulting waves in the mean field. Of course, these definitions depend on which are the "instantaneous field" in question and the averaging timescales used. However, they illustrate that, given a set of tmospheric fields, ZWs are properties of the *elements* of the set, while the QS is a property of the set as a whole. This is an important distinction with theorical and methodological implications but is not always appreciated in the literature.
 
 ```{r rao, fig.cap = "Seasonal cycle of amplitude of the geopotential planetary waves 1 to 3 at 60\\degree S computed as the mean amplitude of the monthly waves ($\\overline{ZW}$) and as the amplitude of the mean wave (QS). The period of analysis is 1950 to 1998. The left column reproduces Figure 3 from \\citet{Rao2004}."}
 plot_crossection <- function(k, binwidth) {
@@ -260,23 +260,23 @@ These differences are related to the degree of stationatiry of zonal waves and a
 Another important consequence of the distinction between $\overline{ZW}$ and QS is that the quotient between the two can be used as a measure of stationarity. As an analogy with the steadiness of the wind \citep{Singer1967}, planetary wave stationarity can be calculated as
 
 \begin{linenomath*}
-\begin{equation}
+\begin{equation}\label{eq:S}
 S = \frac{2}{\pi}\arcsin{\left ( \frac{QS}{\overline{ZW}} \right )}
 \end{equation}
 \end{linenomath*}
 
-It can be shown that $S = 1$ for completely stationary waves and that $\lim_{n \rightarrow \inf} S = 0$ for completely non-stationary waves with convergence of $O\left (n^{1/2}\right)$ (where $n$ is the sample size).
+It can be shown that $S = 1$ for completely stationary waves and that $E(S) = n^{-1/2}$ for completely non-stationary waves (where $n$ is the sample size).
 
-```{r}
-qs[k == 2] %>% 
+```{r stationarity, fig.cap = "Stationarity of the 300hPa geopotential QS2 "}
+qs[k == 3] %>% 
    dcast(month + lat + k ~ variable) %>%
    .[, S := 2/pi*asin(QS/ZW)] %>% 
    periodic(month = 1:13) %>% 
    ggplot(aes(month, lat)) +
    geom_contour_fill(aes(z = S), binwidth = 0.2) +
    geom_contour2(aes(z = S), binwidth = 0.2) +
-   geom_text_contour(aes(z = S), binwidth = 0.2, rotate = F, skip = 1,
-                     stroke = 0.2, size = 2) +
+   # geom_text_contour(aes(z = S), binwidth = 0.2, rotate = F, skip = 1,
+   #                   stroke = 0.2, size = 2) +
    scale_y_latitude(limits = pm(90)) +
    scale_x_continuous("Month", breaks = 1:13, labels = c(month.abb, "13" = "Jan"),
                       expand = c(0, 0)) +
@@ -287,25 +287,6 @@ qs[k == 2] %>%
 ```
 
 
-
-## Mathematical considerations
-
-Let $w_1$, $w_2$ be two waves of wavenumber $k$ defined by 
-
-\begin{linenomath*}
-\begin{equation}
-w_1 = A_1\cos(k(\phi - \alpha_1)) \quad
-w_2 = A_2\cos(k(\phi - \alpha_2)) 
-\end{equation}
-\end{linenomath*}
-
-where $A_i$, $alpha_i$ are their amplitudes and phases and $\phi$ is longitude. The amplitude of the sum of both waves is 
-
-\begin{linenomath*}
-\begin{equation}
-A(w_1 + w_2) = A_3 = \sqrt{A_1^2 + A_2^2 + 2A_1A_2\cos(\alpha_1 - \alpha_2)}
-\end{equation}
-\end{linenomath*}
-
+As an exmaple, Figure \ref{fig:stationarity} shows $S$ for QS2 computed using Equation \ref{eq:S}. The
 
 
