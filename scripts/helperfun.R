@@ -13,7 +13,7 @@ library(compiler)
 # library(RColorBrewer)
 enableJIT(0)
 
-source("scripts/eof_methods.R")
+source(here::here("scripts/eof_methods.R"))
 
 `%b%` <- function(x, y) data.table::`%between%`(x, y) 
 

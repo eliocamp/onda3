@@ -1,5 +1,5 @@
 ---
-title: "Ondas zonales vs. ondas cuasiestacionarias"
+title: "Are quasi-stationary waves and planetary waves the same?"
 author: "Elio"
 date: "July 20, 2018"
 output: 
@@ -104,6 +104,15 @@ plot_crossection <- function(k, binwidth) {
 
 binwidths <- c(50, 10, 5)
 ```
+
+
+## Introduction
+
+
+
+
+## 
+
 
 Para más claridad, voy a definir dos conceptos similares pero que hacen referencias a cosas ditinas.
 
