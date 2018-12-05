@@ -1,61 +1,55 @@
 
 
-stat1 <- function(n, d = 1) {
+sim_stationarity <- function(n, d = 0, trans = FALSE) {
    x <- rnorm(n) + d
    y <- rnorm(n)
    am <- sqrt(x^2 + y^2)
    phase <- atan2(y, x)
-   
-   weighted.mean(cos(phase - mean.phase(am, phase, 1)), am)
+   if (isTRUE(trans)) {
+      2/pi*asin(weighted.mean(cos(phase - mean.phase(am, phase, 1)), am))
+   } else {
+      weighted.mean(cos(phase - mean.phase(am, phase, 1)), am)
+   }
 }
 
 modelise <- function(S, n) {
-   model <- nls(S ~ (1-S0)*n^g + S0, start = c(g = -1/2, S0 = 0.5))
+   model <- nls(S ~ b*n^g + S0, start = c(S0 = 0.1, g = -1/2, b = 1))
    as.list(coef(model))
 }
 
 
-B <- 400
-N <- seq(1, 1580, length.out = 60)
-ds <- 0
+B <- 500
+N <- seq(2, 300, by = 20)
+ds <- 10^seq(-2, 0.5, length.out = 20)
 
-sims <- as.data.table(expand.grid(n = N))
+trials <- data.table(expand.grid(n = N,
+                                 d = ds,
+                                 trans = c(TRUE, FALSE)))
 
-sims <- sims[, .(k = sapply(1:B, function(x) stat1(n, d = 0))), by = .(n)]
+trials <- trials[, .(S = mean(sapply(1:B, function(x) sim_stationarity(n, d, trans)))),
+                 by = .(n, d, trans)]
 
-sims[, S := 2/pi*asin(k)]
 
-S0 <- melt(sims, id.vars = c("n")) %>% 
-   .[, modelise(value, n), by = variable]
+coefs <- trials[, modelise(S, n), by = .(d, trans)]
 
-melt(sims, id.vars = c("n")) %>% 
-   .[, mean(value), by = .(n, variable)] %>% 
-   ggplot(aes(n, V1)) +
-   geom_line(aes(color = variable))
+pred <- coefs[,  .(n = N, 
+           S = b*N^g + S0), by = .(d, trans)] 
 
-N <-N <- seq(1, 500000, length.out = 60)
-N^(-1/2)/(N^(-0.68) + 0.007)
+ggplot(trials, aes(n, S, color = d, group = d)) +
+   geom_point() +
+   geom_line(data = pred) +
+   facet_wrap(~trans) 
 
-ggplot(sims[d == 0], aes(n, S)) +
-   geom_line() +
-   stat_function(fun = function(x) x^(-1/2))
+ggplot(coefs, aes(S0, b)) +
+   geom_point() +
+   stat_function(fun = function(x) (1 - x)) +
+   facet_wrap(~trans)
 
-ggplot(S0, aes(S0, g)) +
-   geom_point() 
-   stat_function(fun = function(x) 1 - x)
+ggplot(coefs, aes(S0, g)) +
+   geom_point() +
+   stat_function(fun = function(x) (-1/2 - x)) +
+   facet_wrap(~trans)
 
-ggplot(sims, aes(n, S)) +
-   geom_line(aes(color = d, group = d)) +
-   geom_point() 
-
-coefs <- sims[, modelise(S, n), by = d]
-
-   ggplot(coefs, aes(d, S0)) +
-   geom_point()  +
-   stat_function(fun = function(x) 1.963/(1 + exp(-1.65*x))-1)
-   # geom_smooth(method = "lm")
-
-model <-  nls(S0 ~ L/(1 + exp(k*d)) - 1, data = coefs, start = c(L = 1, k = 1))
 
 
 
