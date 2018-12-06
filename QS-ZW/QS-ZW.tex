@@ -189,9 +189,9 @@ or ``planteary wave''. The names ``stationary wave'' or
 ``quasi-strationary wave'', on the other hand, are generaly reserved to
 the zonal asymmetires of the time mean field (\(\overline{\phi}^*\)).
 However, these terms are sometimes used interchangeably in the
-literature (e.g. \citet{Rao2004}, \citet{Raphael2004},
-\citet{Kravchenko2012}, \citet{Irving2015}, \citet{Turner2017},
-\citet{Lastovicka2018}) which could lead to some confusion.
+literature
+\citep[e.g.][]{Rao2004, Raphael2004, Kravchenko2012, Irving2015, Turner2017, Lastovicka2018}
+which could lead to some confusion.
 
 Given a set of atmospheric fields, we define \emph{zonal waves} (ZW) as
 waves observed in each individual ``instantaneous'' field and
@@ -218,7 +218,7 @@ literature.
 To illustrate the distinction between ZWs and QS, Figure \ref{fig:rao}
 shows the monthly seasonal cycle of amplitude of planetary waves at
 60\degree S using monthly fields from the NCEP/NCAR reanalysis
-(\citet{Kalnay1996}) between 1950 and 1998. The left column
+\citep{Kalnay1996} between 1950 and 1998. The left column
 (\(\overline{ZW}\)) reproduces Figure 3 from \citet{Rao2004} and is
 computed by taking --for each month and level-- the average amplitude of
 the 49 individual amplitudes. The right column (QS), on the other hand,
@@ -231,16 +231,15 @@ fields. This is a mathematical necessity (\emph{xx¿Deberia demostrar
 eso? Vale la pena una demostracion en un material suplementario?xx})
 that explains \citet{Rao2004}'s observation that their Wave 1 amplitude
 was greater than that reported by \citet{Hurrell1998}. Secondly, they
-have different annual cycles and vertical structures. QS2, for example,
-has a strong minimum in the low stratosphere during the austral autumn
-that is not apparent in \(\overline{ZW2}\). Similarly, the austral
-winter mid-tropospheric maximum is very well defined in
-\(\overline{ZW3}\) but not so in QS3. Thirdly, the relative importance
-between each wave number vary. \(\overline{ZW}\) fields show, for
-example, a preponderance of wave 2 over 3 in almost every level and
-month. However, the QS3 has greater amplitude than QS2 in the first half
-of the year. In contrast with wave-numbers 2 and 3, \(\overline{ZW1}\)
-and QS1 fields are very similar.
+have different annual cycles and vertical structures. QS2 has a strong
+minimum in the low stratosphere during the austral autumn that is not
+apparent in \(\overline{ZW2}\). Similarly, the austral winter
+mid-tropospheric maximum is very well defined in \(\overline{ZW3}\) but
+not so in QS3. Thirdly, the relative importance between each wave number
+vary. \(\overline{ZW}\) fields show a preponderance of wave 2 over 3 in
+almost every level and month. However, the QS3 has greater amplitude
+than QS2 in the first half of the year. In contrast with wave-numbers 2
+and 3, \(\overline{ZW1}\) and QS1 fields are very similar.
 
 \begin{figure}[h]
 
@@ -265,18 +264,18 @@ have significant differences in the south.
 Another important consequence of the distinction between
 \(\overline{ZW}\) and QS is that the quotient between the two can be
 used as a measure of stationarity. As an analogy with the constancy of
-the wind (\citet{Singer1967}), planetary wave stationarity can be
+the wind \citep{Singer1967}, planetary wave stationarity can be
 estimated as
 
 \begin{linenomath*}
 \begin{equation}\label{eq:S}
-\hat{S} =  \frac{QS}{\overline{ZW}}
+\hat{\mathrm{S}} = \frac{\mathrm{QS}}{\overline{\mathrm{ZW}}}
 \end{equation}
 \end{linenomath*}
 
-It can be shown that \(\hat{S} = 1\) for completely stationary waves and
-that \(E(\hat{S}) = n^{-1/2}\) for completely non-stationary waves
-(where \(n\) is the sample size).
+It can be shown that \(\hat{\mathrm{S}} = 1\) for completely stationary
+waves and that \(E(\hat{\mathrm{S}}) = n^{-1/2}\) for completely
+non-stationary waves (where \(n\) is the sample size).
 
 \begin{figure}[h]
 
@@ -287,22 +286,30 @@ that \(E(\hat{S}) = n^{-1/2}\) for completely non-stationary waves
 \caption{Seasonal cycle of stationarity of the 300hPa geopotential QS2 computed using Equation \ref{eq:S} (shaded) and $\overline{ZW2}$ (contours). From monthly NCEP/NCAR Reanalysis, 1979 to 2017.}\label{fig:stationarity}
 \end{figure}
 
-As an example, Figure \ref{fig:stationarity} shows \(\hat{S}\) for QS2
-computed using Equation \ref{eq:S}. The southern hemisphere clearly
-shows a lower degree of QS2 stationarity than the northern hemisphere or
-the tropics. In the northern mid latitudes there is a seasonal cycle of
-stationarity that follows the seasonal cycle of \(\overline{ZW}\)
-(Figure \ref{fig:hurrell}). In the southern hemisphere, instead, the
-June maximum of \(\overline{ZW}\) at 60\degree S coincides with a
-minimum of stationarity.
+As an example, Figure \ref{fig:stationarity} shows \(\hat{\mathrm{S}}\)
+for QS2 computed using Equation \ref{eq:S}. The southern hemisphere
+clearly shows a lower degree of QS2 stationarity than the northern
+hemisphere or the tropics. In the northern mid latitudes there is a
+seasonal cycle of stationarity that follows the seasonal cycle of
+\(\overline{ZW}\) (Figure \ref{fig:hurrell}). In the southern
+hemisphere, instead, the June maximum of \(\overline{ZW}\) at
+60\degree S coincides with a minimum of stationarity.
 
-While \(\hat{S}\) is used --sometimes with a \(\arcsin\) transformation
-(\citet{Singer1967})-- in the meteorological literature in the context
-of wind steadiness, to our knowledge this is the first time it has been
+\(\hat{\mathrm{S}}\) can equivalently be defined as the amplitude
+weighted mean correlation between each wave phase and the stationary
+phase (\emph{xx de nuevo, esto podría demostrarse en un material
+suplementario xx}). This definition allows one to construct a time
+series of \(\hat{\mathrm{S}}(t)\) by computing a running (weigthed)
+mean.
+
+While \(\hat{\mathrm{S}}\) is used --sometimes as
+\(2/\pi\arcsin \left (\hat{\mathrm{S}} \right )\) transformation
+\citep{Singer1967}-- in the meteorological literature in the context of
+wind steadiness, to our knowledge this is the first time it has been
 applied to the study of atmospheric waves. Furthermore, its statistical
-properties are not well studied. For example, it can be seen that the
-estimation of \(\hat{S}\) from a finite sample has a positive bias that
-is inversely proportional to the population stationarity, but its
+properties are not well studied. One problem with \(\hat{\mathrm{S}}\),
+is that its estimation from a finite sample has a positive bias that is
+inversely proportional to the population stationarity, but its
 convergence properties are not explored.
 
 \subsection{QS activity}
@@ -329,19 +336,19 @@ timescale dependence of QS. By applying a running mean with a suitable
 window before computing wave amplitudes, one obtains the QS wave
 amplitude of that window. This is the methodology applied by
 \citet{Wolf2018} who performed a 15 day low pass filter before computing
-wave envelopes. Each data time represents, then, the mean field of a set
-of fields inside the 15 day window an thus waves computed from them are
-actually QS waves for each of those sets. (\emph{xx no estoy seguro que
-se entienda bien xx})
+wave envelopes. Each data time represented, then, the mean field of the
+set of fields covered the 15 day window an thus waves computed from it
+are actually QS waves for each of those sets. (\emph{xx no estoy seguro
+que se entienda bien xx})
 
 \section{Conclusions}
 
 The fact that zonal waves (ZW) and quasi-stationary waves (QS) are two
 distinct but related phenomena has both practical and theoretical
-implications. First, it underscores the importance of
+implications.
 
-Researchers should be aware of which phenomena they want to study and
-use the appropriate methods. The mean amplitude of the ZW could be
+Firts, researchers should be aware of which phenomena they want to study
+and use the appropriate methods. The mean amplitude of the ZW could be
 appropireate to study the vertical propagation of Rossby waves, for
 example. But ZW amplitude could lead to misleading results if used as
 the basis of local impacts studies because they are probably more
@@ -350,22 +357,25 @@ encourage researchers in the field to describe if they are using the
 mean amplitude of the individual waves or the amplitude of the mean
 wave.
 
-Comparison between results should also be made having this issues in
-mind. For example, \citet{Irving2015} compare their planetary wave
-activity index with \citet{Raphael2004}'s wave 3 index and conclude that
-the later cannot account for events with waves far removed from their
-climatological position. However, if we understand it as an index of QS3
-similitude, then it is a feature, not a bug.
+Secondly, comparison between results should also be made having this
+issues in mind. For instance, \citet{Irving2015} compare their planetary
+wave activity index with \citet{Raphael2004}'s wave 3 index and conclude
+that the later cannot account for events with waves far removed from
+their climatological position. However, by understanding it as an index
+of QS3 similitude, this limitation becomes a feature, not a bug.
 
 Since planetary waves are generally more stationary in the northern
-hemisphere, these issues are more critical in studies of the southern
+hemisphere, these issues are more critical for studies of the southern
 hemisphere.
 
-Besides those direct implications, separating ZW and QS can lead to
-novel levels of analysis. Here, we showed a simple metric of the
-stationarity, but others applications are also possible. For example,
-\citet{Smith2012} showed that linear interference between the QS1 and
-ZW1 was related to vertical wave activity transport at the troposphere.
+Thirdly, the explorations of both ZW and QS can lead to novel levels of
+analysis. Here, we showed it can be used to define a metric of
+stationarity of quasi-stationary waves, but other applications are also
+possible. \citet{Smith2012} used the phase relationship between ZW1 and
+QS1 to show that linear interference between the QS1 and ZW1 was related
+to vertical wave activity transport at the tropopause.
+
+\emph{xx me falta un final acá xx}
 
 \bibliography{qszw.bib}
 

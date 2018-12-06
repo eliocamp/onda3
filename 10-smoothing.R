@@ -6,7 +6,7 @@ v_spect <- function(data, col, s, ks = 1:9) {
       .[!is.na(col.s)] %>% 
       .[, FitWave(col.s, ks), by = time] %>% 
       .[, phase := circular::circular(phase*k)] %>% 
-      .[, lapply(.SD, mean), by = .(k, month(time)), .SDcols = -"time"] 
+      .[, lapply(.SD, mean), by = .(k), .SDcols = -"time"] 
 }
 
 
@@ -15,39 +15,49 @@ ReadNetCDF("DATA/NCEP Reanalysis/hgt.daily.nc", c(gh = "hgt"),
                          lat = -55,
                          time = c("1979-01-01", "2014-12-31"))) -> gh
 
+gh[, gh.a := Anomaly(gh), by = .(lon, lat, yday(time))]
 
 data.table(s = smooths) %>% 
-   .[, v_spect(gh, "gh", s, 1:20), by = s] -> perds_gh
+   .[, v_spect(gh, "gh", s, 1:4), by = s] -> perds_gh
+
+data.table(s = smooths) %>% 
+   .[, v_spect(gh, "gh.a", s, 1:4), by = s] -> perds_gh.a
+
 
 
 ggplot(perds_gh, aes(s/31, r2)) +
    geom_line(aes(color = factor(k))) + 
+   geom_point() +
    directlabels::geom_dl(aes(label = k), method = "last.points") +
-   scale_x_log10() +
-   scale_y_log10() +
-   scale_color_viridis_d() +
-   facet_wrap(~month)
+   scale_x_log10("Smoothing window (months)", 
+                 sec.axis = sec_axis(~.*31/365, "Smoothing window (years)")) +
+   # scale_y_log10() +
+   scale_color_viridis_d()
 
 
-ggplot(perds_gh, aes(s/31, amplitude)) +
-   geom_line(aes(color = factor(k))) +
-   directlabels::geom_dl(aes(label = k), method = "last.points") +
-   scale_x_log10() +
-   scale_y_log10() +
-   scale_color_viridis_d() +
-   facet_wrap(~month)
-
-ggplot(perds_gh[k <= 5], aes(s/31, phase)) +
-   geom_line(aes(color = factor(k))) +
-   directlabels::geom_dl(aes(label = k), method = "last.points") +
-   scale_x_log10() +
-   scale_color_viridis_d()  +
-   facet_wrap(~month)
+ggplot(perds_gh.a, aes(s/31, phase)) +
+   geom_line(aes(color = factor(k))) + 
+   geom_point() +
+   directlabels::geom_dl(aes(label = k), method = "first.points") +
+   scale_x_log10("Smoothing window (months)", 
+                 sec.axis = sec_axis(~.*31/365, "Smoothing window (years)")) +
+   # scale_y_log10() +
+   scale_color_viridis_d()
 
 
-perds_gh %>% 
-   .[, sd(phase), by = .(month, k)] %>% 
-   ggplot(aes(k, V1)) +
+ggplot(perds_gh, aes(s/31, amplitude, group = k)) +
    geom_line() +
-   facet_wrap(~month)
+   geom_point() +
+   directlabels::geom_dl(aes(label = k), method = "last.points") +
+   scale_x_log10("Smoothing window (months)", 
+                 sec.axis = sec_axis(~.*31/365, "Smoothing window (years)")) +
+   scale_y_log10() +
+   scale_color_viridis_d() 
+
+ggplot(perds_gh, aes(s/31, phase)) +
+   geom_line(aes(color = factor(k))) +
+   directlabels::geom_dl(aes(label = k), method = "last.points") +
+   scale_x_log10("Smoothing window (months)", 
+                 sec.axis = sec_axis(~.*31/365, "Smoothing window (years)")) +
+   scale_color_viridis_d()  
 
