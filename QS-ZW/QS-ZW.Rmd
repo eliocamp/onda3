@@ -20,14 +20,14 @@ corresponding_author:
 keypoints:  
   - "Zonal waves and Quasi-stationary waves are disctinct but related phenomena"
   - "This distinction has theoretical and practical implications"
-  - "The relationship between the mean ZW amplitude and QS amplitude yields an estiamte of stationarity"
+  - "The relationship between the mean ZW amplitude and QS amplitude yields an estimate of stationarity"
 abstract: |
    In the meteorological literature the analysis of the zonally asymmetric 
    it is very common to analyse 
 output: 
+   word_document: default
    rticles::agu_article:
       keep_tex: true
-   word_document: default
 bibliography: qszw.bib
 header-includes: 
       - \usepackage{gensymb} 
@@ -81,7 +81,12 @@ library(latex2exp)
 library(glue)
 
 here <- here::here
+
+gluec <- function(...) {
+   unname(vapply(c(...), function(x) glue(x), FUN.VALUE = "a"))
+}
 source(here("scripts/helperfun.R"))
+remove(ggplot)
 
 data.world <- BuildMap(res = 1, smooth = 1)
 map.world <- geom_map2(data.world)
@@ -114,7 +119,7 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 
 # Introduction
 
-Many atmospheric variables have a strong dependence with latitude, so it is often natural to decompose them into a zonal mean component and a deviation from it. If $\phi$ is a generic variable, then 
+Many atmospheric variables have a strong dependence with latitude, thus it is often natural to decompose a generic variable ($\phi$) into a zonal mean component ($[\phi]$) and a deviation from it $\phi^*$ such that
 
 \begin{linenomath*}
 \begin{equation}\label{eq:Z}
@@ -122,53 +127,64 @@ Many atmospheric variables have a strong dependence with latitude, so it is ofte
 \end{equation}
 \end{linenomath*}
 
-where $[\phi]$ is the mean zonal field and $\phi^*$, the deviations from it. This zonally asymmetric part is sometimes called "zonal wave" or "planteary wave". The names "stationary wave" or "quasi-strationary wave", on the other hand, are generaly reserved to the zonal asymmetires of the time mean field ($\overline{\phi}^*$). However, these terms are sometimes used interchangeably in the literature [e.g. @Rao2004; @Raphael2004; @Kravchenko2012; @Irving2015; @Turner2017; @Lastovicka2018] which could lead to some confusion. 
+The zonally asymmetric part can further be characterised by a fourier decomposition. These components are sometimes called "zonal waves" or "planetary waves". The names "stationary waves" or "quasi-stationary waves", on the other hand, are generally reserved to the zonal asymmetries of the time mean field ($\overline{\phi}^*$). However, these terms are sometimes used interchangeably in the literature [e.g. @Rao2004; @Raphael2004; @Kravchenko2012; @Irving2015; @Turner2017; @Lastovicka2018] which can lead to some confusion. 
 
-Given a set of atmospheric fields, we define *zonal waves* (ZW) as waves observed in each individual "instantaneous" field and *quasi-stationary waves* (QS) as the resulting waves in the mean field. While these definitions depend on which are the "instantaneous field" in question (monthly, daily, subdaily, etc...) and the averaging timescales used, they illustrate that ZWs are properties of the *elements* of the set, while the QSs are properties of the set as a whole. This is an important distinction with theoretical and methodological implications that is not always appreciated in the literature.
+We define *zonal waves* (ZW) as the zonal asymmetries of each individual "instantaneous" field and *quasi-stationary waves* (QS) as the zonal asymmetries of the mean field. That means that given a set of atmospheric fields with $n$ observations, there are $n$ ZW fields and 1 QS field for each wave number. While these definitions depend on which are the "instantaneous field" in question (monthly, daily, sub daily, etc...) and the averaging time scale, they illustrate that ZW are properties of the *elements* of the set, while QS are properties of the set as a whole. This is an important distinction with theoretical and methodological implications that is not always appreciated in the literature.
 
-# Story
+# Zonal waves and stationary waves 
 
 ```{r read-rao}
 period_rao <- c("1950", "1998")
+period_cap_rao <- glue("From monthly NCEP/NCAR Reanalysis, {period_rao[1]} to {period_rao[2]}")
 rao_data <- ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.mon.mean.nc"), c(gh = "hgt") ,
                        subset = list(lat = -60, 
-                                     time = c(glue("{period_rao[1]}-01-01"),
-                                              glue("{period_rao[2]}-12-31"))))
+                                     time = gluec("{period_rao[1]}-01-01",
+                                                  "{period_rao[2]}-12-31")))
 setnames(rao_data, "level", "lev")
 ```
 
 ```{r compute-qs-zw-rao}
-rao_data %>% 
+qs <- rao_data %>% 
    .[lat == -60, .(gh = mean(gh)), by = .(lon, lev, month(time))] %>% 
    .[, FitWave(gh, 1:3), keyby = .(lev, month)] %>% 
    addkey(k) %>% 
-   .[, c("phase", "r2") := NULL] -> qs
-setnames(qs, "amplitude", "QS")
+   .[, phase := phase*k] %>% 
+   .[, c("r2") := NULL]
 
-rao_qs <- rao_data %>%
+zw <- rao_data %>%
    .[lat == -60, FitWave(gh, 1:3), by = .(lev, time)] %>% 
-   .[, .(ZW = mean(amplitude)), keyby = .(k, lev, month(time))] %>% 
-   .[qs, on = key(qs)] %>% 
-   melt(id.vars = key(qs), measure.vars = c("ZW", "QS"))
+   .[, .(amplitude = mean(amplitude),
+         phase = as.numeric(mean(circular(phase*k)))), keyby = .(k, lev, month(time))] 
+rao_qs <- rbindlist(list(QS = qs,
+                         ZW = zw), 
+                    use.names = TRUE,
+                    idcol = "variable") 
+rao_qs[, variable := factor(variable)]
+
+math_levels <- c(TeX("Amplitude of quasi-stationary wave ($A_{QS}$)"),
+                 TeX("Mean amplitude of zonal waves ($\\bar{A_{ZW}}$)"))
 ```
 
-```{r rao, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 1 to 3 at 60\\degree S computed as the mean amplitude of the monthly waves ($\\overline{{ZW}}$) and as the amplitude of the mean wave (QS). The period of analysis is {period_rao[1]} to {period_rao[2]}. The left column reproduces Figure 3 from @Rao2004.")}
+```{r}
+computed <- "computed as the amplitude of the mean wave ($A_{QS}$) and as the mean amplitude of the monthly waves ($\\overline{\\mathrm{A_ZW}}$)"
+```
+
+```{r rao, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 1 to 3 at 60\\degree S {computed}. {period_cap_rao}. The right column reproduces Figure 3 from \\citet{{Rao2004}}.")}
 
 plot_crossection <- function(k, binwidth) {
    ks <- k
    gdata <- periodic(rao_qs[k == ks], month = 1:13)
-   levels(gdata$variable) <- c(TeX("Mean amplitude of zonal waves ($\\bar{ZW}$)"),
-                            TeX("Amplitude of quasi-stationary wave (QS)"))
+   levels(gdata$variable) <- math_levels
    g <- periodic(gdata[k == ks], month = 1:13) %>% 
       ggplot(aes(month, lev)) +
       # geom_contour_fill(aes(z = value), binwidth = binwidth) +
-      geom_contour2(aes(z = value), binwidth = binwidth) +
-      geom_text_contour(aes(z = value), binwidth = binwidth, rotate = F, skip = 1,
+      geom_contour2(aes(z = amplitude), binwidth = binwidth) +
+      geom_text_contour(aes(z = amplitude), binwidth = binwidth, rotate = F, skip = 1,
                         stroke = 0.2, size = 2) +
       scale_y_level("Pressure (hPa)") +
       scale_x_continuous("Month", breaks = 1:13, 
                          labels = c(month.abb, "13" = "Jan"),
-                         expand = c(0, 0)) +
+                         expand = c(0, 0), minor_breaks = NULL) +
       # scale_fill_viridis_c(guide = guide_colorstrip_bottom()) +
       # coord_fixed(1.7) +
       theme(aspect.ratio = 0.5) +
@@ -196,20 +212,20 @@ lapply(1:3, function(x) plot_crossection(x, binwidths[x]))  %>%
    plot_layout(ncol = 1) 
 ```
 
-To illustrate the distinction between ZWs and QS, Figure \ref{fig:rao} shows the monthly seasonal cycle of amplitude of planetary waves at 60\degree S using monthly fields from the NCEP/NCAR reanalysis [@Kalnay1996] between 1950 and 1998. The left column ($\overline{ZW}$) reproduces Figure 3 from @Rao2004 and is computed by taking --for each month and level-- the average amplitude of the 49 individual amplitudes. The right column (QS), on the other hand, is computed by taking the amplitude of the average geopotential field for each month and level. 
+To illustrate the distinction between ZW and QS, Figure \ref{fig:rao} shows the monthly seasonal cycle of amplitude of planetary waves at 60\degree S using monthly fields from the NCEP/NCAR reanalysis [@Kalnay1996] between `r period_rao[1]` and `r period_rao[2]`. The left column ($\mathrm{A_{QS}}$) is computed by taking the amplitude of the average geopotential field for each month, level and wave number. The right column ($\overline{\mathrm{A_{ZW}}}$) reproduces Figure 3 from @Rao2004 and is computed by taking the average amplitude of the 49 individual ZW.
 
-The resulting fields convey different information. First, the amplitude of $\overline{ZW}$ fields is always greater than the one for QS fields. This is a mathematical necessity  (*xx¿Deberia demostrar eso? Vale la pena una demostracion en un material suplementario?xx*) that explains @Rao2004's observation that their Wave 1 amplitude was greater than that reported by @Hurrell1998. Secondly, they have different annual cycles and vertical structures. QS2 has a strong minimum in the low stratosphere during the austral autumn that is not apparent in $\overline{ZW2}$. Similarly, the austral winter mid-tropospheric maximum is very well defined in $\overline{ZW3}$ but not so in QS3. Thirdly, the relative importance between each wave number vary. $\overline{ZW}$ fields show a preponderance of wave 2 over 3 in almost every level and month. However, the QS3 has greater amplitude than QS2 in the first half of the year. In contrast with wave-numbers 2 and 3, $\overline{ZW1}$ and QS1 fields are very similar.
+The resulting fields convey different information. First, $\overline{\mathrm{A_{ZW}}}$ is always greater or equal than $\mathrm{A_{QS}}$. This is a mathematical necessity  (*xx¿Deberia demostrar eso? Vale la pena una demostracion en un material suplementario?xx*) that explains @Rao2004's observation that their Wave 1 amplitude was greater than that reported by @Hurrell1998. Secondly, they have different annual cycles and vertical structures. $A_{QS2}$ has a strong minimum in the low stratosphere during the austral autumn that is not apparent in $\overline{\mathrm{A_{ZW2}}}$. Similarly, the austral winter mid-tropospheric maximum is very well defined in $\overline{\mathrm{A_{ZW3}}}$ but not so in $A_{QS3}$. Thirdly, the relative importance between each wave number vary. $\overline{\mathrm{A_{ZW}}}$ fields show a preponderance of wave 2 over 3 in almost every level and month. However, the QS3 has greater amplitude than QS2 in the first half of the year. In contrast with wave-numbers 2 and 3, $\overline{\mathrm{ZW1}}$ and QS1 fields are very similar.
 
 ```{r}
-period_rest <- c(1979, 2017)
+period_rest <- c(1958, 2017)
 period_cap <- glue("From monthly NCEP/NCAR Reanalysis, {period_rest[1]} to {period_rest[2]}")
 ```
 
-```{r hurrell, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 2 at 300hPa computed as the mean amplitude of the monthly waves ($\\overline{{ZW}}$) and as the amplitude of the mean wave (QS). {period_cap}.")}
+```{r hurrell, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 2 at 300hPa {computed}. {period_cap}.")}
 ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), c(gh = "hgt") ,
                    subset = list(level = 300, 
-                                 time = c(glue("{period_rest[1]}-01-01"), 
-                                          glue("{period_rest[2]}-12-31"))))
+                                 time = gluec("{period_rest[1]}-01-01",
+                                              "{period_rest[2]}-12-31")))
 setnames(ncep, "level", "lev")
 
 ncep %>% 
@@ -224,39 +240,39 @@ qs <- ncep %>%
    .[, .(ZW = mean(amplitude)), keyby = .(k, lat, month(time))] %>% 
    .[qs, on = key(qs)] 
 
-gdata <- melt(qs, id.vars = key(qs), measure.vars = c("ZW", "QS")) %>% 
+gdata <- melt(qs, id.vars = key(qs), measure.vars = c("QS", "ZW")) %>% 
    periodic(month = 1:13) 
-levels(gdata$variable) <- c(TeX("Mean amplitude of zonal waves ($\\bar{ZW}$)"),
-                            TeX("Amplitude of quasi-stationary wave (QS)"))
+levels(gdata$variable) <- math_levels
+
 ggplot(gdata, aes(month, lat)) +
    geom_contour_fill(aes(z = value), breaks = 60) +
    geom_contour2(aes(z = value), binwidth = 20) +
    geom_text_contour(aes(z = value), binwidth = 20, rotate = F, skip = 1,
                      stroke = 0.2, size = 2) +
-   scale_y_latitude(limits = pm(90)) +
+   scale_y_latitude(limits = pm(90), minor_breaks = NULL) +
    scale_x_continuous("Month", breaks = 1:13, labels = c(month.abb, "13" = "Jan"),
-                      expand = c(0, 0)) +
+                      expand = c(0, 0), minor_breaks = NULL) +
    theme(aspect.ratio = 0.5) +
    facet_grid(k ~ variable, 
               labeller = labeller(k = AddPreffix("Planetary\n Wave "),
                                   variable = label_parsed))
 ```
 
-These differences are related to the degree of stationarity of zonal waves and are location-dependent. Figure \ref{fig:hurrell} show the same variable that Figure \ref{fig:rao} but for 300hPa. The contrast between the northern and southern hemisphere is not only evident in the amplitude of the planetary waves, but also in the comparison between $\overline{ZW}$ and QS. Specially for wave-numbers 2 and 3, $\overline{ZW}$ and QS fields are very similar in the north but they have significant differences in the south. 
+These differences are related to the degree of stationarity of zonal waves and are location-dependent. Figure \ref{fig:hurrell} show the same variables that Figure \ref{fig:rao} but in an horizontal section at 300hPa. The contrast between the northern and southern hemispheres is not only evident in the amplitude of the planetary waves, but also in the comparison between $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$. Specially for wave-numbers 2 and 3, $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$ fields are very similar in the north but they have significant differences in the south. 
 
 ## Stationarity
 
-Another important consequence of the distinction between $\overline{ZW}$ and QS is that the quotient between the two can be used as a measure of stationarity. As an analogy with the constancy of the wind [@Singer1967], planetary wave stationarity can be estimated as
+Another important consequence of the distinction between $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$ is that the quotient between the two can be used as a measure of stationarity. As an analogy with the constancy of the wind [@Singer1967], planetary wave stationarity can be estimated as
 
 \begin{linenomath*}
 \begin{equation}\label{eq:S}
-\hat{\mathrm{S}} = \frac{\mathrm{QS}}{\overline{\mathrm{ZW}}}
+\hat{\mathrm{S}} = \frac{\mathrm{\mathrm{A_{QS}}}}{\overline{\mathrm{A_{ZW}}}}
 \end{equation}
 \end{linenomath*}
 
 It can be shown that $\hat{\mathrm{S}} = 1$ for completely stationary waves and that $E(\hat{\mathrm{S}}) = n^{-1/2}$ for completely non-stationary waves (where $n$ is the sample size).
 
-```{r stationarity, fig.cap = glue("Seasonal cycle of stationarity of the 300hPa geopotential QS2 computed using Equation \\ref{{eq:S}} (shaded) and $\\overline{{ZW2}}$ (contours). {period_cap}."), fig.width=4, fig.align="center"}
+```{r stationarity, fig.cap = glue("Seasonal cycle of stationarity of the 300hPa geopotential QS2 computed using Equation \\ref{{eq:S}} (shaded) and $\\overline{{\\mathrm{{ZW2}}}}$ (contours). {period_cap}."), fig.width=4, fig.align="center"}
 qs[k == 2] %>% 
    .[, S := 2/pi*asin(QS/ZW)] %>% 
    periodic(month = 1:13) %>% 
@@ -275,25 +291,60 @@ qs[k == 2] %>%
    theme(legend.position = "right")
 ```
 
-As an example, Figure \ref{fig:stationarity} shows $\hat{\mathrm{S}}$ for QS2 computed using Equation \ref{eq:S}. The southern hemisphere clearly shows a lower degree of QS2 stationarity than the northern hemisphere or the tropics. In the northern mid latitudes there is a seasonal cycle of stationarity that follows the seasonal cycle of $\overline{ZW}$ (Figure \ref{fig:hurrell}). In the southern hemisphere, instead, the June maximum of $\overline{ZW}$ at 60\degree S coincides with a minimum of stationarity.
+As an example, Figure \ref{fig:stationarity} shows $\hat{\mathrm{S}}$ for QS2 computed using Equation \ref{eq:S}. The southern hemisphere clearly shows a lower degree of QS2 stationarity than the northern hemisphere or the tropics. In the northern mid latitudes there is a seasonal cycle of stationarity that follows the seasonal cycle of $\overline{\mathrm{A_{ZW}}}$ (Figure \ref{fig:hurrell}) with maximum values in boreal summer and minimum in the boreal winter. In the southern hemisphere there is no clear annual cycle and at 60\degree S stationarity and $\overline{\mathrm{A_{ZW}}}$ appear to be anticorrelated. 
 
-$\hat{\mathrm{S}}$ can equivalently be defined as the amplitude weighted mean correlation between each wave phase and the stationary phase (*xx de nuevo, esto podría demostrarse en un material suplementario xx*). This definition allows one to construct a time series of $\hat{\mathrm{S}}(t)$ by computing a running (weigthed) mean. 
+$\hat{\mathrm{S}}$ can equivalently be defined as the mean projection of the ZW onto the climatological QS divided by the mean ZW amplitude (*xx de nuevo, esto podría demostrarse en un material suplementario xx*). This definition allows one to construct a time series of $\hat{\mathrm{S}}(t)$ by computing a running mean. 
 
-While $\hat{\mathrm{S}}$ is used --sometimes as $2/\pi\arcsin \left (\hat{\mathrm{S}} \right )$ transformation [@Singer1967]-- in the meteorological literature in the context of wind steadiness, to our knowledge this is the first time it has been applied to the study of atmospheric waves. Furthermore, its statistical properties are not well studied. One problem with $\hat{\mathrm{S}}$, is that its estimation from a finite sample has a positive bias that is inversely proportional to the population stationarity, but its convergence properties are not explored.
+While $\hat{\mathrm{S}}$ is used --sometimes as $2/\pi\arcsin \left (\hat{\mathrm{S}} \right )$ [@Singer1967]-- in the meteorological literature in the context of wind steadiness, to our knowledge this is the first time it has been applied to the study of atmospheric waves. Furthermore, its statistical properties are not well studied. One problem with $\hat{\mathrm{S}}$, is that its estimation from a finite sample has a positive bias that is inversely proportional to the population stationarity, but its convergence properties are not explored.
 
 ## QS activity 
 
-Defining quasi-stationary waves as a climatological property of a set of atmospheric fields, precludes, in principle, the possibility of quantifying a QS metric that applies to instantaneous fields. It would seem impossible to, for example, construct an time series of QS activity that could be use as a basis for correlations with other variables, compositions or for use in other methodologies. But there are ways of solving this issue.
+Defining quasi-stationary waves as a property of the a climatology of set of atmospheric fields, precludes, in principle, the possibility of quantifying a QS metric that applies to instantaneous fields. It would seem impossible to, for example, construct an time series of QS activity that could be use as a basis for correlations with other variables, compositions or for use in other methodologies. But there are ways of solving this issue.
 
-One possibility is recognising that individual fields can be characterised by their degree of similarity with the climatological QS. The index produced by @Raphael2004 for the QS3 is an example. While not expressly a measure of similarity, it is sensitive to wave 3 patterns with phase close to the stationary phase. @Yuan2008 use Principal Component Analysis on the meridional wind field; the spatial pattern of the leading mode is very similar to the QS3 and so a time series can be obtained by projecting each instantaneous field to it. 
+```{r raphael_data}
+raphael <- ncep[lat %~% -49] %>% 
+   .[, gh := Anomaly(gh), by = .(lat, time)] %>% 
+   .[lon %~% c(50, 166, 289)] %>% 
+   .[, gh.s := RcppRoll::roll_mean(gh, 3, fill = NA), by = lon] %>%
+   .[!is.na(gh.s)] %>% 
+   .[, gh.std := (gh.s - mean(gh.s))/sd(gh.s), by = .(lon)] %>% 
+   .[, .(I3 = mean(gh.std)), by = time] %>% 
+   .[, I3 := as.numeric(scale(I3))]
 
-Another way of constructing a time series is to exploit the fact the timescale dependence of QS. By applying a running mean with a suitable window before computing wave amplitudes, one obtains the QS wave amplitude of that window. This is the methodology applied by @Wolf2018 who performed a 15 day low pass filter before computing wave envelopes. Each data time represented, then, the mean field of the set of fields covered the 15 day window an thus waves computed from it are actually QS waves for each of those sets. (*xx no estoy seguro que se entienda bien xx*)
+
+ZW <- ncep[lat %~% -49] %>% 
+   .[, gh.s := RcppRoll::roll_mean(gh, 3, fill = NA), by = lon] %>%
+   .[!is.na(gh.s)] %>% 
+   .[, FitWave(gh.s, 3), by = .(time)] %>% 
+   .[, phase.m := mean.phase(amplitude, phase, 3)] %>% 
+   .[, proj := amplitude*cos(3*(phase - phase.m))] %>% 
+   .[, proj.std := as.numeric(scale(proj))]
+
+
+raphael <- raphael[ZW[, .(time, proj.std)], on = "time"]
+raphael_cor <- raphael[, cor(I3, proj.std)]
+```
+
+One possibility to characterise individual fields by their degree of similarity with the climatological QS. @Yuan2008 use Principal Component Analysis on the meridional wind field; the spatial pattern of the leading mode is very similar to the QS3 so a time series can be obtained by projecting each instantaneous field to it. The index produced by @Raphael2004 for the QS3 is similar. While not expressly a measure of similarity, it is sensitive to wave 3 patterns with phase close to the stationary phase and is almost identical to the projection of monthly ZW3 onto the climatological QS3 (with correlation = `r round(raphael_cor, 2)`)(*xx esto también puede ir al material suplementario, junto con una figura? xx*).
+
+Another way of constructing a time series is to exploit the time scale dependence of QS. By applying a running mean with a suitable window before computing wave amplitudes, one obtains the QS wave amplitude of that window. This is the methodology applied by @Wolf2018 who performed a 15 day low pass filter before computing wave envelopes. Each data time represented, then, the mean field of the set of fields covered the 15 day window an thus waves computed from it are actually QS waves for each of those sets. (*xx no estoy seguro que se entienda bien xx*)
+
+<!-- ```{r fig.cap = glue("Standarised Wave 3 index from @Raphael2004 and standarised projection of ZW3 onto the climatological QS3. The correlation is {round(raphael_cor, 2)}.")} -->
+<!-- (raphael %>%  -->
+<!--    melt(id.vars = "time") %>%  -->
+<!--    ggplot(aes(time, value)) + -->
+<!--    geom_line(aes(linetype = variable)) + -->
+<!--     scale_x_datetime(date_breaks = "5 years", date_labels = "%Y") + -->
+<!--    scale_linetype_discrete(labels = c("Standarised Raphael 2004 ZW3 index", -->
+<!--                                       "Standarised rojection of ZW3 onto QS3"))) %>%  -->
+<!--    ggwrap::ggwrap(2) -->
+<!-- ``` -->
 
 # Conclusions
 
 The fact that zonal waves (ZW) and quasi-stationary waves (QS) are two distinct but related phenomena has both practical and theoretical implications. 
 
-Firts, researchers should be aware of which phenomena they want to study and use the appropriate methods. The mean amplitude of the ZW could be appropireate to study the vertical propagation of Rossby waves, for example. But ZW amplitude could lead to misleading results if used as the basis of local impacts studies because they are probably more influenced by phase effects. For clarity and reproducibility, we encourage researchers in the field to describe if they are using the mean amplitude of the individual waves or the amplitude of the mean wave. 
+First, researchers should be aware of which phenomena they want to study and use the appropriate methods. The mean amplitude of the ZW could be appropriate to study the vertical propagation of Rossby waves, for example. But ZW amplitude could lead to misleading results if used as the basis of local impacts studies because they are probably more influenced by phase effects. For clarity and reproducibility, we encourage researchers in the field to describe if they are using the mean amplitude of the individual waves or the amplitude of the mean wave. 
 
 Secondly, comparison between results should also be made having this issues in mind. For instance, @Irving2015 compare their planetary wave activity index with @Raphael2004's wave 3 index and conclude that the later cannot account for events with waves far removed from their climatological position. However, by understanding it as an index of QS3 similitude, this limitation becomes a feature, not a bug. 
 
