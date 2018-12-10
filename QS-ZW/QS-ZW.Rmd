@@ -1,7 +1,7 @@
 ---
 journal: "JGR: Atmospheres"
 options: "draft,linenumbers"
-title: "Are planetary waves the same thing as quasi-stationary waves?"
+title: "How stationary are the planetary waves in the Southern Hemisphere?"
 authors:
   - name: Elio Campitelli
     affil: 1
@@ -25,9 +25,9 @@ abstract: |
    In the meteorological literature the analysis of the zonally asymmetric 
    it is very common to analyse 
 output: 
-   word_document: default
    rticles::agu_article:
       keep_tex: true
+   word_document: default
 bibliography: qszw.bib
 header-includes: 
       - \usepackage{gensymb} 
@@ -119,19 +119,18 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 
 # Introduction
 
-Many atmospheric variables have a strong dependence with latitude, thus it is often natural to decompose a generic variable ($\phi$) into a zonal mean component ($[\phi]$) and a deviation from it $\phi^*$ such that
+Zonal waves, also called planetary waves, that can develop in the extratropical latitudes of the Southern Hemisphere (SH), have received some attention by the scientific community because of its role in modulating weather systems and regional climate (xxREF). They are typically characterized by applying Fourier decomposition to hemispheric anomalies of sea-level pressure of geopotential heights. On the other hand, “stationary waves” or “quasi-stationary waves” are terms generally reserved in the literature to the zonal asymmetries of the time mean field ($\overline{\phi}^*$). These terms are sometimes used interchangeably in the SH circulation related studies [e.g. @Rao2004; @Raphael2004; @Kravchenko2012; @Irving2015; @Turner2017; @Lastovicka2018]. 
+xx hay que expandir esto. Dar ejemplos de su uso intercambiable sin juzgar. 
 
-\begin{linenomath*}
-\begin{equation}\label{eq:Z}
-\phi_{(x, y, z, t)} = [\phi]_{(y, z, t)} + \phi_{(x, y, z, t)}^*
-\end{equation}
-\end{linenomath*}
-
-The zonally asymmetric part can further be characterised by a fourier decomposition. These components are sometimes called "zonal waves" or "planetary waves". The names "stationary waves" or "quasi-stationary waves", on the other hand, are generally reserved to the zonal asymmetries of the time mean field ($\overline{\phi}^*$). However, these terms are sometimes used interchangeably in the literature [e.g. @Rao2004; @Raphael2004; @Kravchenko2012; @Irving2015; @Turner2017; @Lastovicka2018] which can lead to some confusion. 
-
-We define *zonal waves* (ZW) as the zonal asymmetries of each individual "instantaneous" field and *quasi-stationary waves* (QS) as the zonal asymmetries of the mean field. That means that given a set of atmospheric fields with $n$ observations, there are $n$ ZW fields and 1 QS field for each wave number. While these definitions depend on which are the "instantaneous field" in question (monthly, daily, sub daily, etc...) and the averaging time scale, they illustrate that ZW are properties of the *elements* of the set, while QS are properties of the set as a whole. This is an important distinction with theoretical and methodological implications that is not always appreciated in the literature.
+However, it is not evident from the current knowledge, how “stationary” or “quasis-stationary” the zonal waves are in the SH. The focus of this study is then to assess the  xx...me preocupa que haya papers olvidados sobre este tema.
 
 # Zonal waves and stationary waves 
+
+In this study we define *zonal waves* (ZW) as the zonal asymmetries of each individual "instantaneous" field and *quasi-stationary waves* (QS) as the zonal asymmetries of the field mean. That means that given a set of atmospheric fields with $n$ observations, there are $n$ ZW fields and 1 QS field for each wave number. While these definitions depend on which are the "instantaneous field" in question (monthly, daily, sub daily, etc...) and the averaging time scale, they illustrate that ZW are properties of the *elements* of the set, while QS are properties of the set as a whole. This is an important distinction with theoretical and methodological implications that is not always differentiated in the literature.
+
+xx no me parece que esto este escrito de una manera muy rigurosa. Chequear 
+xx definir mejor qué son las "plantetary waves"
+
 
 ```{r read-rao}
 period_rao <- c("1950", "1998")
@@ -169,7 +168,7 @@ math_levels <- c(TeX("Amplitude of quasi-stationary wave ($A_{QS}$)"),
 computed <- "computed as the amplitude of the mean wave ($A_{QS}$) and as the mean amplitude of the monthly waves ($\\overline{\\mathrm{A_ZW}}$)"
 ```
 
-```{r rao, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 1 to 3 at 60\\degree S {computed}. {period_cap_rao}. The right column reproduces Figure 3 from \\citet{{Rao2004}}.")}
+```{r rao, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 1 to 3 at 60\\degree S {computed}.")}
 
 plot_crossection <- function(k, binwidth) {
    ks <- k
@@ -212,16 +211,16 @@ lapply(1:3, function(x) plot_crossection(x, binwidths[x]))  %>%
    plot_layout(ncol = 1) 
 ```
 
-To illustrate the distinction between ZW and QS, Figure \ref{fig:rao} shows the monthly seasonal cycle of amplitude of planetary waves at 60\degree S using monthly fields from the NCEP/NCAR reanalysis [@Kalnay1996] between `r period_rao[1]` and `r period_rao[2]`. The left column ($\mathrm{A_{QS}}$) is computed by taking the amplitude of the average geopotential field for each month, level and wave number. The right column ($\overline{\mathrm{A_{ZW}}}$) reproduces Figure 3 from @Rao2004 and is computed by taking the average amplitude of the 49 individual ZW.
+To illustrate the distinction between ZW and QS, Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of planetary waves at 60\degree S using monthly fields from the NCEP/NCAR reanalysis [@Kalnay1996] between `r period_rao[1]` and `r period_rao[2]`. The left column ($\mathrm{A_{QS}}$) is computed by taking the amplitude of the averaged geopotential field for each month, level and wave number. The right column ($\overline{\mathrm{A_{ZW}}}$) reproduces is computed by taking the average amplitude of the 49 individual ZW equivalent to what @Rao2004 depicted in their Figure 3 to study.
 
-The resulting fields convey different information. First, $\overline{\mathrm{A_{ZW}}}$ is always greater or equal than $\mathrm{A_{QS}}$. This is a mathematical necessity  (*xx¿Deberia demostrar eso? Vale la pena una demostracion en un material suplementario?xx*) that explains @Rao2004's observation that their Wave 1 amplitude was greater than that reported by @Hurrell1998. Secondly, they have different annual cycles and vertical structures. $A_{QS2}$ has a strong minimum in the low stratosphere during the austral autumn that is not apparent in $\overline{\mathrm{A_{ZW2}}}$. Similarly, the austral winter mid-tropospheric maximum is very well defined in $\overline{\mathrm{A_{ZW3}}}$ but not so in $A_{QS3}$. Thirdly, the relative importance between each wave number vary. $\overline{\mathrm{A_{ZW}}}$ fields show a preponderance of wave 2 over 3 in almost every level and month. However, the QS3 has greater amplitude than QS2 in the first half of the year. In contrast with wave-numbers 2 and 3, $\overline{\mathrm{ZW1}}$ and QS1 fields are very similar.
+Figure \ref{fig:rao} shows that $\overline{\mathrm{A_{ZW}}}$ is always greater or equal than $\mathrm{A_{QS}}$. This is a mathematical necessity  (*xx¿Deberia demostrar eso? Vale la pena una demostracion en un material suplementario?xx*) that explains @Rao2004's observation that their Wave 1 amplitude was greater than that reported by @Hurrell1998. (*xx raro xx*) In addition, the amplitude of both types of waves have different annual cycles and vertical structures. $A_{QS2}$ has a strong minimum in the low stratosphere during the austral autumn that is not apparent in $\overline{\mathrm{A_{ZW2}}}$. Similarly, the austral winter mid-tropospheric maximum is very well defined in $\overline{\mathrm{A_{ZW3}}}$ but not so in $A_{QS3}$. The relative individual contribution of  each wave number is also different. $\overline{\mathrm{A_{ZW}}}$ fields shows a preponderance of wave 2 over 3 in almost every level and month. However, in the case of $A_{QS}$, QS3 has larger amplitude than QS2 in the first half of the year. In contrast with wave-numbers 2 and 3, $\overline{\mathrm{ZW1}}$ and QS1 fields are very similar. (*xx no esta definido previamente. Vale la pena hacerlo o en cambio hablar de wavenumber 3 directamente? xx*)
 
 ```{r}
 period_rest <- c(1958, 2017)
 period_cap <- glue("From monthly NCEP/NCAR Reanalysis, {period_rest[1]} to {period_rest[2]}")
 ```
 
-```{r hurrell, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 2 at 300hPa {computed}. {period_cap}.")}
+```{r hurrell, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 2 at 300hPa {computed}.")}
 ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), c(gh = "hgt") ,
                    subset = list(level = 300, 
                                  time = gluec("{period_rest[1]}-01-01",
@@ -258,11 +257,12 @@ ggplot(gdata, aes(month, lat)) +
                                   variable = label_parsed))
 ```
 
-These differences are related to the degree of stationarity of zonal waves and are location-dependent. Figure \ref{fig:hurrell} show the same variables that Figure \ref{fig:rao} but in an horizontal section at 300hPa. The contrast between the northern and southern hemispheres is not only evident in the amplitude of the planetary waves, but also in the comparison between $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$. Specially for wave-numbers 2 and 3, $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$ fields are very similar in the north but they have significant differences in the south. 
+These differences  are location-dependent, and they are related to the degree of stationarity of the zonal waves. Figure \ref{fig:hurrell} show the horizontal distribution of $\mathrm{A_{QS}}$ and $\overline{\mathrm{A_{ZW}}}$ at 300hPa, for the three wavenumbers considered. The contrast between the northern and southern hemispheres is not only evident in the amplitude of the planetary waves, but also in the comparison between $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$. Specially for wave-numbers 2 and 3, $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$ fields are very similar in the north but they have significant differences in the south. 
+*xx no se entiende nada. Pone una frase que describa lo que se ve en el hemisferio norte, otra para el hemisferio sur y luego una que concluya que el HS tien mas diferencias que el HNxx*
 
-## Stationarity
+## Stationarity Index?
 
-Another important consequence of the distinction between $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$ is that the quotient between the two can be used as a measure of stationarity. As an analogy with the constancy of the wind [@Singer1967], planetary wave stationarity can be estimated as
+The distinction found between $\overline{\mathrm{A_{ZW}}}$ and $\mathrm{A_{QS}}$ shows that stationary conditions in the circulation of the SH could be measured using the quotient between the two quantities. As an analogy with the constancy of the wind [@Singer1967], planetary wave stationarity (*xx plentary wave?xx*) can be estimated as
 
 \begin{linenomath*}
 \begin{equation}\label{eq:S}
@@ -291,11 +291,13 @@ qs[k == 2] %>%
    theme(legend.position = "right")
 ```
 
-As an example, Figure \ref{fig:stationarity} shows $\hat{\mathrm{S}}$ for QS2 computed using Equation \ref{eq:S}. The southern hemisphere clearly shows a lower degree of QS2 stationarity than the northern hemisphere or the tropics. In the northern mid latitudes there is a seasonal cycle of stationarity that follows the seasonal cycle of $\overline{\mathrm{A_{ZW}}}$ (Figure \ref{fig:hurrell}) with maximum values in boreal summer and minimum in the boreal winter. In the southern hemisphere there is no clear annual cycle and at 60\degree S stationarity and $\overline{\mathrm{A_{ZW}}}$ appear to be anticorrelated. 
+As an example, Figure \ref{fig:stationarity} shows $\hat{\mathrm{S}}$ for QS2 computed using Equation \ref{eq:S}. At the northern mid latitudes the seasonal cycle of stationarity is similar to that described by $\overline{\mathrm{A_{ZW}}}$ (Figure \ref{fig:hurrell}) with maximum values in boreal summer and minimum in the boreal winter. On the other hand, the SH circulation shows a lower degree of QS2 stationarity than that of the northern hemisphere or the tropics. At the SH is no clear annual cycle and, even more, at 60\degree S, stationarity and $\overline{\mathrm{A_{ZW}}}$ appear to be anticorrelated. 
 
 $\hat{\mathrm{S}}$ can equivalently be defined as the mean projection of the ZW onto the climatological QS divided by the mean ZW amplitude (*xx de nuevo, esto podría demostrarse en un material suplementario xx*). This definition allows one to construct a time series of $\hat{\mathrm{S}}(t)$ by computing a running mean. 
 
-While $\hat{\mathrm{S}}$ is used --sometimes as $2/\pi\arcsin \left (\hat{\mathrm{S}} \right )$ [@Singer1967]-- in the meteorological literature in the context of wind steadiness, to our knowledge this is the first time it has been applied to the study of atmospheric waves. Furthermore, its statistical properties are not well studied. One problem with $\hat{\mathrm{S}}$, is that its estimation from a finite sample has a positive bias that is inversely proportional to the population stationarity, but its convergence properties are not explored.
+While $\hat{\mathrm{S}}$ is used --sometimes as $2/\pi\arcsin \left (\hat{\mathrm{S}} \right )$ [@Singer1967]-- in the meteorological literature in the context of wind steadiness, to our knowledge this is the first time it has been applied to the study of atmospheric waves. However, its statistical properties are not well studied. One problem with $\hat{\mathrm{S}}$, is that its estimation from a finite sample has a positive bias that is inversely proportional to the population stationarity, but its convergence properties are not explored. (*xx de donde sale esto? xx*)
+
+(*xx hasta acá xx*)
 
 ## QS activity 
 
