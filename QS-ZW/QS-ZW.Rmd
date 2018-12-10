@@ -122,6 +122,8 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 Zonal waves, also called planetary waves, that can develop in the extratropical latitudes of the Southern Hemisphere (SH), have received some attention by the scientific community because of its role in modulating weather systems and regional climate (xxREF). They are typically characterized by applying Fourier decomposition to hemispheric anomalies of sea-level pressure of geopotential heights. On the other hand, “stationary waves” or “quasi-stationary waves” are terms generally reserved in the literature to the zonal asymmetries of the time mean field ($\overline{\phi}^*$). These terms are sometimes used interchangeably in the SH circulation related studies [e.g. @Rao2004; @Raphael2004; @Kravchenko2012; @Irving2015; @Turner2017; @Lastovicka2018]. 
 xx hay que expandir esto. Dar ejemplos de su uso intercambiable sin juzgar. 
 
+*xx Explicar cada uno *
+
 However, it is not evident from the current knowledge, how “stationary” or “quasis-stationary” the zonal waves are in the SH. The focus of this study is then to assess the  xx...me preocupa que haya papers olvidados sobre este tema.
 
 # Zonal waves and stationary waves 
@@ -188,7 +190,7 @@ plot_crossection <- function(k, binwidth) {
       # coord_fixed(1.7) +
       theme(aspect.ratio = 0.5) +
       facet_grid(k ~ variable, 
-                 labeller = labeller(k = AddPreffix("Planetary\n Wave "),
+                 labeller = labeller(k = AddPreffix("Wave-number "),
                                      variable = label_parsed))
    
    if (k != 3) {
@@ -213,7 +215,7 @@ lapply(1:3, function(x) plot_crossection(x, binwidths[x]))  %>%
 
 To illustrate the distinction between ZW and QS, Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of planetary waves at 60\degree S using monthly fields from the NCEP/NCAR reanalysis [@Kalnay1996] between `r period_rao[1]` and `r period_rao[2]`. The left column ($\mathrm{A_{QS}}$) is computed by taking the amplitude of the averaged geopotential field for each month, level and wave number. The right column ($\overline{\mathrm{A_{ZW}}}$) reproduces is computed by taking the average amplitude of the 49 individual ZW equivalent to what @Rao2004 depicted in their Figure 3 to study.
 
-Figure \ref{fig:rao} shows that $\overline{\mathrm{A_{ZW}}}$ is always greater or equal than $\mathrm{A_{QS}}$. This is a mathematical necessity  (*xx¿Deberia demostrar eso? Vale la pena una demostracion en un material suplementario?xx*) that explains @Rao2004's observation that their Wave 1 amplitude was greater than that reported by @Hurrell1998. (*xx raro xx*) In addition, the amplitude of both types of waves have different annual cycles and vertical structures. $A_{QS2}$ has a strong minimum in the low stratosphere during the austral autumn that is not apparent in $\overline{\mathrm{A_{ZW2}}}$. Similarly, the austral winter mid-tropospheric maximum is very well defined in $\overline{\mathrm{A_{ZW3}}}$ but not so in $A_{QS3}$. The relative individual contribution of  each wave number is also different. $\overline{\mathrm{A_{ZW}}}$ fields shows a preponderance of wave 2 over 3 in almost every level and month. However, in the case of $A_{QS}$, QS3 has larger amplitude than QS2 in the first half of the year. In contrast with wave-numbers 2 and 3, $\overline{\mathrm{ZW1}}$ and QS1 fields are very similar. (*xx no esta definido previamente. Vale la pena hacerlo o en cambio hablar de wavenumber 3 directamente? xx*)
+Figure \ref{fig:rao} shows that $\overline{\mathrm{A_{ZW}}}$ is always greater or equal than $\mathrm{A_{QS}}$. This is a mathematical necessity  (*xx¿Deberia demostrar eso? Vale la pena una demostracion en un material suplementario? poner al revésxx*) that explains @Rao2004's observation that their Wave 1 amplitude was greater than that reported by @Hurrell1998. (*xx raro específicamente decir que HUrrell lo computó distintoxx*) In addition, the amplitude of both types of waves have different annual cycles and vertical structures. $A_{QS2}$ has a strong minimum in the low stratosphere during the austral autumn that is not apparent in $\overline{\mathrm{A_{ZW2}}}$. Similarly, the austral winter mid-tropospheric maximum is very well defined in $\overline{\mathrm{A_{ZW3}}}$ but not so in $A_{QS3}$. The relative individual contribution of  each wave number is also different. $\overline{\mathrm{A_{ZW}}}$ fields shows a preponderance of wave 2 over 3 in almost every level and month. However, in the case of $A_{QS}$, QS3 has larger amplitude than QS2 in the first half of the year. In contrast with wave-numbers 2 and 3, $\overline{\mathrm{ZW1}}$ and QS1 fields are very similar. (*xx no esta definido previamente. Vale la pena hacerlo o en cambio hablar de wavenumber 3 directamente? xx*)
 
 ```{r}
 period_rest <- c(1958, 2017)
@@ -300,6 +302,7 @@ While $\hat{\mathrm{S}}$ is used --sometimes as $2/\pi\arcsin \left (\hat{\mathr
 (*xx hasta acá xx*)
 
 ## QS activity 
+Discussion..
 
 Defining quasi-stationary waves as a property of the a climatology of set of atmospheric fields, precludes, in principle, the possibility of quantifying a QS metric that applies to instantaneous fields. It would seem impossible to, for example, construct an time series of QS activity that could be use as a basis for correlations with other variables, compositions or for use in other methodologies. But there are ways of solving this issue.
 
