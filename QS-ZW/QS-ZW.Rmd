@@ -24,10 +24,10 @@ keypoints:
 abstract: |
    In the meteorological literature the analysis of the zonally asymmetric 
    it is very common to analyse 
-output: 
+output:
+   word_document: default
    rticles::agu_article:
       keep_tex: true
-   word_document: default
 bibliography: qszw.bib
 header-includes: 
       - \usepackage{gensymb} 
