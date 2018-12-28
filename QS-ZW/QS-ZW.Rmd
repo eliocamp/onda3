@@ -22,10 +22,8 @@ keypoints:
   - "This distinction has theoretical and practical implications"
   - "The relationship between the mean ZW amplitude and QS amplitude yields an estimate of stationarity"
 abstract: |
-   In the meteorological literature the analysis of the zonally asymmetric 
-   it is very common to analyse 
+   Abstract goes here
 output:
-   word_document: default
    rticles::agu_article:
       keep_tex: true
 bibliography: qszw.bib
@@ -61,7 +59,7 @@ name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(cache = TRUE,
                       warning = FALSE, 
                       message = FALSE,
-                      cache.extra = 1,
+                      cache.extra = 2,
                       cache.path = paste0("cache/", name, "/"),
                       fig.path = paste0("fig/", name, "/"),
                       fig.align = "center")
@@ -115,18 +113,22 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 
 ```
 
-
 # Introduction
 
-Zonal waves, also called planetary waves, that can develop in the extratropical latitudes of the Southern Hemisphere (SH), have received some attention by the scientific community because of its role in modulating weather systems and regional climate (xxREF). They are typically characterized by applying Fourier decomposition to hemispheric anomalies of sea-level pressure of geopotential heights. On the other hand, “stationary waves” or “quasi-stationary waves” are terms generally reserved in the literature to the zonal asymmetries of the time mean field ($\overline{\phi}^*$). These terms are sometimes used interchangeably in the SH circulation related studies [e.g. @Rao2004; @Raphael2004; @Kravchenko2012; @Irving2015; @Turner2017; @Lastovicka2018]. 
+Zonal waves, also called planetary waves, that can develop in the extratropical latitudes of the Southern Hemisphere (SH), have received some attention by the scientific community because of its role in modulating weather systems and regional climate (xxREF). They are typically characterized by applying Fourier decomposition to hemispheric anomalies of sea-level pressure or geopotential heights. On the other hand, “stationary waves” or “quasi-stationary waves” are terms generally reserved in the literature to the zonal asymmetries of the time mean field ($\overline{\phi}^*$). These terms are sometimes used interchangeably in the SH circulation related studies [e.g. @Rao2004; @Raphael2004; @Kravchenko2012; @Irving2015; @Turner2017; @Lastovicka2018]. This leads to both inter and intra-studies inconsistencies. 
 
-*xx me parece que la explicación de cada uno tiene que venir después de las definiciones de la siguiente sección* 
+As an example of the former, @Quintanar1995a use the term “quasi-stationary waves (QS)” as defined by the zonally asymmetric componet of the climatological mean field. @Raphael2004 used the term "zonal wave (ZW)" when describing her index of planetary waves with wavenumber 3 that coincided in phase with the phase of the QS wave. @Irving2015 compare @Raphael2004's QS index with their own index computed as the integrated southern hemisphere zonal "waviness" irrespective of phase. 
 
-However, it is not evident from the current knowledge, how “stationary” or “quasi-stationary” the zonal waves are in the SH. The focus of this study is then to assess the  xx...me preocupa que haya papers olvidados sobre este tema.
+As for intra-studies inconsistencies, @Rao2004 follow the nomenclature of @Quintanar1995a for QS, but they analize the mean amplitude of ZW instead of the amplitude of QS. @Kravchenko2012 analyze temperature ZW amplitude as a predictor of total ozone, but call it "quasi-stationary amplitude". @Turner2017 use the terms “planetary wave k”, “quasi-stationary wave k” and “wave number k” to describe analysis of QS associated with different wavenumbers k. Furthermore, @Lastovicka2018 study QS and ZW but they use the term “stationary planetary wave (SPW)” to refer to both.
+
+The focus of this study is to stablish a clear distinction between ZW and QS and to show that the differences between the two convey meaningful information. We derive a measure of planetary wave stationarity from the ratio of QS to ZW amplitudes.
+
+It is evident from the recent literature that both terms, QS and ZW, have been used interchangeably. However, there are not recent studies assessing how “stationary” or “quasi-stationary” the zonal waves are in the SH. The focus of this study is then to assess the...
+
 
 # Zonal waves and quasi-stationary waves 
 
-In this study we define *planetary waves* as waves that encompass a full latitude circle. Planetary waves of the "instantaneous" fields will be called *zonal waves* (ZW) and the ones of the field mean will be called *quasi-stationary waves* (QS). They are characterised by their wavenumber, amplitude and phase such that 
+In this study we define *planetary waves* as waves that extend along a full latitude circle. Planetary waves of the “instantaneous” fields are called in this study, *zonal waves* (ZW), and the ones of the field mean will be called *quasi-stationary waves* (QS). They are characterized by their wavenumber, amplitude and phase such that
 
 \begin{linenomath*}
 \begin{eqnarray}\label{eq:ZW}
@@ -135,16 +137,13 @@ In this study we define *planetary waves* as waves that encompass a full latitud
 \end{eqnarray}
 \end{linenomath*}
 
-where $\mathrm{k}$ is the wavenumber, $\lambda$ the longitude, and $\mathrm{A_{x}}$ and $\alpha_\mathrm{x}$, the amplitude and phase of each wave, respectively. Note that $\mathrm{ZWk}(t)$ is made expressly dependent on time, while $\mathrm{QSk}$ is not. Furthermore, from the properties of wave superposition it can be seen that, in general, $\alpha_\mathrm{QSk}$ does not equal $\overline{\alpha_\mathrm{ZWk}}$ an that $A_\mathrm{QSk}$ will always be less or equal than $\overline{A_\mathrm{ZWk}}$ [@Pain2005]. 
+where $\mathrm{k}$ is the wavenumber, $\lambda$ the longitude, and $\mathrm{A_{x}}$ and $\alpha_\mathrm{x}$, the amplitude and phase of each wave, respectively. Note that $\mathrm{ZWk}(t)$ is, by construction, explicitly dependent on time, while $\mathrm{QSk}$ is not. Furthermore, from the properties of wave superposition it can be seen that, in general, $\alpha_\mathrm{QSk}$ does not equal $\overline{\alpha_\mathrm{ZWk}}$ an that $A_\mathrm{QSk}$ will always be less or equal than $\overline{A_\mathrm{ZWk}}$ [@Pain2005]. 
 
 While these definitions depend on which are the "instantaneous field" in question (monthly, daily, sub daily, etc...) and the averaging time scale, they illustrate that ZW are properties of the *elements* of the set, while QS are properties of the set as a whole. This is an important distinction with theoretical and methodological implications that is not always differentiated in the literature.
 
-For example, while @Quintanar1995a use the term "quasi-stationary waves (QS)" to refer to geopotential QS as defined by Equation \ref{eq:QS}, @Raphael2004 developed an index of QS3 but uses the term "zonal wave (ZW)" in her description. This change in naming convention is not recognized by @Irving2015, who compare @Raphael2004's QS index with their own index of southern hemisphere ZW amplitude. 
-
-@Rao2004, on the other hand, follow the nomenclature from @Quintanar1995a for QS, but in their exploration of its climatology, they use $\overline{A_\mathrm{ZWk}}$ instead of $A_\mathrm{QSk}$. @Kravchenko2012 do the same in the context of air temperature. @Turner2017 use the terms "planetary wave *k*", "quasi-stationary wave *k*" and "wave number *k*" to refer to $\mathrm{QSk}$, but they analyse $A_\mathrm{ZWk}$ and $\alpha_\mathrm{ZWk}$. Finally, @Lastovicka2018 study QS and ZW but they use the term "stationary planetary wave (SPW)" to refer to both. 
 
 ```{r read-rao}
-period_rao <- c("1950", "1998")
+period_rao <- c("1980", "2017")
 period_cap_rao <- glue("From monthly NCEP/NCAR Reanalysis, {period_rao[1]} to {period_rao[2]}")
 rao_data <- ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.mon.mean.nc"), c(gh = "hgt") ,
                        subset = list(lat = -60, 
@@ -227,7 +226,7 @@ Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of planetary wave
 Figure \ref{fig:rao} shows that both amplitudes have different annual cycles and vertical structures. $A_\mathrm{QS2}$ has a strong minimum in the low stratosphere during the austral autumn that is not apparent in $\overline{A_\mathrm{ZW2}}$. Similarly, the austral winter mid-tropospheric maximum is very well defined in $\overline{A_\mathrm{ZW3}}$ but not so in $A_\mathrm{QS3}$. The relative individual contribution of each wavenumber is also different. $\overline{A_\mathrm{ZW}}$ fields shows a preponderance of wave 2 over 3 in almost every level and month. However, $A_\mathrm{QS3}$ is larger than $A_\mathrm{QS2}$ in the first half of the year. In contrast with wavenumbers 2 and 3, $\overline{A_\mathrm{ZW1}}$ and $A_\mathrm{QS1}$ fields are very similar.
 
 ```{r}
-period_rest <- c(1958, 2017)
+period_rest <- period_rao
 period_cap <- glue("From monthly NCEP/NCAR Reanalysis, {period_rest[1]} to {period_rest[2]}")
 
 ncep <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "hgt.mon.mean.nc"), c(gh = "hgt") ,
