@@ -176,64 +176,52 @@ Abstract goes here
 Zonal waves, also called planetary waves, that can develop in the
 extratropical latitudes of the Southern Hemisphere (SH), have received
 some attention by the scientific community because of its role in
-modulating weather systems and regional climate (xxREF). They are
-typically characterized by applying Fourier decomposition to hemispheric
-anomalies of sea-level pressure or geopotential heights. On the other
-hand, ``stationary waves'' or ``quasi-stationary waves'' are terms
-generally reserved in the literature to the zonal asymmetries of the
-time mean field (\(\overline{\phi}^*\)). These terms are sometimes used
-interchangeably in the SH circulation related studies
-\citep[e.g.][]{Rao2004, Raphael2004, Kravchenko2012, Irving2015, Turner2017, Lastovicka2018}.
-This leads to both inter and intra-studies inconsistencies.
+modulating weather systems and regional climate (xxREF). Researches
+typically characterize them by applying Fourier decomposition to
+hemispheric anomalies of sea-level pressure or geopotential heights. On
+the other hand, ``stationary waves'' or ``quasi-stationary waves'' are
+terms generally reserved in the literature to the zonal asymmetries of
+the time mean field (\(\overline{\phi}^*\)).
 
-As examples of the former, \citet{Quintanar1995a} define
-``quasi-stationary waves (QS)'' as the zonally asymmetric component of
-the climatological mean field. \citet{Raphael2004}, conversely, use the
-term ``zonal wave (ZW)'' when describing her index of planetary waves
-with wavenumber 3 in phase with the climatological mean wave 3.
-\citet{Irving2015} compare \citet{Raphael2004}'s QS index with their own
-index computed as the integrated southern hemisphere zonal ``waviness''
-irrespective of phase.
+\citet{Loon1972} called the zonal asymmetries in the time-mean southern
+hemisphere geopotential ``standing waves'' and distinguished them from
+the asymmetries of the daily fields, which he called ``daily waves''.
+Other studies use different terminology: \citet{Quintanar1995a} and
+\citet{Rao2004} called them ``quasi-stationary waves'',
+\citet{Turner2017} used ``planetary waves'' as a synonym, and
+\citet{Raphael2004} and \citet{Irving2015} called them ``zonal waves''.
+\citet{Kravchenko2012} and \citet{Lastovicka2018} used the terms
+``quasi-stationary waves'' and ``stationary planetary waves'',
+respectively, but in reference to waves in the individual fields (the
+``daily waves'', following \citet{Loon1972} terminology).
 
-As for intra-studies inconsistencies, \citet{Rao2004} follow the
-nomenclature of \citet{Quintanar1995a} for QS, but they analyze the mean
-amplitude of ZW instead of the amplitude of QS. \citet{Kravchenko2012}
-analyze temperature ZW amplitude as a predictor of total ozone, but call
-it ``quasi-stationary amplitude''. \citet{Turner2017} use ``planetary
-wave k'', ``quasi-stationary wave k'' and ``wave number k'' as
-synonymous in their analysis of QS associated with different wavenumbers
-k. Furthermore, \citet{Lastovicka2018} study QS and ZW but they use the
-term ``stationary planetary wave (SPW)'' to refer to both.
+These studies also use different methods. \citet{Loon1972} and
+\citet{Quintanar1995a} averaged the fields and then computed the wave
+amplitude, while \citet{Rao2004} and \citet{Turner2017} computed the
+wave amplitudes of the individual fields and then averaged the
+amplitudes. \citet{Raphael2004} and \citet{Irving2015} constructed
+indexes of the amplitude of planetary waves, but the former one is
+sensitive to waves in phase with the mean wave, while the latter
+captures all waviness irrespective of phase.
 
-As the name suggests, it is recognized that QS are not completely
-stationary. They are the result of the superposition of many individual
-ZW, hence there can be variability of their individual phases. However,
-there are not recent studies assessing how ``stationary'' or
-``quasi-stationary'' ZW are in the SH.
+Quasi-stationary waves arise from the superposition of individual
+``daily waves'' with similar phase. However, no recent studies assessed
+\emph{how} similar, and thus, how ``stationary'' are
+``quasi-stationary'' waves.
 
-In this study we show that the degree of stationarity of
-quasi-stationary waves is related to the distinction between QS and ZW.
-We propose using the ratio between the amplitude of QS and the mean
-amplitude of ZW as a measure of QS stationarity. By this measure, we
-show that planetary waves with wavenumbers 2 and 3 are significantly
-less stationary in the southern hemisphere than in the northern
-hemisphere.
+In this study we distinguish between quasi-stationary waves and zonal
+waves and show that the mean amplitude of zonal waves differ from the
+amplitude of quasi-stationary waves. We exploit this difference to
+construct a measure of quasi-stationary wave stationarity and show that
+planetary waves with wavenumbers 2 and 3 are significantly less
+stationary in the southern hemisphere than in the northern hemisphere.
 
 \section{Methods}
 
-\subsection{Data}
-
-We will use monthly geopotential fields from the NCEP/NCAR Reanalysis
-\citep{Kalnay1996} for the period 1980 to 2017.
-
-\subsection{Zonal waves and quasi-stationary waves}
-
-In this study we define \emph{planetary waves} as waves that extend
-along a full latitude circle. Planetary waves of the ``instantaneous''
-fields are called in this study, \emph{zonal waves} (ZW), and the ones
-of the field mean will be called \emph{quasi-stationary waves} (QS).
-They are characterized by their wavenumber, amplitude and phase such
-that
+We define \emph{planetary waves} as waves that extend along a full
+latitude circle. \emph{Zonal waves} (ZW) are planetary waves of the
+``instantaneous'' fields and \emph{quasi-stationary waves} (QS),
+planetary waves of the time-mean field such that:
 
 \begin{linenomath*}
 \begin{eqnarray}\label{eq:ZW}
@@ -242,31 +230,32 @@ that
 \end{eqnarray}
 \end{linenomath*}
 
-where \(\mathrm{k}\) is the wavenumber, \(\lambda\) the longitude, and
-\(\mathrm{A_{x}}\) and \(\alpha_\mathrm{x}\), the amplitude and phase of
-each wave, respectively. Note that \(\mathrm{ZWk}(t)\) is, by
-construction, explicitly dependent on time, while \(\mathrm{QSk}\) is
-not. Furthermore, from the properties of wave superposition it can be
-seen that, in general, \(\alpha_\mathrm{QSk}\) does not equal
-\(\overline{\alpha_\mathrm{ZWk}}\) an that \(A_\mathrm{QSk}\) will
-always be less or equal than \(\overline{A_\mathrm{ZWk}}\)
-\citep{Pain2005}.
+where \(\mathrm{k}\) is wavenumber, \(\lambda\) longitude, and
+\(\mathrm{A_{x}}\) and \(\alpha_\mathrm{x}\), amplitude and phase,
+respectively. \(\mathrm{ZWk}(t)\) depends on time, but not
+\(\mathrm{QSk}\). From the properties of wave superposition we can
+deduce that, in general,
+\(\alpha_\mathrm{QSk} \ne \overline{\alpha_\mathrm{ZWk}}\) and
+\(A_\mathrm{QSk} \le \overline{A_\mathrm{ZWk}}\) \citep{Pain2005}.
 
-While these definitions depend on which are the ``instantaneous field''
-in question (monthly, daily, sub daily, etc\ldots{}) and the averaging
-time scale, they illustrate that ZW are properties of the
-\emph{elements} of the set, while QS are properties of the set as a
-whole. This is an important distinction with theoretical and
-methodological implications that is not always differentiated in the
-literature.
+These definitions depend on which are the ``instantaneous fields'' and
+the averaging time-scales. A dataset of 365 daily mean fields defines
+365 daily zonal waves and 1 annual quasi-stationary wave but 12 monthly
+quasi-stationary waves (per level and latitude). A 30 year dataset of
+monthly mean fields define 360 monthly zonal waves and 1 30-year
+quasi-stationary wave. Monthly planetary waves are quasi-stationary
+waves in one case and zonal waves in the other.
+
+Here we use monthly geopotential fields from the NCEP/NCAR Reanalysis
+\citep{Kalnay1996} for the period 1948 to 2017 and compute one
+quasi-stationary wave for the whole period for each month, level and
+wavenumber.
 
 \section{Results}
 
-\subsection{Amplitude}
-
 \begin{figure}[h]
 
-{\centering \subfloat[At 60\degree S\label{fig:rao1}]{\includegraphics{fig/QS-ZW/rao-1} }\newline\subfloat[At 60\degree N\label{fig:rao2}]{\includegraphics{fig/QS-ZW/rao-2} }
+{\centering \subfloat[At 60\degree N\label{fig:rao1}]{\includegraphics{fig/QS-ZW/rao-1} }\newline\subfloat[At 60\degree S\label{fig:rao2}]{\includegraphics{fig/QS-ZW/rao-2} }
 
 }
 
@@ -275,50 +264,39 @@ literature.
 
 Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of
 planetary waves at 60\degree S and 60\degree N using monthly fields from
-the NCEP/NCAR reanalysis \citep{Kalnay1996} between 1980 and 2017. The
-left column (\(A_\mathrm{QS}\)) is computed by taking the amplitude of
-the averaged geopotential field for each month, level and wavenumber.
-The right column (\(\overline{A_\mathrm{ZW}}\)) is computed by taking
-the average amplitude of the 49 individual ZW.
+the NCEP/NCAR reanalysis \citep{Kalnay1996} between 1948 and 2017. We
+computed the left column (\(A_\mathrm{QS}\)) as the amplitude of the
+average geopotential field for each month, level and wavenumber, and the
+right column (\(\overline{A_\mathrm{ZW}}\)) as the average amplitude of
+the 70 individual fields.
 
-Figure \ref{fig:rao1} (60\degree S) shows that for planetary wave 1,
-\(A_\mathrm{QS1}\) and \(\overline{A_\mathrm{ZW1}}\) have similar
-vertical structures, seasonal cycles and even magnitude. On the other
-hand, \(A_\mathrm{QS2}\) is much smaller than
-\(\overline{A_\mathrm{ZW2}}\) and its seasonal cycle is much less
-defined. \(A_\mathrm{QS3}\) has a smaller magnitude than
-\(\overline{A_\mathrm{ZW3}}\) but they have an overall similar structure
-of one relative maximum in February-March in the middle troposphere and
-another in July-August that extends to the lower stratosphere. But the
-details are different, particularly there is a local \(A_\mathrm{QS3}\)
-minimum in November that is not present in
-\(\overline{A_\mathrm{ZW3}}\). The relative individual contribution of
-each wavenumber is also different. \(\overline{A_\mathrm{ZW2}}\) is of
-higher magnitude than \(\overline{A_\mathrm{ZW3}}\) in the stratosphere
-and of similar magnitude in the troposphere. Conversely,
-\(A_\mathrm{QS2}\) is much smaller than \(A_\mathrm{QS3}\) throughout
-the year and in almost every level with the exception of the
-aforementioned November minimum.
+Figure \ref{fig:rao1} shows that at 60\degree N for the three
+wavenumbers \(A_\mathrm{QS}\) and \(\overline{A_\mathrm{ZW}}\) have a
+similar seasonal cycle with similar vertical extent. In the southern
+hemisphere, however, this is true only for wavenumber 1 (Figure
+\ref{fig:rao2}). \(A_\mathrm{QS2}\) is much smaller than
+\(\overline{A_\mathrm{ZW2}}\) and its seasonal cycle is less defined.
+\(A_\mathrm{QS3}\) has a smaller magnitude than
+\(\overline{A_\mathrm{ZW3}}\) end even though their overall structure is
+similar (one relative maximum in February-March in the middle
+troposphere and another in July-August that extends to the lower
+stratosphere), they differ in the details. \(A_\mathrm{QS3}\) has a
+local minimum in November that is absent in
+\(\overline{A_\mathrm{ZW3}}\). The relative contribution of each
+wavenumber is also different. While \(\overline{A_\mathrm{ZW2}}\)
+dominates over \(\overline{A_\mathrm{ZW3}}\) in the stratosphere and is
+of similar magnitude in the troposphere, \(A_\mathrm{QS3}\) dominates
+over \(A_\mathrm{QS2}\) throughout the year and in every level except in
+the aforementioned November minimum.
 
-In contrast to Figure \ref{fig:rao1}, Figure \ref{fig:rao2} shows that
-at 60\degree N \(A_\mathrm{QS}\) and \(\overline{A_\mathrm{ZW}}\) are
-very similar for the three wavenumbers. In all cases they have a similar
-seasonal cycle with similar vertical extent. This shows that the
-difference between \(A_\mathrm{QS}\) and \(\overline{A_\mathrm{ZW}}\)
-are location-dependent.
-
-\subsection{Stationarity Index}
-
-\citet{Loon1972} recognized the distinction between
-\(\overline{A_\mathrm{ZW}}\) and \(A_\mathrm{QS}\) and, deduced that
-``the daily phases of waves 2 and 4-6 at 50\degree S must therefore be
-random since the waves almost cancel themselves when added, whereas 1
-and 3 must recur consistently in certain longitudes since they are
-significantly large in the climatological mean''. This observation
-motivates that stationary conditions in the circulation of the SH could
-be measured using the quotient between the two quantities. As an analogy
-with the constancy of the wind \citep{Singer1967}, the stationarity of
-the QS can be estimated as
+\citet{Loon1972} also recognized these differences. He observed that
+daily zonal waves 2, 4, 5 and 6 had big amplitudes but, unlike zonal
+waves 1 and 3, their quasi-stationary wave counterparts were negligible.
+He deduced that zonal waves 1 and 3 were exceptionally consistent in
+phase and thus had what he called a ``standing wave component''. We
+quantify this observation as the quotient between \(A_\mathrm{QS}\) and
+\(\overline{A_\mathrm{ZW}}\). As an analogy with the constancy of the
+wind \citep{Singer1967}, we define quasi-stationary wave stationarity as
 
 \begin{linenomath*}
 \begin{equation}\label{eq:S}
@@ -326,13 +304,19 @@ the QS can be estimated as
 \end{equation}
 \end{linenomath*}
 
-It can be shown that \(\hat{S} = 1\) for completely stationary waves. On
-the other hand, it can be demonstrated that the expected amplitude of
-the sum of \(n\) waves with random phases and mean amplitude \(A\) is
-\(An^{-1/2}\) \citep{Pain2005}. Thus, for completely non stationary
-waves, the expected value of \(\hat{S}\) is \(n^{-1/2}\).
+For a sample of \(n\) completely random waves, the expected value of
+\(\hat{S}\) is \(n^{-1/2}\) because the average amplitude of the sum of
+\(n\) waves with random phases and mean amplitude \(A\) is \(An^{-1/2}\)
+\citep{Pain2005}. For completely stationary waves \(\hat{S} = 1\)
+irrespective of sample size.
 
-\(\hat{S}\) can equivalently be mathematically defined as
+While \(\hat{S}\) is used --sometimes as
+\(2/\pi\arcsin \left (\hat{S} \right )\) \citep{Singer1967}-- in the
+meteorological literature in the context of wind steadiness
+\citep[e.g][]{Hiscox2010}, to our knowledge this is the first time it
+has been applied to the study of atmospheric waves.
+
+Equation \ref{eq:S} is equivalent to
 
 \begin{linenomath*}
 \begin{equation}\label{eq:S2}
@@ -340,29 +324,15 @@ waves, the expected value of \(\hat{S}\) is \(n^{-1/2}\).
 \end{equation}
 \end{linenomath*}
 
-The numerator is the sum of the projections of each \(\mathrm{ZW}\) onto
-the direction of the \(\mathrm{QS}\). Equation \ref{eq:S2} has some
-advantages over Equation \ref{eq:S}. First, it makes is clear that
-stationarity is a mixture of a phase effect and an amplitude effect.
-Secondly, one can, in principle, replace \(\alpha_{qs}\) with any
-direction of interest, allowing to evaluate \(\hat{S}(\alpha)\). This
-can also be useful for removing variability due to the seasonal cycle.
-The position of the monthly QS3 has a shift of about 15\degree between
-January and July \citep{Loon1972}, so by replacing \(\alpha_{qs}\) with
-\(\alpha_{qs}(month)\) (one for each month) one can evaluate
-stationarity with respect to the seasonal changing position of the mean
-wave. Finally, it is possible to transform the sums into running sums
-with window \(w\) and obtain \(\hat{S}(w, t)\) and analyse variations of
-stationarity with time.
+The numerator adds the amplitudes of the zonal waves projected onto the
+direction of the quasi-stationary wave. Equation \ref{eq:S2} clarifies
+that stationarity arises from effects involving both phase and
+amplitude.
 
-While \(\hat{S}\) is used --sometimes as
-\(2/\pi\arcsin \left (\hat{S} \right )\) \citep{Singer1967}-- in the
-meteorological literature in the context of wind steadiness, to our
-knowledge this is the first time it has been applied to the study of
-atmospheric waves. However, its statistical properties are not well
-studied. One problem with \(\hat{S}\) is that, as seen above, its
-estimation from a finite sample has a positive bias, but its convergence
-properties are not explored.
+We use Equation \ref{eq:S2} to compute a timeseries of quasi-stationary
+wave stationarity. We first calculated \(\alpha_{qs}\) for each month
+and then, applied Equation \ref{eq:S2} with a 10-year rolling window
+(using loess regression with degree).
 
 \begin{figure}[h]
 
@@ -371,6 +341,15 @@ properties are not explored.
 }
 
 \caption{Seasonal cycle of stationarity at 60\degree S and 60\degree N computed using Equation \ref{eq:S}}\label{fig:stationarity}
+\end{figure}
+
+\begin{figure}[h]
+
+{\centering \includegraphics{fig/QS-ZW/s-timseries-1} 
+
+}
+
+\caption{Quasi-stationary wave stationarity for wavenumbers 1 to 3 }\label{fig:s-timseries}
 \end{figure}
 
 Figure \ref{fig:stationarity} shows \(\hat{S}\) for QS 1 to 3 computed
