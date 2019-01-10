@@ -234,9 +234,10 @@ where \(\mathrm{k}\) is wavenumber, \(\lambda\) longitude, and
 \(\mathrm{A_{x}}\) and \(\alpha_\mathrm{x}\), amplitude and phase,
 respectively. \(\mathrm{ZWk}(t)\) depends on time, but not
 \(\mathrm{QSk}\). From the properties of wave superposition we can
-deduce that, in general,
-\(\alpha_\mathrm{QSk} \ne \overline{\alpha_\mathrm{ZWk}}\) and
-\(A_\mathrm{QSk} \le \overline{A_\mathrm{ZWk}}\) \citep{Pain2005}.
+deduce that, in general, the stationary phase \(\alpha_\mathrm{QSk}\)
+does not equal \(\overline{\alpha_\mathrm{ZWk}}\) and the stationary
+amplitude \(A_\mathrm{QSk}\) is less or equal
+\(\overline{A_\mathrm{ZWk}}\) \citep{Pain2005}.
 
 These definitions depend on which are the ``instantaneous fields'' and
 the averaging time-scales. A dataset of 365 daily mean fields defines
@@ -255,7 +256,7 @@ wavenumber.
 
 \begin{figure}[h]
 
-{\centering \subfloat[At 60\degree N\label{fig:rao1}]{\includegraphics{fig/QS-ZW/rao-1} }\newline\subfloat[At 60\degree S\label{fig:rao2}]{\includegraphics{fig/QS-ZW/rao-2} }
+{\centering \subfloat[At 55\degree N\label{fig:rao1}]{\includegraphics{fig/QS-ZW/rao-1} }\newline\subfloat[At 55\degree S\label{fig:rao2}]{\includegraphics{fig/QS-ZW/rao-2} }
 
 }
 
@@ -263,14 +264,14 @@ wavenumber.
 \end{figure}
 
 Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of
-planetary waves at 60\degree S and 60\degree N using monthly fields from
+planetary waves at 55\degree S and 55\degree N using monthly fields from
 the NCEP/NCAR reanalysis \citep{Kalnay1996} between 1948 and 2017. We
 computed the left column (\(A_\mathrm{QS}\)) as the amplitude of the
 average geopotential field for each month, level and wavenumber, and the
 right column (\(\overline{A_\mathrm{ZW}}\)) as the average amplitude of
 the 70 individual fields.
 
-Figure \ref{fig:rao1} shows that at 60\degree N for the three
+Figure \ref{fig:rao1} shows that at 55\degree N for the three
 wavenumbers \(A_\mathrm{QS}\) and \(\overline{A_\mathrm{ZW}}\) have a
 similar seasonal cycle with similar vertical extent. In the southern
 hemisphere, however, this is true only for wavenumber 1 (Figure
@@ -316,6 +317,20 @@ meteorological literature in the context of wind steadiness
 \citep[e.g][]{Hiscox2010}, to our knowledge this is the first time it
 has been applied to the study of atmospheric waves.
 
+\begin{figure}[h]
+
+{\centering \includegraphics{fig/QS-ZW/stationarity-1} 
+
+}
+
+\caption{Seasonal cycle of stationarity at 55\degree S and 55\degree N computed using Equation \ref{eq:S}}\label{fig:stationarity}
+\end{figure}
+
+Figure \ref{fig:stationarity} shows \(\hat{S}\) for wavenumbers 1 to 3
+computed using Equation \ref{eq:S} at 55\degree N and 55\degree S.
+
+Quasi-stationary wave 1 is
+
 Equation \ref{eq:S} is equivalent to
 
 \begin{linenomath*}
@@ -326,22 +341,13 @@ Equation \ref{eq:S} is equivalent to
 
 The numerator adds the amplitudes of the zonal waves projected onto the
 direction of the quasi-stationary wave. Equation \ref{eq:S2} clarifies
-that stationarity arises from effects involving both phase and
-amplitude.
+that waves that deviate from the stationary phase decrease stationarity
+but only in proportion to their amplitude.
 
 We use Equation \ref{eq:S2} to compute a timeseries of quasi-stationary
 wave stationarity. We first calculated \(\alpha_{qs}\) for each month
-and then, applied Equation \ref{eq:S2} with a 10-year rolling window
-(using loess regression with degree).
-
-\begin{figure}[h]
-
-{\centering \includegraphics{fig/QS-ZW/stationarity-1} 
-
-}
-
-\caption{Seasonal cycle of stationarity at 60\degree S and 60\degree N computed using Equation \ref{eq:S}}\label{fig:stationarity}
-\end{figure}
+and then, applied Equation \ref{eq:S2} with a 15-year rolling window
+approximated using loess regression with degree 0.
 
 \begin{figure}[h]
 
@@ -349,11 +355,18 @@ and then, applied Equation \ref{eq:S2} with a 10-year rolling window
 
 }
 
-\caption{Quasi-stationary wave stationarity for wavenumbers 1 to 3 }\label{fig:s-timseries}
+\caption{Quasi-stationary wave stationarity for wavenumbers 1 to 3}\label{fig:s-timseries}
 \end{figure}
 
-Figure \ref{fig:stationarity} shows \(\hat{S}\) for QS 1 to 3 computed
-using Equation \ref{eq:S} at 60\degree S and 60\degree N. \ldots{}..
+Quasi-stationary wave stationarity remained high and constant for
+wavenumbers 1 to 3 at 55\degree N and 1 at 55\degree S. In contrast,
+wavenumbers 2 and 3 at 55\degree S varied in stationarity.
+Quasi-sationary wave 3 stationarity jumped from zero to more than 0.5 in
+just a few years in the 50's and then increased again in the late 70's.
+These could indicate either real changes in the atmospheric circulation
+or inhomogeneities in the reanalysis caused by changes in the
+observational network. The later increase is suspect because it
+coincides with the start of routine sattelite observations.
 
 \subsection{Considerations about phase}
 

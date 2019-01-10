@@ -60,7 +60,7 @@ name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(cache = TRUE,
                       warning = FALSE, 
                       message = FALSE,
-                      cache.extra = 2,
+                      cache.extra = 1,
                       cache.path = paste0("cache/", name, "/"),
                       fig.path = paste0("fig/", name, "/"),
                       fig.align = "center")
@@ -147,12 +147,12 @@ N <- diff(period_rao) + 1
 period_cap_rao <- glue("From monthly NCEP/NCAR Reanalysis, {period_rao[1]} to {period_rao[2]}")
 rao_data <- rbind(ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.mon.mean.nc"), 
                              c(gh = "hgt") ,
-                             subset = list(lat = -60, 
+                             subset = list(lat = -55, 
                                            time = gluec("{period_rao[1]}-01-01",
                                                         "{period_rao[2]}-12-31"))),
                   ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.mon.mean.nc"), 
                              c(gh = "hgt") ,
-                             subset = list(lat = 60, 
+                             subset = list(lat = 55, 
                                            time = gluec("{period_rao[1]}-01-01",
                                                         "{period_rao[2]}-12-31"))))
 setnames(rao_data, "level", "lev")
@@ -191,7 +191,7 @@ computed <- "computed as the amplitude of the mean wave ($A_\\mathrm{QSk}$) and 
 k_prefix <- AddPreffix("Wavenumber ")
 ```
 
-```{r rao, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 1 to 3 {computed}."), fig.subcap=c("At 60\\degree N", "At 60\\degree S"), fig.width=5, fig.ncol=1}
+```{r rao, fig.cap = glue("Seasonal cycle of amplitude of the geopotential planetary waves 1 to 3 {computed}."), fig.subcap=c("At 55\\degree N", "At 55\\degree S"), fig.width=5, fig.ncol=1}
 plot_crossection <- function(k, lat, binwidth) {
    ks <- k
    lats <- lat
@@ -230,18 +230,18 @@ plot_crossection <- function(k, lat, binwidth) {
 binwidths <- c(50, 10, 5)
 binwidths2 <- c(25, 10, 5)*2
 
-lapply(1:3, function(x) plot_crossection(x, 60, binwidths2[x]))  %>% 
+lapply(1:3, function(x) plot_crossection(x, 55, binwidths2[x]))  %>% 
    Reduce("+", .) + 
    plot_layout(ncol = 1) 
 
-lapply(1:3, function(x) plot_crossection(x, -60, binwidths[x]))  %>% 
+lapply(1:3, function(x) plot_crossection(x, -55, binwidths[x]))  %>% 
    Reduce("+", .) + 
    plot_layout(ncol = 1) 
 ```
 
-Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of planetary waves at 60\degree S and 60\degree N using monthly fields from the NCEP/NCAR reanalysis [@Kalnay1996] between `r period_rao[1]` and `r period_rao[2]`. We computed the left column ($A_\mathrm{QS}$) as the amplitude of the average geopotential field for each month, level and wavenumber, and the right column ($\overline{A_\mathrm{ZW}}$) as the average amplitude of the `r N` individual fields. 
+Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of planetary waves at 55\degree S and 55\degree N using monthly fields from the NCEP/NCAR reanalysis [@Kalnay1996] between `r period_rao[1]` and `r period_rao[2]`. We computed the left column ($A_\mathrm{QS}$) as the amplitude of the average geopotential field for each month, level and wavenumber, and the right column ($\overline{A_\mathrm{ZW}}$) as the average amplitude of the `r N` individual fields. 
 
-Figure \ref{fig:rao1} shows that at 60\degree N for the three wavenumbers $A_\mathrm{QS}$ and $\overline{A_\mathrm{ZW}}$ have a similar seasonal cycle with similar vertical extent. In the southern hemisphere, however, this is true only for wavenumber 1 (Figure \ref{fig:rao2}). $A_\mathrm{QS2}$ is much smaller than  $\overline{A_\mathrm{ZW2}}$ and its seasonal cycle is less defined. $A_\mathrm{QS3}$ has a smaller magnitude than $\overline{A_\mathrm{ZW3}}$ end even though their overall structure is similar (one relative maximum in February-March in the middle troposphere and another in July-August that extends to the lower stratosphere), they differ in the details. $A_\mathrm{QS3}$ has a local minimum in November that is absent in $\overline{A_\mathrm{ZW3}}$. The relative contribution of each wavenumber is also different. While $\overline{A_\mathrm{ZW2}}$ dominates over $\overline{A_\mathrm{ZW3}}$ in the stratosphere and is of similar magnitude in the troposphere, $A_\mathrm{QS3}$ dominates over $A_\mathrm{QS2}$ throughout the year and in every level except in the aforementioned November minimum. 
+Figure \ref{fig:rao1} shows that at 55\degree N for the three wavenumbers $A_\mathrm{QS}$ and $\overline{A_\mathrm{ZW}}$ have a similar seasonal cycle with similar vertical extent. In the southern hemisphere, however, this is true only for wavenumber 1 (Figure \ref{fig:rao2}). $A_\mathrm{QS2}$ is much smaller than  $\overline{A_\mathrm{ZW2}}$ and its seasonal cycle is less defined. $A_\mathrm{QS3}$ has a smaller magnitude than $\overline{A_\mathrm{ZW3}}$ end even though their overall structure is similar (one relative maximum in February-March in the middle troposphere and another in July-August that extends to the lower stratosphere), they differ in the details. $A_\mathrm{QS3}$ has a local minimum in November that is absent in $\overline{A_\mathrm{ZW3}}$. The relative contribution of each wavenumber is also different. While $\overline{A_\mathrm{ZW2}}$ dominates over $\overline{A_\mathrm{ZW3}}$ in the stratosphere and is of similar magnitude in the troposphere, $A_\mathrm{QS3}$ dominates over $A_\mathrm{QS2}$ throughout the year and in every level except in the aforementioned November minimum. 
 
 @Loon1972 also recognized these differences. He observed that daily zonal waves 2, 4, 5 and 6 had big amplitudes but, unlike zonal waves 1 and 3, their quasi-stationary wave counterparts were negligible. He deduced that zonal waves 1 and 3 were exceptionally consistent in phase and thus had what he called a "standing wave component". We quantify this observation as the quotient between $A_\mathrm{QS}$ and $\overline{A_\mathrm{ZW}}$. As an analogy with the constancy of the wind [@Singer1967], we define quasi-stationary wave stationarity as 
 
@@ -255,13 +255,14 @@ For a sample of $n$ completely random waves, the expected value of $\hat{S}$ is 
 
 While $\hat{S}$ is used --sometimes as $2/\pi\arcsin \left (\hat{S} \right )$ [@Singer1967]-- in the meteorological literature in the context of wind steadiness [e.g @Hiscox2010], to our knowledge this is the first time it has been applied to the study of atmospheric waves. 
 
-```{r stationarity, fig.cap = "Seasonal cycle of stationarity at 60\\degree S and 60\\degree N computed using Equation \\ref{eq:S}", fig.align="center", fig.width=5}
+```{r stationarity, fig.cap = "Seasonal cycle of stationarity at 55\\degree S and 55\\degree N computed using Equation \\ref{eq:S}", fig.align="center", fig.width=5}
 rao_qs %>% 
    dcast(lev + month + lat + k ~ variable, value.var = "amplitude") %>% 
    .[, S := QS/ZW] %>% 
-   .[, lat_f := factor(lat, levels = c(60, -60))] %>% 
+   .[, lat_f := factor(lat, levels = c(55, -55))] %>% 
    ggplot(aes(month, lev)) +
    geom_contour_fill(aes(z = S), binwidth = 0.1) +
+   geom_contour(aes(z = S), breaks = 0.4, color = "black", size = 0.2) +
    scale_y_level("Pressure (hPa)") +
    scale_x_continuous("Month", breaks = 1:13, 
                       labels = c(month.abb, "13" = "Jan"),
@@ -273,9 +274,9 @@ rao_qs %>%
                                              lat_f = LatLabel))
 ``` 
 
-Figure \ref{fig:stationarity} shows $\hat{S}$ for wavenumbers 1 to 3 computed using Equation \ref{eq:S} at 60\degree S and 60\degree N. 
+Figure \ref{fig:stationarity} shows $\hat{S}$ for wavenumbers 1 to 3 computed using Equation \ref{eq:S} at 55\degree N and 55\degree S. 
 
-All wavenumbers are more stationary in the northern hemisphere than on the southern hemisphere. 
+Quasi-stationary wave 1 is 
 
 
 Equation \ref{eq:S} is equivalent to
@@ -288,12 +289,11 @@ Equation \ref{eq:S} is equivalent to
 
 The numerator adds the amplitudes of the zonal waves projected onto the direction of the quasi-stationary wave. Equation \ref{eq:S2} clarifies that waves that deviate from the stationary phase decrease stationarity but only in proportion to their amplitude. 
 
-We use Equation \ref{eq:S2} to compute a timeseries of quasi-stationary wave stationarity. We first calculated $\alpha_{qs}$ for each month and then, applied Equation \ref{eq:S2} with a 10-year rolling window approximated using loess regression with degree 0. 
+We use Equation \ref{eq:S2} to compute a timeseries of quasi-stationary wave stationarity. We first calculated $\alpha_{qs}$ for each month and then, applied Equation \ref{eq:S2} with a 15-year rolling window approximated using loess regression with degree 0. 
 
-
-```{r s-timseries, fig.cap = "Quasi-stationary wave stationarity for wavenumbers 1 to 3"}
+```{r s-timseries, fig.cap = "Quasi-stationary wave stationarity for wavenumbers 1 to 3", fig.width=5}
 pw <- rao_data %>%
-   .[, FitWave(gh, 1:3), by = .(lat, lev, time)]
+   .[lev == 500, FitWave(gh, 1:3), by = .(lat, lev, time)]
 
 pw[, phase.mean := mean.phase(amplitude, phase, k), 
    by = .(k, lat, lev, month(time))]
@@ -304,12 +304,12 @@ pw[, c("S", "S_se", "S_df") := predict(loess(cor ~ as.numeric(time), span = 10*1
    by = .(k, lat, lev)]
 pw[, S_se1 := S_se*stats::qt(0.95 / 2 + .5, S_df)]
 
-pw[lev == 500] %>% 
+pw %>% 
    ggplot(aes(time, S)) +
    geom_ribbon(aes(ymin = S - S_se1,
                    ymax = S + S_se1, group = factor(k)),
                alpha = 0.2) +
-   geom_line(aes(linetype = factor(k))) +
+   geom_line(aes(linetype = factor(k)), size = 1) +
    stat_subset(aes(subset = time == max(time),
                    # x = time + months(18),
                    label = k), geom = ggrepel::GeomTextRepel, 
@@ -317,11 +317,12 @@ pw[lev == 500] %>%
    scale_y_continuous(TeX("\\hat{S}")) +
    scale_x_datetime("Time", breaks = function(x) pretty(x, 15), 
                     date_labels = "%y") +
-   scale_linetype(guide = "none") +
+   scale_linetype_manual(guide = "none", values = c("1" = 1, "2" = 2, "3" = 3)) +
    facet_wrap(~lat, ncol = 1, labeller = labeller(lat = LatLabel),
               as.table = FALSE)
 ```
 
+Quasi-stationary wave stationarity remained high and constant for wavenumbers 1 to 3 at 55\degree N and 1 at 55\degree S. In contrast, wavenumbers 2 and 3 at 55\degree S varied in stationarity. Quasi-sationary wave 3 stationarity jumped from zero to more than 0.5 in just a few years in the 50's and then increased again in the late 70's. These could indicate either real changes in the atmospheric circulation or inhomogeneities in the reanalysis caused by changes in the observational network. The later increase is suspect because it coincides with the start of routine sattelite observations. 
 
 
 ## Considerations about phase 
