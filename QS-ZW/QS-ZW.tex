@@ -256,7 +256,7 @@ wavenumber.
 
 \begin{figure}[h]
 
-{\centering \subfloat[At 55\degree N\label{fig:rao1}]{\includegraphics{fig/QS-ZW/rao-1} }\newline\subfloat[At 55\degree S\label{fig:rao2}]{\includegraphics{fig/QS-ZW/rao-2} }
+{\centering \subfloat[At 50\degree N\label{fig:rao1}]{\includegraphics{fig/QS-ZW/rao-1} }\newline\subfloat[At 50\degree S\label{fig:rao2}]{\includegraphics{fig/QS-ZW/rao-2} }
 
 }
 
@@ -264,14 +264,14 @@ wavenumber.
 \end{figure}
 
 Figure \ref{fig:rao} shows the seasonal cycle of the amplitude of
-planetary waves at 55\degree S and 55\degree N using monthly fields from
+planetary waves at 50\degree S and 50\degree N using monthly fields from
 the NCEP/NCAR reanalysis \citep{Kalnay1996} between 1948 and 2017. We
 computed the left column (\(A_\mathrm{QS}\)) as the amplitude of the
 average geopotential field for each month, level and wavenumber, and the
 right column (\(\overline{A_\mathrm{ZW}}\)) as the average amplitude of
 the 70 individual fields.
 
-Figure \ref{fig:rao1} shows that at 55\degree N for the three
+Figure \ref{fig:rao1} shows that at 50\degree N for the three
 wavenumbers \(A_\mathrm{QS}\) and \(\overline{A_\mathrm{ZW}}\) have a
 similar seasonal cycle with similar vertical extent. In the southern
 hemisphere, however, this is true only for wavenumber 1 (Figure
@@ -323,13 +323,23 @@ has been applied to the study of atmospheric waves.
 
 }
 
-\caption{Seasonal cycle of stationarity at 55\degree S and 55\degree N computed using Equation \ref{eq:S}}\label{fig:stationarity}
+\caption{Seasonal cycle of stationarity at 50\degree S and 50\degree N computed using Equation \ref{eq:S}}\label{fig:stationarity}
 \end{figure}
 
 Figure \ref{fig:stationarity} shows \(\hat{S}\) for wavenumbers 1 to 3
-computed using Equation \ref{eq:S} at 55\degree N and 55\degree S.
+computed using Equation \ref{eq:S} at 50\degree N and 50\degree S. We
+separate between high and low stationarity with the ad-hoc threshold of
+0.4 (black line in Figure \ref{fig:stationarity}).
 
-Quasi-stationary wave 1 is
+At 50\degree N planetary waves 1, 2 and 3 are highly stationary in
+almost every month and level, and even more so planetary wave 1 at
+50\degree S.
+
+In the southern hemisphere, planetary wave 2 stationarity has a
+semianual cycle. It reaches its maximum in April and in
+August-September, plummeting to a deep minimum in June. Planetary wave 3
+stationarity peaks in February and slowly decreases towards a November
+deep minimum after witch increases sharply.
 
 Equation \ref{eq:S} is equivalent to
 
@@ -339,54 +349,55 @@ Equation \ref{eq:S} is equivalent to
 \end{equation}
 \end{linenomath*}
 
-The numerator adds the amplitudes of the zonal waves projected onto the
-direction of the quasi-stationary wave. Equation \ref{eq:S2} clarifies
-that waves that deviate from the stationary phase decrease stationarity
-but only in proportion to their amplitude.
+The numerator represents the sum of the zonal waves amplitudes projected
+onto the direction of the quasi-stationary wave. Waves that deviate from
+that direction decrease stationarity in proportion to their amplitude.
 
-We use Equation \ref{eq:S2} to compute a timeseries of quasi-stationary
+We used Equation \ref{eq:S2} to compute a timeseries of quasi-stationary
 wave stationarity. We first calculated \(\alpha_{qs}\) for each month
 and then, applied Equation \ref{eq:S2} with a 15-year rolling window
-approximated using loess regression with degree 0.
+approximated using loess regression with degree 0. The results for
+wavenumbers 1 to 3 at 50\degree N and 50\degree S are shown in Figure
+\ref{fig:s-timeseries}.
 
 \begin{figure}[h]
 
-{\centering \includegraphics{fig/QS-ZW/s-timseries-1} 
+{\centering \includegraphics{fig/QS-ZW/s-timeseries-1} 
 
 }
 
-\caption{Quasi-stationary wave stationarity for wavenumbers 1 to 3}\label{fig:s-timseries}
+\caption{Quasi-stationary wave stationarity for wavenumbers 1 to 3}\label{fig:s-timeseries}
 \end{figure}
 
 Quasi-stationary wave stationarity remained high and constant for
-wavenumbers 1 to 3 at 55\degree N and 1 at 55\degree S. In contrast,
-wavenumbers 2 and 3 at 55\degree S varied in stationarity.
-Quasi-sationary wave 3 stationarity jumped from zero to more than 0.5 in
-just a few years in the 50's and then increased again in the late 70's.
-These could indicate either real changes in the atmospheric circulation
-or inhomogeneities in the reanalysis caused by changes in the
-observational network. The later increase is suspect because it
-coincides with the start of routine sattelite observations.
+wavenumbers 1 to 3 at 50\degree N and 1 at 50\degree S but not for
+wavenumbers 2 and 3 at 50\degree S. Quasi-sationary wave 3 stationarity
+jumped from zero to more than 0.5 in less than five years in the 50's
+and increased again in the late 70's. These could indicate
+inhomogeneities caused by changes in the observational network --routine
+satellite observations began in 1979-- but the absense of similar breaks
+for wavenumbers 1 or 2 suggest they represent real changes in the
+atmospheric circulation with unknown cause.
 
 \subsection{Considerations about phase}
 
 \label{sec:phase}
 
 For defining local impacts, the phase of planetary waves is as important
-as their amplitude if not more. One way of dealing with the phase of ZW
-is to fix it. \citet{Yuan2008} use Principal Component Analysis on the
-meridional wind field to obtain a spatial pattern of the leading mode
-that is very similar to the QS3. The timeseries associated to this mode
-is, then, an indication of the intensity of the ZW3 that is similar to
-the QS3. A more direct approach is the index created by
-\citet{Raphael2004}. Since it is based on the geopotential height
-anomalies at the maximums of the QS3, it is sensitive to ZW3 patterns
-with phase close to the stationary phase. An almost mathematically
-equivalent approach (with correlation = 0.98) is to compute the
-projection of each \(\mathrm{ZW}\) onto the direction of the
-\(\mathrm{QS}\) (i.e.~the expression inside the sum of the numerator in
-Equation \ref{eq:S2}). This methodology has fewer constrains in that the
-phase of interest can be changed depending on the application.
+as their amplitude. One way of dealing with the phase of ZW is to fix
+it. \citet{Yuan2008} use Principal Component Analysis on the meridional
+wind field to obtain a spatial pattern of the leading mode that is very
+similar to the QS3. The timeseries associated to this mode is, then, an
+indication of the intensity of the ZW3 that is similar to the QS3. A
+more direct approach is the index created by \citet{Raphael2004}. Since
+it is based on the geopotential height anomalies at the maximums of the
+QS3, it is sensitive to ZW3 patterns with phase close to the stationary
+phase. An almost mathematically equivalent approach (with correlation =
+0.98) is to compute the projection of each \(\mathrm{ZW}\) onto the
+direction of the \(\mathrm{QS}\) (i.e.~the expression inside the sum of
+the numerator in Equation \ref{eq:S2}). This methodology has fewer
+constrains in that the phase of interest can be changed depending on the
+application.
 
 \section{Conclusions}
 
