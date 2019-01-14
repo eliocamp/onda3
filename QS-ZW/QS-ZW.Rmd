@@ -23,7 +23,11 @@ keypoints:
   - "The relationship between the mean ZW amplitude and QS amplitude yields an estimate of stationarity"
 abstract: >
    Abstract goes here
+knit: (function(file, encoding, ...) { 
+     rmarkdown::render(file, encoding = encoding, output_format = "all")}) 
 output:
+   word_document:
+      default
    rticles::agu_article:
       keep_tex: true
 bibliography: qszw.bib
@@ -32,6 +36,7 @@ header-includes:
       - \usepackage{soulutf8}
       - \usepackage{subfig}
 ---
+
 
 ```{r setup, include=FALSE}
 # Some recommended settings. 
@@ -116,15 +121,15 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
 
 # Introduction
 
-Zonal waves, also called planetary waves, that can develop in the extratropical latitudes of the Southern Hemisphere (SH), have received some attention by the scientific community because of its role in modulating weather systems and regional climate (xxREF). Researches typically characterize them by applying Fourier decomposition to hemispheric anomalies of sea-level pressure or geopotential heights. On the other hand, “stationary waves” or “quasi-stationary waves” are terms generally reserved in the literature to the zonal asymmetries of the time mean field ($\overline{\phi}^*$). 
+Even though many atmospheric variables depend strongly on latitude, they can deviate considerably from their latitudinally averaged value. These deviations modulate weather systems and regional climate through latitudan transport of heat, humidity, and momentum (REFS), and also can contribute to blocking patterns (REF). 
 
-@Loon1972 called the zonal asymmetries in the time-mean southern hemisphere geopotential "standing waves" and distinguished them from the asymmetries of the daily fields, which he called "daily waves". Other studies use different terminology: @Quintanar1995a and @Rao2004 called them "quasi-stationary waves", @Turner2017 used "planetary waves" as a synonym, and @Raphael2004 and @Irving2015 called them "zonal waves". @Kravchenko2012 and @Lastovicka2018 used the terms "quasi-stationary waves" and "stationary planetary waves", respectively, but in reference to waves in the individual fields (the "daily waves", following @Loon1972 terminology). 
+Because of their wave-like structure, @Loon1972 called the zonal asymmetries in the time-mean southern hemisphere geopotential "standing waves" and distinguished them from the asymmetries of the daily fields, which he called "daily waves". Other studies use different terminology: @Quintanar1995a and @Rao2004 called them "quasi-stationary waves", @Turner2017 used "planetary waves" as a synonym, and @Raphael2004 and @Irving2015 called them "zonal waves". @Kravchenko2012 and @Lastovicka2018 used the terms "quasi-stationary waves" and "stationary planetary waves", respectively, but in reference to waves in the individual fields (the "daily waves", following @Loon1972 terminology). 
 
 These studies also use different methods. @Loon1972 and @Quintanar1995a averaged the fields and then computed the wave amplitude, while @Rao2004 and @Turner2017 computed the wave amplitudes of the individual fields and then averaged the amplitudes. @Raphael2004 and @Irving2015 constructed indexes of the amplitude of planetary waves, but the former one is sensitive to waves in phase with the mean wave, while the latter captures all waviness irrespective of phase. 
 
 Quasi-stationary waves arise from the superposition of individual "daily waves" with similar phase. However, no recent studies assessed *how* similar, and thus, how "stationary" are "quasi-stationary" waves. 
 
-In this study we distinguish between quasi-stationary waves and zonal waves and show that the mean amplitude of zonal waves differ from the amplitude of quasi-stationary waves. We exploit this difference to construct a measure of quasi-stationary wave stationarity and show  that planetary waves with wavenumbers 2 and 3 are significantly less stationary in the southern hemisphere than in the northern hemisphere. 
+In this study we aim to distinguish between quasi-stationary waves and zonal waves and to show that the mean amplitude of zonal waves differ from the amplitude of quasi-stationary waves. We exploit this difference to construct a measure of quasi-stationary wave stationarity and show  that planetary waves with wavenumbers 2 and 3 are significantly less stationary in the southern hemisphere than in the northern hemisphere. 
 
 # Methods
 
@@ -139,7 +144,7 @@ We define *planetary waves* as waves that extend along a full latitude circle. *
 
 where $\mathrm{k}$ is wavenumber, $\lambda$ longitude, and $\mathrm{A_{x}}$ and $\alpha_\mathrm{x}$, amplitude and phase, respectively. $\mathrm{ZWk}(t)$ depends on time, but not $\mathrm{QSk}$. From the properties of wave superposition we can deduce that, in general, the stationary phase $\alpha_\mathrm{QSk}$ does not equal $\overline{\alpha_\mathrm{ZWk}}$ and the stationary amplitude $A_\mathrm{QSk}$ is less or equal $\overline{A_\mathrm{ZWk}}$ [@Pain2005]. 
 
-These definitions depend on which are the "instantaneous fields" and the averaging time-scales. A dataset of 365 daily mean fields defines 365 daily zonal waves and 1 annual quasi-stationary wave but 12 monthly quasi-stationary waves (per level and latitude). A 30 year dataset of monthly mean fields define 360 monthly zonal waves and 1 30-year quasi-stationary wave. Monthly planetary waves are quasi-stationary waves in one case and zonal waves in the other. 
+These definitions depend on which are the "instantaneous fields" and the averaging time-scales. A dataset of 365 daily mean fields defines 365 daily zonal waves and one annual quasi-stationary wave but 12 monthly quasi-stationary waves (per level and latitude). A 30 year dataset of monthly mean fields define 360 monthly zonal waves and one 30-year quasi-stationary wave. Monthly planetary waves are quasi-stationary waves in one case and zonal waves in the other. 
 
 ```{r read-rao}
 period_rao <- c(1948, 2017)
@@ -159,7 +164,7 @@ rao_data <- rbind(ReadNetCDF(here("DATA/NCEP Reanalysis/hgt.mon.mean.nc"),
 setnames(rao_data, "level", "lev")
 ```
 
-Here we use monthly geopotential fields from the NCEP/NCAR Reanalysis [@Kalnay1996] for the period `r period_rao[1]` to `r period_rao[2]` and compute one quasi-stationary wave for the whole period for each month, level and wavenumber.
+Here we use monthly geopotential fields from the NCEP/NCAR Reanalysis [@Kalnay1996] for the period `r period_rao[1]` to `r period_rao[2]` and compute one quasi-stationary wave for the whole period for each month, level and wavenumber. Amplitude and phase for each wavenumber was estimated by fitting a fourier transform for each latitude circle, level and monthly record.
 
 # Results
 
@@ -365,21 +370,25 @@ raphael_cor <- raphael[, cor(I3, proj.std)]
 ```
 
 
-
 For defining local impacts, the phase of planetary waves is as important as their amplitude. One way of dealing with the phase of ZW is to fix it. @Yuan2008 use Principal Component Analysis on the meridional wind field to obtain a spatial pattern of the leading mode that is very similar to the QS3. The timeseries associated to this mode is, then, an indication of the intensity of the ZW3 that is similar to the QS3. A more direct approach is the index created by @Raphael2004. Since it is based on the geopotential height anomalies at the maximums of the QS3, it is sensitive to ZW3 patterns with phase close to the stationary phase. An almost mathematically equivalent approach (with correlation = `r round(raphael_cor, 2)`) is to compute the projection of each $\mathrm{ZW}$ onto the direction of the $\mathrm{QS}$ (i.e. the expression inside the sum of the numerator in Equation \ref{eq:S2}). This methodology has fewer constrains in that the phase of interest can be changed depending on the application. 
 
 # Conclusions
 
+
 The fact that zonal waves (ZW) and quasi-stationary waves (QS) are two distinct but related phenomena has both practical and theoretical implications. 
 
-First, researchers should be aware of which phenomena they want to study and use the appropriate methods. The mean amplitude of the ZW could be appropriate to study the vertical propagation of Rossby waves, for example. But ZW amplitude could lead to misleading results if used as the basis of local impacts studies because they are probably more influenced by phase effects. 
+First, researchers should be aware of which phenomena they want to study and use the appropriate methods. The mean amplitude of zonal waves could be appropriate to study the vertical propagation of Rossby waves, for example. But zonal wave amplitude could lead to misleading results if used as the basis of local impacts studies because they are probably more influenced by phase effects. 
 
-Secondly, comparison between results should also be made having this issues in mind. For instance, @Irving2015 compare their planetary wave activity index with @Raphael2004's wave 3 index and conclude that the later cannot account for events with waves far removed from their climatological position. However, in light of the discussion in Section \ref{sec:phase}, this limitation becomes a feature, not a bug. 
+Secondly, comparison between results should also be made having this issues in mind. For instance, @Irving2015 compare their planetary wave activity index with @Raphael2004's wave 3 index and conclude that the later cannot account for events with waves far removed from their climatological position. However, being an index of the zonal wave component in phase with the quasi-stationary wave, this is by design. 
 
-Although having a consistent nomenclature across papers is desirable, we believe that this problems can be ameliorated by researchers detailing their definitions and methodology. This is also good for clarity and reproducibility. Since planetary waves are generally more stationary in the northern hemisphere, these issues are more critical for studies of the southern hemisphere. 
+Although having a consistent nomenclature across papers is important, we believe this problem can be ameliorated by researchers detailing their definitions and methodology. This is also good for clarity and reproducibility. Since planetary waves are generally more stationary in the northern hemisphere, these issues are more critical for studies of the southern hemisphere. 
 
 Thirdly, the explorations of both ZW and QS can lead to novel levels of analysis. Here, we showed it can be used to define a metric of stationarity of quasi-stationary waves, but other applications are also possible. @Smith2012 used the phase relationship between ZW1 and QS1 to show that linear interference between the QS1 and ZW1 was related to vertical wave activity transport at the tropopause. 
 
+
+---
+
+We speculate that the level of stationarity responds to the nature of the forcings. Higly stationary planetary waves are explained mainly by stationary forcings while low stationary planetary waves respond mainly to the internal variation of the atmosphere. This suggests that in the southern midlatitudes, wave 2 and 3 consist of forced responses mixed with internat variability. Their annual cycle further suggests that the mean state of the atmosphere can modulate these responses. 
 
 
 *xx me falta un final acá xx*
