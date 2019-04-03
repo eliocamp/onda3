@@ -48,22 +48,22 @@ Regression2D <- function(formula, data = NULL, B = 1, seed = 42) {
    
    eof <- svd(g$matrix)
    fit <- withr::with_seed(seed, glmnet::cv.glmnet(eof$u*sqrt(N), g$rowdims[[1]], standardize = FALSE))
-   lambda.min <- fit$lambda.min
+   lambda.min <<- fit$lambda.min
    r2 <- fit$glmnet.fit$dev.ratio[which(fit$glmnet.fit$lambda == fit$lambda.min)]
    coef <- c(as.matrix(coef(fit, s = lambda.min)))[-1]
    
-   nonzero <- coef != 0
-   fit <- .lm.fit(cbind(1, eof$u[, nonzero]*sqrt(N)), g$rowdims[[1]])
-   coef <- coef(fit)[-1]
+   # nonzero <- coef != 0
+   # fit <- .lm.fit(cbind(1, eof$u[, nonzero]*sqrt(N)), g$rowdims[[1]])
+   # coef <- coef(fit)[-1]
    
-   r2 <- 1 - var(fit$residuals)/var(g$rowdims[[1]])
+   # r2 <- 1 - var(fit$residuals)/var(g$rowdims[[1]])
    # k <- 21
    # eof <- svd(g$matrix, k, k)
    # eof$d <- eof$d[1:k] 
    # coef <- coef(.lm.fit(cbind(1, eof$u*sqrt(N)), g$rowdims[[1]]))[-1]
    
    E <- eof$v%*%diag(eof$d, nrow = length(eof$d))/sqrt(N)
-   coef <-  coef %*% t(E[, nonzero]) / var(g$rowdims[[1]])
+   coef <-  coef %*% t(E) / var(g$rowdims[[1]])
    
    set(g$coldims, NULL, value.var, c(coef))
    
@@ -112,9 +112,10 @@ resample <- function(data) {
 point_regression <- data[, FitLm(u, year, se = TRUE), by = .(lon, lat)]
 
 ggplot(point_regression[term == "year"], aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate)) +
+   geom_contour_fill(aes(z = estimate*10)) +
    geom_world +
-   scale_fill_divergent("Trend in U(300hpa)") +
+   scale_fill_divergent("Trend in U(300hpa)", 
+                        limits = c(-2, 2)) +
    coord_quickmap() +
    metR:::theme_field()
 
@@ -122,9 +123,10 @@ ggplot(point_regression[term == "year"], aes(lon, lat)) +
 
 data[, Regression2D(u ~ year | lat + lon)] %>% 
    ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = u)) +
+   geom_contour_fill(aes(z = u*10*1.21)) +
    geom_world +
-   scale_fill_divergent("Trend in U(300hpa)") +
+   scale_fill_divergent("Trend in U(300hpa)", 
+                        limits = c(-2, 2)) +
    coord_quickmap() +
    metR:::theme_field()
 
