@@ -1,0 +1,126 @@
+---
+title: "Field Significance of Regression Patterns"
+author: "Elio"
+output: 
+   pdf_document
+urlcolor: blue
+bibliography: "field-signf.bib"
+
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE, message = FALSE,
+                      out.extra = "", 
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/"))
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(metR)
+library(magrittr)
+library(circular)
+library(RcppRoll)
+library(patchwork)
+library(lubridate)
+
+here <- here::here
+source("scripts/helperfun.R")
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+```
+
+Esto es un intento de implementar y entender el método propuesto por [@DelSole2011] para calcular la significancia de los patrones de regresión. 
+
+## Idea básica
+
+La idea es que dado una serie de campos bidimensionales a lo largo del tiempo uno puede armar un campo de regresiones a partir de una serie temporal. Si el campo tiene M celdas, entonces hay que calcular M regresiones:
+
+$$
+\begin{align}
+y(t) &= \beta_1x_1(t) + \epsilon_1(t) \\
+y(t) &= \beta_2x_2(t) + \epsilon_2(t) \\
+&\cdots  \\
+y(t) &= \beta_Mx_M(t) + \epsilon_M(t) \\
+\end{align}
+$$
+
+Donde $x_i(t)$ representa el valor de la variable espacial en la celda iésima y el campo de regresión son los coeficientes $\beta_1, \beta_2, ...\beta_M$. Testear la significancia de este campo no es trivial. En general lo que se hace es testear cada $\beta_i$ por separado como si fuera independiente y obtener un "campo de significancia". Pero eso en realidad no es del todo válido porque ignora la correlación espacial entre los coeficientes y, más importante aún, la multiplicidad de tests. 
+
+[@DelSole2011] propone cambiar el problema. En vez de hacer M regresiones simples, hacer una regresión múltiple: 
+
+$$
+y(t) = \beta_1x_1(t) + \beta_2x_2(t) + ... + \beta_Mx_M(t) + \epsilon(t)
+$$
+
+para la cual se puede testear la $H_0 := B_i = 0 \; \forall i= 1, 2,...M$ sin más dificultad. Esto elimina el problema de multiplicidad y la correlación espacial. Simple, ¿no? Listo..
+
+No tan rápido. 
+
+Esta regresión funciona si la cantidad de predictores ($M$) es menor que la cantidad de datos usados para realizar el ajuste ($N$), pero en la mayoría de los casos hay mas más celdas que datos. Por ejemplo, un campo global de 2.5° de resolución se tiene $144\times 72 = 10368$ celdas. Si queremos hacer un mapa de regresión con la ecuación anterior usando datos mensuales serían necesarios más de 864 años de datos. Imposible. 
+
+El truquito ahora está en reconocer que la correlación espacial implica que en un campo global no hay $10368$ predictores independientes; existe mucha redundancia de información. Una forma de aprovechar esto es hacer la regresión en el espacio de las componentes principales usando sólo algunas (y siempre menos que $N$) y luego reconstruir el campo conseguido. Si la matriz de datos es $X$ (donde cada columna es un $x_i(t)$), hacemos 
+
+$$
+X = UDV^t
+$$
+
+Y pasamos a hacer la regresión
+
+$$
+y(t) = \beta_1u_1(t) + \beta_2u_2(t) + ... + \beta_Ku_K(t) + \epsilon(t)
+$$
+
+Donde $u_i$ son las columnas de $U$. Con $K < N$ nos aseguramos que la regresión ande bien. Luego, el campo de regresión es 
+$$
+BV^t
+$$
+
+(hay algunas constantes de normalización dando vuelta que no son demasiado importantes a la teoría --pero sí a la práctica!)
+
+Simple, ¿no? Listo..
+
+No tan rápido. 
+
+¿Cuántas y cuáles componentes principales elegir? 
