@@ -5,8 +5,12 @@ output:
    pdf_document
 urlcolor: blue
 bibliography: "field-signf.bib"
-
+markdown_extensions:
+    - admonition
 ---
+
+
+
 
 ```{r setup, include=FALSE}
 # Notification
@@ -26,6 +30,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
+                      cache.extra = 1, 
                       warning = FALSE, message = FALSE,
                       out.extra = "", 
                       cache.path = paste0("cache/", name, "/"),
@@ -77,14 +82,14 @@ Esto es un intento de implementar y entender el método propuesto por [@DelSole2
 
 La idea es que dado una serie de campos bidimensionales a lo largo del tiempo uno puede armar un campo de regresiones a partir de una serie temporal. Si el campo tiene M celdas, entonces hay que calcular M regresiones:
 
+
 $$
-\begin{align}
-y(t) &= \beta_1x_1(t) + \epsilon_1(t) \\
-y(t) &= \beta_2x_2(t) + \epsilon_2(t) \\
-&\cdots  \\
-y(t) &= \beta_Mx_M(t) + \epsilon_M(t) \\
-\end{align}
+y(t) = \beta_1x_1(t) + \epsilon_1(t) \\
+y(t) = \beta_2x_2(t) + \epsilon_2(t) \\
+\cdots  \\
+y(t) = \beta_Mx_M(t) + \epsilon_M(t) \\
 $$
+
 
 Donde $x_i(t)$ representa el valor de la variable espacial en la celda iésima y el campo de regresión son los coeficientes $\beta_1, \beta_2, ...\beta_M$. Testear la significancia de este campo no es trivial. En general lo que se hace es testear cada $\beta_i$ por separado como si fuera independiente y obtener un "campo de significancia". Pero eso en realidad no es del todo válido porque ignora la correlación espacial entre los coeficientes y, más importante aún, la multiplicidad de tests. 
 
@@ -97,6 +102,8 @@ $$
 para la cual se puede testear la $H_0 := B_i = 0 \; \forall i= 1, 2,...M$ sin más dificultad. Esto elimina el problema de multiplicidad y la correlación espacial. Simple, ¿no? Listo..
 
 No tan rápido. 
+
+## Selecciónd el modelo
 
 Esta regresión funciona si la cantidad de predictores ($M$) es menor que la cantidad de datos usados para realizar el ajuste ($N$), pero en la mayoría de los casos hay mas más celdas que datos. Por ejemplo, un campo global de 2.5° de resolución se tiene $144\times 72 = 10368$ celdas. Si queremos hacer un mapa de regresión con la ecuación anterior usando datos mensuales serían necesarios más de 864 años de datos. Imposible. 
 
@@ -123,4 +130,115 @@ Simple, ¿no? Listo..
 
 No tan rápido. 
 
-¿Cuántas y cuáles componentes principales elegir? 
+¿Cuántas y cuáles componentes principales elegir? Es el problema eterno. El paper propone seleccionar las primeras K componentes principales usando validación cruzada para juzgar el "mejor K". El procedimiento es el siguiente:
+
+Para k = 1 se ajusta el modelo N veces dejando de lado una observación por vez y computando la diferencia entre el y observado y el modelado. Se consiguen N errores y de estos se computa el $MSE$ y se asume que éste tiene un desvío estándar de $MSE/\sqrt{N}$. Se repíte el procedimiento para todos los k. El resutlado es una serie de $MSE(k)$. Se elije el mayor $k$ para el cual el $MSE$ esté dentro del intervalo de 1 desvío estándar del menor $MSE$ observado. 
+
+De forma general, esto es un problema de *feature selection* que tiene otras soluciones. Una alternativa es usar [LASSO](https://en.wikipedia.org/wiki/Lasso_(statistics)) o [ridge regression](https://en.wikipedia.org/wiki/Tikhonov_regularization), que penaliza los coeficientes "grandes". 
+
+## Ejemplos
+
+Voy a usar datos de viento zonal medio de DEF en 300hPa en el hemisferio norte para replicar lo que hicieron los autores del paper. 
+
+```{r}
+library(ggplot2)
+library(metR)
+library(data.table)
+library(magrittr)
+
+world <- subset(map_data("world2"), lat > 0)
+
+geom_world <- geom_path(data = world, aes(long, lat, group = group),
+                        size = 0.2)
+
+
+data <- ReadNetCDF("~/DATOS/NCEP Reanalysis/uwnd.mon.mean.nc", c(u = "uwnd"),
+                   subset = list(level = 300,
+                                 lat = c(0:90),
+                                 time = c("1948-01-01", "2009-12-31"))) %>% 
+   .[month(time) %in% c(12, 1, 2)] %>% 
+   .[, .(u = mean(u)), by = .(lat, lon, year(time))] 
+```
+
+```{r}
+source("Regression2D.R")
+```
+
+> Una aclaración importante es que los autores del paper usan leave-one-out crossvalidation, pero eso es **eterno** para una cantidad de datos medianamente grande, así que yo implementé k-fold crossvalidation con k = 10 por default. 
+
+```{r}
+point_regression <- data[, FitLm(u, year, se = TRUE), by = .(lon, lat)]
+cv_regression <- Regression2D(u ~ year | lat + lon, year, data = data) 
+lasso_regression <- Regression2D(u ~ year | lat + lon, year, data = data,
+                                 method = "lasso") 
+
+regression <- rbindlist(list(point = point_regression[term == "year",
+                                                      .(lon, lat, u = estimate)],
+                             cv = cv_regression$field, 
+                             lasso = lasso_regression$field), 
+                        use.names = TRUE, idcol = "type")
+```
+
+
+```{r, fig.height=5}
+ggplot(regression, aes(lon, lat)) +
+   # geom_raster(aes(fill = u)) +
+   geom_contour_fill(aes(z = u),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_world +
+   scale_fill_divergent("Trend in U(300hpa)") +
+   coord_quickmap() +
+   metR:::theme_field() +
+   facet_wrap(~type, ncol = 2)
+```
+
+Los campos de regresión son prácticamente iguales. La naturaleza de LASSO, que penaliza coeficientes grandes, hace que los valores absolutos sean menores. Podemos ver cuándos EOFs se usaron en la regresión, el $r^2$ del fit y su p-valor siguiendo la metodología del paper
+
+```{r}
+cv_regression$summary$eof <- sum(cv_regression$coef_eof != 0)
+lasso_regression$summary$eof <- sum(lasso_regression$coef_eof != 0)
+
+rbind(cv = unlist(cv_regression$summary[c("r2", "p.value", "eof")]),
+      lasso = unlist(lasso_regression$summary[c("r2", "p.value", "eof")]))
+```
+
+Aunque lo patrones son similares, usan distinta cantidad de EOF. La estimación del p-valor no sé si es válida para LASSO, ya que no es cuadrados mínimos, así que la distribución del $r^2$ posiblemente no sea la que dicen en el paper. Pero para ser justos, tampoco sé si con la validación cruzada sigue valiendo. 
+
+Un detalle para el caso de LASSO es que los EOFs que usa varían muchísimo si cambio la cantidad de EOFs que permito entrar a la regresión desde un principio
+
+```{r}
+table <- as.data.table(expand.grid(max_eof = c(round(seq(3, 60, length.out = 7)), 61:63),
+                                   type = c("lasso", "cv", "neof"))) %>% 
+   .[, Regression2D(u ~ year | lat + lon, year, data = data,
+                    max_eof = max_eof,
+                    method = type)$summary,
+     by = .(type, max_eof)] 
+
+lasso_v_cv <- function(value, data = table) {
+   dcast(data[type != "neof"], max_eof ~ type, value.var = value)
+}
+
+lasso_v_cv("non_zero")
+```
+
+En particular, se ve que la cantidad de coeficientes no nulos aumenta a medida que se ponen más eofs pero luego disminuye mucho cuando se ponen cerca del máximo. La crossvalidación, en cambio, se queda estable y no es sensible a ese problema (al menos para este ejemplo!)
+
+El $r^2$ también tiene un comportamietno similar. 
+
+```{r}
+lasso_v_cv("r2")[, lapply(.SD, round, 2)]
+```
+
+Comparando el $r^2$ en función de la cantidad de coeficientes no nulos para el método LASSO, crossvalidación y el "ingénuo" se ve que el método de crossvalidación deja de incluir EOFs en el "codo" de la curva, mientras que LASSO los sigue incluyendo. 
+
+
+```{r}
+ggplot(table, aes(non_zero, r2)) + 
+   geom_point() +
+   facet_wrap(~type, ncol = 1)
+```
+,
+```{r}
+point_regression[term == "year", 
+                 mean(pt(abs(estimate)/std.error, df, lower.tail = FALSE) <= 0.05)]
+```
+
