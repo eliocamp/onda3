@@ -1,6 +1,6 @@
 Regression2D <- function(formula, y, data = NULL, 
                          method = c("cv", "lasso", "neof"),
-                         max_eof = 0.5,
+                         max_eof = Inf,
                          k_fold = 10,
                          alpha = 1, 
                          seed = 42) {
@@ -101,7 +101,7 @@ Regression2D <- function(formula, y, data = NULL,
    } else {
       svd_fun <- irlba::irlba
    }
-      
+   
    eof <- svd_fun(g$matrix, max_eof, max_eof)
    eof$d <- eof$d[seq_len(max_eof)]
    
@@ -121,10 +121,10 @@ Regression2D <- function(formula, y, data = NULL,
    return(
       list(field = g$coldims,
            coef_eof = coef_eof,
-           summary = list(r2 = fit$r2,
-                          f.statistic = f.statistic,
-                          p.value = pf(f.statistic, N, N - M - 1, lower.tail = FALSE),
-                          non_zero = sum(coef_eof != 0)
+           summary = data.frame(r2 = fit$r2,
+                                f.statistic = f.statistic,
+                                p.value = pf(f.statistic, N, N - M - 1, lower.tail = FALSE),
+                                non_zero = sum(coef_eof != 0)
            )
       ))
 }

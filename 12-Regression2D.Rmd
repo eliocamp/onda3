@@ -5,12 +5,7 @@ output:
    pdf_document
 urlcolor: blue
 bibliography: "field-signf.bib"
-markdown_extensions:
-    - admonition
 ---
-
-
-
 
 ```{r setup, include=FALSE}
 # Notification
@@ -138,6 +133,8 @@ De forma general, esto es un problema de *feature selection* que tiene otras sol
 
 ## Ejemplos
 
+### Viento zonal 
+
 Voy a usar datos de viento zonal medio de DEF en 300hPa en el hemisferio norte para replicar lo que hicieron los autores del paper. 
 
 ```{r}
@@ -150,7 +147,6 @@ world <- subset(map_data("world2"), lat > 0)
 
 geom_world <- geom_path(data = world, aes(long, lat, group = group),
                         size = 0.2)
-
 
 data <- ReadNetCDF("~/DATOS/NCEP Reanalysis/uwnd.mon.mean.nc", c(u = "uwnd"),
                    subset = list(level = 300,
@@ -194,11 +190,8 @@ ggplot(regression, aes(lon, lat)) +
 Los campos de regresión son prácticamente iguales. La naturaleza de LASSO, que penaliza coeficientes grandes, hace que los valores absolutos sean menores. Podemos ver cuándos EOFs se usaron en la regresión, el $r^2$ del fit y su p-valor siguiendo la metodología del paper
 
 ```{r}
-cv_regression$summary$eof <- sum(cv_regression$coef_eof != 0)
-lasso_regression$summary$eof <- sum(lasso_regression$coef_eof != 0)
-
-rbind(cv = unlist(cv_regression$summary[c("r2", "p.value", "eof")]),
-      lasso = unlist(lasso_regression$summary[c("r2", "p.value", "eof")]))
+rbind(cv = cv_regression$summary,
+      lasso = lasso_regression$summary) 
 ```
 
 Aunque lo patrones son similares, usan distinta cantidad de EOF. La estimación del p-valor no sé si es válida para LASSO, ya que no es cuadrados mínimos, así que la distribución del $r^2$ posiblemente no sea la que dicen en el paper. Pero para ser justos, tampoco sé si con la validación cruzada sigue valiendo. 
@@ -217,28 +210,108 @@ lasso_v_cv <- function(value, data = table) {
    dcast(data[type != "neof"], max_eof ~ type, value.var = value)
 }
 
-lasso_v_cv("non_zero")
+lasso_v_cv(c("non_zero", "r2"))[, lapply(.SD, round, 2)]
 ```
 
 En particular, se ve que la cantidad de coeficientes no nulos aumenta a medida que se ponen más eofs pero luego disminuye mucho cuando se ponen cerca del máximo. La crossvalidación, en cambio, se queda estable y no es sensible a ese problema (al menos para este ejemplo!)
 
-El $r^2$ también tiene un comportamietno similar. 
-
-```{r}
-lasso_v_cv("r2")[, lapply(.SD, round, 2)]
-```
-
-Comparando el $r^2$ en función de la cantidad de coeficientes no nulos para el método LASSO, crossvalidación y el "ingénuo" se ve que el método de crossvalidación deja de incluir EOFs en el "codo" de la curva, mientras que LASSO los sigue incluyendo. 
-
+El $r^2$ también tiene un comportamietno similar. Comparando el $r^2$ en función de la cantidad de coeficientes no nulos para el método LASSO, crossvalidación y el "ingénuo" se ve que el método de crossvalidación deja de incluir EOFs en el "codo" de la curva, mientras que LASSO los sigue incluyendo. 
 
 ```{r}
 ggplot(table, aes(non_zero, r2)) + 
    geom_point() +
    facet_wrap(~type, ncol = 1)
 ```
-,
+
+¿Por qué luego baja cuando se incluyen todos los EOFs? No sé. Es posible que tenga que ver con el algoritmo de LASSO, que se comporta diferente según la cantidad de variables en la regresión. Misterio. 
+
+### Viento meridional en  1000hPa
+
+Para probar con otros datos.
+
 ```{r}
-point_regression[term == "year", 
-                 mean(pt(abs(estimate)/std.error, df, lower.tail = FALSE) <= 0.05)]
+datav <- ReadNetCDF("~/DATOS/NCEP Reanalysis/vwnd.mon.mean.nc", c(v = "vwnd"),
+                   subset = list(level = 1000,
+                                 lat = c(0:90),
+                                 time = c("1948-01-01", "2009-12-31"))) %>% 
+   .[month(time) %in% c(12, 1, 2)] %>% 
+   .[, .(v = mean(v)), by = .(lat, lon, year(time))] 
 ```
 
+
+```{r}
+point_regressionv <- datav[, FitLm(v, year, se = TRUE), by = .(lon, lat)]
+cv_regressionv <- Regression2D(v ~ year | lat + lon, year, data = datav) 
+lasso_regressionv <- Regression2D(v ~ year | lat + lon, year, data = datav,
+                                 method = "lasso") 
+
+regression <- rbindlist(list(point = point_regressionv[term == "year",
+                                                      .(lon, lat, v = estimate)],
+                             cv = cv_regressionv$field, 
+                             lasso = lasso_regressionv$field), 
+                        use.names = TRUE, idcol = "type")
+```
+
+```{r}
+ggplot(regression, aes(lon, lat)) +
+   geom_contour_fill(aes(z = v),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_world +
+   scale_fill_divergent("Trend in V(1000hpa)") +
+   coord_quickmap() +
+   metR:::theme_field() +
+   facet_wrap(~type, ncol = 2)
+```
+
+En estos datos, ambos métodos dan buenos resultados caracterizando el campo de regresión. LASSO tiene los mismos problemas que en el caso anterior. 
+
+
+### Dependencia con dominio
+
+Un problema de los EOFs es que pueden depender mucho del dominio. Por lo tanto, es esperable que los mapas de regresión también dependan del dominio si se usan EOFs para generarlos. Por ejemplo, estos son los mapas de regresión para U en 300hPa calculados usando todo el dominio o sólo un hemisferio por vez. 
+
+```{r}
+data[, hemisphere := ifelse(lon > 180, "W", "E")]
+
+split <- data[, Regression2D(u ~ year | lon + lat, year)$field, by = hemisphere]
+
+rbindlist(list(split = split[, -"hemisphere"], 
+           full = cv_regression$field), idcol = "type", use.names = TRUE) %>% 
+
+ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = u),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_world +
+   scale_fill_divergent("Trend in V(1000hpa)") +
+   coord_quickmap() +
+   metR:::theme_field() +
+   facet_wrap(~type, ncol = 1)
+```
+
+En los límites del dominio hay mucha diferencia y aún lejos hay sutiles cambios. Si hacemos un "zoom", el resultado de calcular la regresión en el dominio recortado o recordar la regresión global puede ser muy distinto:
+
+```{r}
+latlim <- c(30, 60)
+lonlim <-  c(250, 300)
+zoom <- data[lon %between% lonlim & lat %between% latlim] %>% 
+   Regression2D(u ~ year | lon + lat, year, data = .)
+
+
+rbindlist(list(zoom = zoom$field, 
+           full = cv_regression$field[lon %between% lonlim & lat %between% latlim]),
+          idcol = "type", use.names = TRUE) %>% 
+ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = ifelse(type == "zoom", u, NA)),
+                     breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour_fill(aes(z = ifelse(type == "full", u, NA)),
+                     breaks = AnchorBreaks(0, exclude = 0)) +
+   # geom_raster(aes(fill = u)) +
+   geom_world +
+   scale_fill_divergent("Trend in V(1000hpa)") +
+   coord_quickmap(ylim = latlim, xlim = lonlim) +
+   metR:::theme_field() +
+   facet_wrap(~type, ncol = 2)
+```
+
+La diferencia en la magnitud es enorme, pero también la distribución. El resultado del zoom no es estadísticamente significativo. 
+
+
+# Bibliografía
