@@ -25,7 +25,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      cache.extra = 1, 
+                      cache.extra = 10, 
                       warning = FALSE, message = FALSE,
                       out.extra = "", 
                       cache.path = paste0("cache/", name, "/"),
@@ -148,50 +148,58 @@ world <- subset(map_data("world2"), lat > 0)
 geom_world <- geom_path(data = world, aes(long, lat, group = group),
                         size = 0.2)
 
-data <- ReadNetCDF("~/DATOS/NCEP Reanalysis/uwnd.mon.mean.nc", c(u = "uwnd"),
+data <- ReadNetCDF("~/DATOS/NCEP Reanalysis/uwnd.mon.mean.nc", c(var = "uwnd"),
                    subset = list(level = 300,
                                  lat = c(0:90),
                                  time = c("1948-01-01", "2009-12-31"))) %>% 
    .[month(time) %in% c(12, 1, 2)] %>% 
-   .[, .(u = mean(u)), by = .(lat, lon, year(time))] 
+   .[, .(var = mean(var)), by = .(lat, lon, year(time))] 
 ```
 
 ```{r}
-source("Regression2D.R")
+source("scripts/Regression2D_bk.R")
 ```
 
 > Una aclaración importante es que los autores del paper usan leave-one-out crossvalidation, pero eso es **eterno** para una cantidad de datos medianamente grande, así que yo implementé k-fold crossvalidation con k = 10 por default. 
 
 ```{r}
-point_regression <- data[, FitLm(u, year, se = TRUE), by = .(lon, lat)]
-cv_regression <- Regression2D(u ~ year | lat + lon, year, data = data) 
-lasso_regression <- Regression2D(u ~ year | lat + lon, year, data = data,
-                                 method = "lasso") 
+all_regression <- function(data) {
+   
+   point<- data[, FitLm(var, year, se = TRUE), by = .(lon, lat)]
+   cv <- Regression2D(var ~ year | lat + lon, year, data = data) 
+   lasso <- Regression2D(var ~ year | lat + lon, year, data = data,
+                         method = "lasso") 
+   g <- rbindlist(list(point = point[term == "year",
+                                     .(lon, lat, var = estimate)],
+                       cv = cv$field, 
+                       lasso = lasso$field), 
+                  use.names = TRUE, idcol = "type") %>% 
+      ggplot(aes(lon, lat)) +
+      # geom_raster(aes(fill = u)) +
+      geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+      geom_world +
+      scale_fill_divergent("Trend in U(300hpa)") +
+      coord_quickmap() +
+      metR:::theme_field() +
+      facet_wrap(~type, ncol = 2)
+   
+   list(point = point, cv = cv, lasso = lasso, plot = g)
+}
 
-regression <- rbindlist(list(point = point_regression[term == "year",
-                                                      .(lon, lat, u = estimate)],
-                             cv = cv_regression$field, 
-                             lasso = lasso_regression$field), 
-                        use.names = TRUE, idcol = "type")
+regression_u <- all_regression(data)
 ```
 
 
 ```{r, fig.height=5}
-ggplot(regression, aes(lon, lat)) +
-   # geom_raster(aes(fill = u)) +
-   geom_contour_fill(aes(z = u),breaks = AnchorBreaks(0, exclude = 0)) +
-   geom_world +
-   scale_fill_divergent("Trend in U(300hpa)") +
-   coord_quickmap() +
-   metR:::theme_field() +
-   facet_wrap(~type, ncol = 2)
+regression_u$plot
 ```
 
 Los campos de regresión son prácticamente iguales. La naturaleza de LASSO, que penaliza coeficientes grandes, hace que los valores absolutos sean menores. Podemos ver cuándos EOFs se usaron en la regresión, el $r^2$ del fit y su p-valor siguiendo la metodología del paper
 
 ```{r}
-rbind(cv = cv_regression$summary,
-      lasso = lasso_regression$summary) 
+rbind(cv = regression_u$cv$summary,
+      lasso = regression_u$lasso$summary) %>% 
+   knitr::kable(digits = c(2, 2, 16, 0))
 ```
 
 Aunque lo patrones son similares, usan distinta cantidad de EOF. La estimación del p-valor no sé si es válida para LASSO, ya que no es cuadrados mínimos, así que la distribución del $r^2$ posiblemente no sea la que dicen en el paper. Pero para ser justos, tampoco sé si con la validación cruzada sigue valiendo. 
@@ -201,7 +209,7 @@ Un detalle para el caso de LASSO es que los EOFs que usa varían muchísimo si c
 ```{r}
 table <- as.data.table(expand.grid(max_eof = c(round(seq(3, 60, length.out = 7)), 61:63),
                                    type = c("lasso", "cv", "neof"))) %>% 
-   .[, Regression2D(u ~ year | lat + lon, year, data = data,
+   .[, Regression2D(var ~ year | lat + lon, year, data = data,
                     max_eof = max_eof,
                     method = type)$summary,
      by = .(type, max_eof)] 
@@ -210,7 +218,8 @@ lasso_v_cv <- function(value, data = table) {
    dcast(data[type != "neof"], max_eof ~ type, value.var = value)
 }
 
-lasso_v_cv(c("non_zero", "r2"))[, lapply(.SD, round, 2)]
+lasso_v_cv(c("non_zero", "r2"))[, lapply(.SD, round, 2)] %>% 
+   knitr::kable()
 ```
 
 En particular, se ve que la cantidad de coeficientes no nulos aumenta a medida que se ponen más eofs pero luego disminuye mucho cuando se ponen cerca del máximo. La crossvalidación, en cambio, se queda estable y no es sensible a ese problema (al menos para este ejemplo!)
@@ -230,78 +239,66 @@ ggplot(table, aes(non_zero, r2)) +
 Para probar con otros datos.
 
 ```{r}
-datav <- ReadNetCDF("~/DATOS/NCEP Reanalysis/vwnd.mon.mean.nc", c(v = "vwnd"),
-                   subset = list(level = 1000,
-                                 lat = c(0:90),
-                                 time = c("1948-01-01", "2009-12-31"))) %>% 
+datav <- ReadNetCDF("~/DATOS/NCEP Reanalysis/vwnd.mon.mean.nc", c(var = "vwnd"),
+                    subset = list(level = 1000,
+                                  lat = c(0:90),
+                                  time = c("1948-01-01", "2009-12-31"))) %>% 
    .[month(time) %in% c(12, 1, 2)] %>% 
-   .[, .(v = mean(v)), by = .(lat, lon, year(time))] 
+   .[, .(var = mean(var)), by = .(lat, lon, year(time))] 
 ```
 
 
 ```{r}
-point_regressionv <- datav[, FitLm(v, year, se = TRUE), by = .(lon, lat)]
-cv_regressionv <- Regression2D(v ~ year | lat + lon, year, data = datav) 
-lasso_regressionv <- Regression2D(v ~ year | lat + lon, year, data = datav,
-                                 method = "lasso") 
-
-regression <- rbindlist(list(point = point_regressionv[term == "year",
-                                                      .(lon, lat, v = estimate)],
-                             cv = cv_regressionv$field, 
-                             lasso = lasso_regressionv$field), 
-                        use.names = TRUE, idcol = "type")
+regression_v <- all_regression(datav)
 ```
 
 ```{r}
-ggplot(regression, aes(lon, lat)) +
-   geom_contour_fill(aes(z = v),breaks = AnchorBreaks(0, exclude = 0)) +
-   geom_world +
-   scale_fill_divergent("Trend in V(1000hpa)") +
-   coord_quickmap() +
-   metR:::theme_field() +
-   facet_wrap(~type, ncol = 2)
+regression_v$plot
 ```
 
 En estos datos, ambos métodos dan buenos resultados caracterizando el campo de regresión. LASSO tiene los mismos problemas que en el caso anterior. 
 
+## Problemas
 
 ### Dependencia con dominio
 
 Un problema de los EOFs es que pueden depender mucho del dominio. Por lo tanto, es esperable que los mapas de regresión también dependan del dominio si se usan EOFs para generarlos. Por ejemplo, estos son los mapas de regresión para U en 300hPa calculados usando todo el dominio o sólo un hemisferio por vez. 
 
 ```{r}
-data[, hemisphere := ifelse(lon > 180, "W", "E")]
+data[, WE := ifelse(lon > 180, "W", "E")][, NS := ifelse(lat > 45, "N", "S")]
 
-split <- data[, Regression2D(u ~ year | lon + lat, year)$field, by = hemisphere]
+split <- data[, Regression2D(var ~ year | lon + lat, year)$field, 
+              by = .(quadrant = interaction(WE, NS))]
 
-rbindlist(list(split = split[, -"hemisphere"], 
-           full = cv_regression$field), idcol = "type", use.names = TRUE) %>% 
-
-ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = u),breaks = AnchorBreaks(0, exclude = 0)) +
+rbindlist(list(split = split[, -"quadrant"], 
+               full = regression_u$cv$field), idcol = "type", use.names = TRUE) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
    geom_world +
+   geom_hline(yintercept = 45, size = 0.5, linetype = 3) +
+   geom_vline(xintercept = 180, size = 0.5, linetype = 3) +
    scale_fill_divergent("Trend in V(1000hpa)") +
    coord_quickmap() +
    metR:::theme_field() +
    facet_wrap(~type, ncol = 1)
 ```
 
-En los límites del dominio hay mucha diferencia y aún lejos hay sutiles cambios. Si hacemos un "zoom", el resultado de calcular la regresión en el dominio recortado o recordar la regresión global puede ser muy distinto:
+En algunas partes hay diferencias, aunque en otras no tanto. El cuadrante noroeste perdió toda su magnitud. Si hacemos un "zoom", el resultado de calcular la regresión en el dominio recortado o recordar la regresión global puede ser muy distinto:
 
 ```{r}
 latlim <- c(30, 60)
 lonlim <-  c(250, 300)
 zoom <- data[lon %between% lonlim & lat %between% latlim] %>% 
-   Regression2D(u ~ year | lon + lat, year, data = .)
+   Regression2D(var ~ year | lon + lat, year, data = .)
 
 
 rbindlist(list(zoom = zoom$field, 
-           full = cv_regression$field[lon %between% lonlim & lat %between% latlim]),
+               full = regression_u$cv$field[lon %between% lonlim & lat %between% latlim]),
           idcol = "type", use.names = TRUE) %>% 
-ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = ifelse(type == "zoom", u, NA)),
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = ifelse(type == "zoom", var, NA)),
                      breaks = AnchorBreaks(0, exclude = 0)) +
-   geom_contour_fill(aes(z = ifelse(type == "full", u, NA)),
+   geom_contour_fill(aes(z = ifelse(type == "full", var, NA)),
                      breaks = AnchorBreaks(0, exclude = 0)) +
    # geom_raster(aes(fill = u)) +
    geom_world +
@@ -312,6 +309,130 @@ ggplot(aes(lon, lat)) +
 ```
 
 La diferencia en la magnitud es enorme, pero también la distribución. El resultado del zoom no es estadísticamente significativo. 
+
+### Dependencia con la longitud de la serie
+
+```{r}
+data_subset <- data[year %in% JumpBy(unique(year), 3)]
+```
+
+¿Qué pasa si saco datos? Digamos que tengo un tercio de los datos (`r data_subset[, uniqueN(year)]` años).
+
+```{r}
+short_regression_u <- all_regression(data_subset)
+```
+
+
+```{r}
+short_regression_u$plot
+```
+
+Las estimaciones cambian, obviamente, pero se ve que LASSO prácticamente no encuentra regressiones importantes. Hay un solo EOF con coeficiente no nulo para LASSO, pero el p.valor calculado por la fórmula estándar da `r round(short_regression_u$lasso$summary$p.value, 4)`. O sea, bastante significativo. El p.valor de crosscorrelación es `r round(short_regression_u$cv$summary$p.value, 4)`; no muy significativo. 
+
+
+### Dependencia con la resolución
+
+¿Depende de la resolución de los datos? Voy a usar datos de ERA Interim con 2.5x2.5 para la baja resolución y con 0.75x0.75 para la alta resolución. 
+
+```{r}
+data <- rbindlist(
+   list(lowres = ReadNetCDF("DATA/monthly_u_2.5.nc", c(var = "u"),
+                            subset = list(latitude = c(0:90))),
+        higres = ReadNetCDF("DATA/monthly_u.nc", c(var = "u"),
+                            subset = list(latitude = c(0:90)))), idcol = "res") %>% 
+   setnames(c("longitude", "latitude"), c("lon", "lat")) %>% 
+   .[month(time) %in% c(12, 1, 2)] %>% 
+   .[, .(var = mean(var)), by = .(lat, lon, year(time), res)] 
+```
+
+```{r}
+lohi_regr <- lapply(unique(data$res), function(r) {
+   data[lat %between% latlim & lon %between% lonlim & res == r] %>% 
+      Regression2D(var ~ year | lon + lat, year, method = "cv",  data = .)
+})
+names(lohi_regr) <- unique(data$res)
+
+point <- data[res == "higres", FitLm(var, year), by = .(lon, lat)][term == "year"] %>% 
+   .[, .(lon, lat, var = estimate)]
+```
+
+```{r}
+library(patchwork)
+list(lowres = lohi_regr$lowres$field,
+     hires = lohi_regr$higres$field
+     # point = point
+     ) %>% 
+   rbindlist(idcol = "res") %>% 
+   ggplot(aes(lon, lat)) +
+   # geom_raster(aes(fill = u)) +
+   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_world +
+   scale_fill_divergent("Trend in U(300hpa)") +
+   coord_quickmap(ylim = latlim, xlim = lonlim) +
+   metR:::theme_field() +
+   facet_wrap(~res, ncol = 2) +
+   
+   ggplot(point, aes(lon, lat)) +
+   # geom_raster(aes(fill = u)) +
+   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_world +
+   scale_fill_divergent("Trend in U(300hpa)") +
+   coord_quickmap(ylim = latlim, xlim = lonlim) +
+   metR:::theme_field() +
+   plot_layout(ncol = 1)
+```
+
+Las distintas resoluciones dan algo ligeramente distinto, pero no mucho. El tema es que analizando los coeficientes, sólo la primera componente principal da no nula y no se parece en nada a la tendencia punto a punto. Además notar la enorme diferencia en la magnitud del efecto. Lo que está pasando es que el ajuste no es significativo (pvalor = 1 para ambas resoluciones). Si pasamos a otra región, la cosa es distinta:
+
+```{r}
+latlim <- c(20, 50) 
+lonlim <- c(175, 225)
+
+lohi_regr <- lapply(unique(data$res), function(r) {
+   data[lat %between% latlim & lon %between% lonlim & res == r] %>% 
+      Regression2D(var ~ year | lon + lat, year, method = "cv",  data = .)
+})
+names(lohi_regr) <- unique(data$res)
+
+point <- data[res == "higres", FitLm(var, year), by = .(lon, lat)][term == "year"] %>% 
+   .[, .(lon, lat, var = estimate)]
+
+library(patchwork)
+list(lowres = lohi_regr$lowres$field,
+     hires = lohi_regr$higres$field
+     # point = point
+     ) %>% 
+   rbindlist(idcol = "res") %>% 
+   ggplot(aes(lon, lat)) +
+   # geom_raster(aes(fill = u)) +
+   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_world +
+   scale_fill_divergent("Trend in U(300hpa)") +
+   coord_quickmap(ylim = latlim, xlim = lonlim) +
+   metR:::theme_field() +
+   facet_wrap(~res, ncol = 2) +
+   
+   ggplot(point, aes(lon, lat)) +
+   # geom_raster(aes(fill = u)) +
+   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_world +
+   scale_fill_divergent("Trend in U(300hpa)") +
+   coord_quickmap(ylim = latlim, xlim = lonlim) +
+   metR:::theme_field() +
+   plot_layout(ncol = 1)
+
+```
+
+En esta región del pacífico donde las tendencias son más intensas, el recorte no cambia mucho el patrón de regresión. La regresion es estadísticamente significativa en ambas resoluciones. La intensidad del cambio es similar. 
+
+
+# Conclusiones
+
+1. El método LASSO para reducir la dimensionalidad del problema no da buenos resultados. El p-valor obtenido es totalmente inválido y la candiad de coeficientes no nulos es muy sensible a la cantiad de compoentes principales que se permite entrar en la regresión. Además suele dar valores subestimados en la regresión (aunque eso es por diseño).
+
+1. Hay algunos problemas con la elección del dominio que cambian el valor de la regresión. Sin embargo, estos cambios son informativos, ya que la variación es grande donde la señal es pequeña. 
+
+1. El p.valor conseguido es informativo!
 
 
 # Bibliografía
