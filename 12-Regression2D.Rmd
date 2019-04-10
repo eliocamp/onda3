@@ -25,7 +25,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      cache.extra = 10, 
+                      cache.extra = 11, 
                       warning = FALSE, message = FALSE,
                       out.extra = "", 
                       cache.path = paste0("cache/", name, "/"),
@@ -434,5 +434,6 @@ En esta región del pacífico donde las tendencias son más intensas, el recorte
 
 1. El p.valor conseguido es informativo!
 
+1. Tiene una gran limitación: no acepta valores faltantes! Se puede usar DINEOF para rellenar usando EOF y tener algo consistente.
 
 # Bibliografía

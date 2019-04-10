@@ -3,7 +3,8 @@ Regression2D <- function(formula, y, data = NULL,
                          max_eof = Inf,
                          k_fold = 10,
                          alpha = 1, 
-                         seed = 42) {
+                         seed = 42,
+                         verbose = FALSE) {
    method <- method[1]
    if (method == "neof") {
       fit_function <- function(X, y) {
@@ -68,10 +69,10 @@ Regression2D <- function(formula, y, data = NULL,
                      r2 = r2))
       }
    } else {
-      stop("unknown method")
+      stop("Unknown method")
    }
    
-   
+   if (verbose) message("Parsing data")
    # Housekeeping. Getting data and transforming it to matrix
    formula <- enrich_formula(formula)
    data <- data_from_formula(formula = formula, 
@@ -88,6 +89,7 @@ Regression2D <- function(formula, y, data = NULL,
    y_name <- deparse(substitute(y))
    y <- metR:::.tidy2matrix(data, formula$dims, y_name, fill = NULL)$matrix[, 1]
    
+   if (verbose) message("Computing EOF")
    g$matrix <- scale(g$matrix, scale = FALSE)
    
    if (max_eof < 1) {
@@ -105,7 +107,7 @@ Regression2D <- function(formula, y, data = NULL,
    eof <- svd_fun(g$matrix, max_eof, max_eof)
    eof$d <- eof$d[seq_len(max_eof)]
    
-   
+   if (verbose) message("Fitting")
    fit <- fit_function(eof$u*sqrt(N), y)
    non_zero <- which(fit$coef != 0)
    
@@ -165,7 +167,7 @@ data_from_formula <- function(formula, data) {
       if (length(missing.cols) != 0) {
          stop(paste0("Columns not found in data: ", paste0(missing.cols, collapse = ", ")))
       }
-      data <- setDT(data)[, (all.cols), with = FALSE]
+      data <- data.table::setDT(data)[, (all.cols), with = FALSE]
    }
    return(data)
 }
