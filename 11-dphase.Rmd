@@ -91,19 +91,23 @@ gh <- ReadNetCDF("~/DATOS/NCEP Reanalysis/hgt.daily.nc", "hgt",
 qs <- gh[, FitWave(hgt, 1:4), by = .(time, lat)] %>% 
    .[, phase.c := circular(phase*k, modulo = "2pi")]
 
+r2c <- 0.25
 
-qs[, dphase := (phase - shift(phase))*k, by = k]
+qs[r2 >= r2c, phase.na := phase]
+
+qs[, dphase := (phase.na - shift(phase.na))*k, by = k]
 qs[dphase > pi, dphase := dphase - pi*2]
 qs[dphase < -pi, dphase := dphase + pi*2]
 qs[, dphase := dphase/k]
+
 ```
 
-Ahora veamos de reproducir el gráfico anterior pero con k = 1-4.
+Ahora veamos de reproducir el gráfico anterior pero con k = 1-4 y usando sólo los casos en los que el $r^2$ de la onda es mayor o igual a `r r2c`
 
 ```{r}
 qs %>% 
    ggplot(aes(amplitude, dphase*180/pi)) +
-   geom_point(alpha = 0.05, size = 0.2) +
+   geom_point(alpha = 0.1, size = 0.2) +
    scale_y_continuous("Desplazamiento (grados por día)") +
    scale_x_continuous("Amplitud") +
    facet_wrap(~k, scales = "free_y")
@@ -114,7 +118,7 @@ Maso :'(. Ciertamente tanto la amplitud como la cantidd de casos es máxima cerc
 ```{r}
 qs %>% 
    ggplot(aes(amplitude, abs(dphase*180/pi))) +
-   geom_point(alpha = 0.05, size = 0.2) +
+   geom_point(alpha = 0.1, size = 0.2) +
    scale_y_continuous("Desplazamiento absoluto (grados por día)") +
    scale_x_continuous("Amplitud") +
    facet_wrap(~k, scales = "free_y")
@@ -128,18 +132,9 @@ Puedo combinar el criterio dinámico (velocidad de fase) con el estadístico (fa
 qs %>% 
    .[, month := month(time)] %>% 
    .[!is.na(dphase)] %>%
-   # .[k == 3] %>% 
    ggplot(aes(phase*k*180/pi, dphase*180/pi)) +
-   # stat_bin_hex(bins = 20) +
-   # stat_summary_hex(aes(z = amplitude), 
-                    # bins = 20) +
-   # geom_contour(data = dens, aes(x = x, y = y, z = z)) +
-   geom_point(alpha = 0.05, size = 0.2) +
-   # geom_hline(data = qs[, weighted.mean(dphase, amplitude, na.rm = TRUE), 
-   # by = k],
-   # aes(yintercept = V1, group = k)) +
+   geom_point(alpha = 0.1, size = 0.2) +
    facet_wrap(~k, ncol = 2, scales = "free_y") +
-   # coord_polar(theta = "y") +
    scale_fill_viridis_c()  +
    scale_y_continuous("Desplazamiento (grados por día)") +
    scale_x_continuous("Fase por k")
@@ -152,15 +147,9 @@ qs %>%
    .[, month := month(time)] %>% 
    .[!is.na(dphase)] %>%
    .[, amplitude := amplitude/max(amplitude), by = k] %>%
-   # .[k == 3] %>% 
    ggplot(aes(phase*k*180/pi, dphase*180/pi)) +
    stat_summary_hex(aes(z = amplitude), 
                     bins = 20, fun = "sum") +
-   # geom_contour(data = dens, aes(x = x, y = y, z = z)) +
-   # geom_point(size = 0.1, alpha= 0.5) +
-   # geom_hline(data = qs[, weighted.mean(dphase, amplitude, na.rm = TRUE), 
-   # by = k],
-   # aes(yintercept = V1, group = k)) +
    facet_wrap(~k, ncol = 2, scales = "free_y") +
    # coord_polar(theta = "y") +
    scale_fill_viridis_c()  +
@@ -169,6 +158,10 @@ qs %>%
 ```
 
 En este gráfico se puede ver que si bien la onda 2 y la 3 son similares en cuanto a la frecuencia de casos en una determinada fase y cambio de fase, el efecto de amplitud es más intenso en la onda 3. La onda 1 sigue siendo la recontra campeona.  
+
+
+
+
 
 # Referencias
 
