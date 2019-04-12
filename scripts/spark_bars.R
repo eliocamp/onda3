@@ -1,31 +1,35 @@
-spark_bars <- function(x, midpoint = 0, colors = FALSE) {
+spark_bars <- function(x, midpoint = 0, colors = TRUE) {
    lookup_bars <- c("0" = "\033[4m \033[24m",
                     "1" = "\U2582",
                     "2" = "\U2583",
                     "3" = "\U2584",
                     "4" = "\U2585",
                     "5" = "\U2586",
-                    "6" = "\U2587")
+                    "6" = "\U2587",
+                    "99" = "\U2591")
 
    normalised <- rep(0, length(x))
-   M <- max(x)
-   m <- min(x)
+   M <- max(x, na.rm = TRUE)
+   m <- min(x, na.rm = TRUE)
    x <- x - midpoint
    
-   normalised[x != 0] <- as.numeric(cut(abs(x[x != 0]), breaks = 6))
-   normalised[x < 0] <- 7 - normalised[x < 0]
+   positive <- x > 0 & !is.na(x)
+   negative <- x < 0 & !is.na(x)
    
+   normalised[x != 0 & !is.na(x)] <- as.numeric(cut(abs(x[x != 0 & !is.na(x)]), breaks = 6))
+   normalised[negative] <- 7 - normalised[x < 0 & !is.na(x)]
+   normalised[is.na(x)] <- 99
+   # x[is.na(x)] <- 0 
    spark <- rep(" ", length = length(normalised))
    
    spark <- lookup_bars[as.character(normalised)]
    
-   spark[x < 0] <- paste0("\033[7m", spark[x < 0], "\033[27m")  # inverse
-      
-      # crayon::inverse(spark[x < 0])
+   spark[negative] <- paste0("\033[7m", spark[negative], "\033[27m")  # inverse
+
    
    if (isTRUE(colors)) {
-      spark[x > 0] <- paste0("\033[31m", spark[x > 0], "\033[39m")  # red
-      spark[x < 0] <- paste0("\033[34m", spark[x < 0], "\033[39m")  # blue
+      spark[positive] <- paste0("\033[31m", spark[positive], "\033[39m")  # red
+      spark[negative] <- paste0("\033[34m", spark[negative], "\033[39m")  # blue
    }
    
    
@@ -51,7 +55,7 @@ print_spark <- function(spark, x) {
 print_spark_oneline <- function(spark, x) {
    # Print positives
    for (i in seq_along(spark)) {
-      if (x[i] >= 0) {
+      if (x[i] >= 0 | is.na(x[i])) {
          cat(spark[i])
       } else {
          cat(" ")
@@ -61,7 +65,7 @@ print_spark_oneline <- function(spark, x) {
    
    # Print negatives
    for (i in seq_along(spark)) {
-      if (x[i] < 0) {
+      if (x[i] < 0  | is.na(x[i])) {
          cat(spark[i])
       } else {
          cat(" ")
