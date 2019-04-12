@@ -158,7 +158,7 @@ summary.lm2d <- function(object, ..., colors = TRUE) {
    
    w <- min(length(object$coef_eof), options()$width - nchar(trunc))
    w <- seq_len(w)
-   spark_bars(object$coef_eof[w], colors = colors)
+   sparkbars(object$coef_eof[w], colors = colors)
    if (length(object$coef_eof) > options()$width - nchar(trunc)) {
       cat(trunc)
    }
