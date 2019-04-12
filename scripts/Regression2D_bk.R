@@ -1,4 +1,4 @@
-Regression2D <- function(formula, y, data = NULL, 
+lm2d <- function(x, y, data = NULL,
                          method = c("cv", "lasso", "neof"),
                          max_eof = Inf,
                          k_fold = 10,
@@ -74,20 +74,21 @@ Regression2D <- function(formula, y, data = NULL,
    
    if (verbose) message("Parsing data")
    # Housekeeping. Getting data and transforming it to matrix
-   formula <- enrich_formula(formula)
-   data <- data_from_formula(formula = formula, 
-                             data = data)
-   g <- metR:::.tidy2matrix(data, formula$dims, formula$value.var, fill = NULL)
+   x <- enrich_formula(x)
+   force(y)
+   y_name <- deparse(substitute(y))
+   data <- data_from_formula(formula = x, 
+                             data = data,
+                             extra.vars = y_name)
+   g <- metR:::.tidy2matrix(data, x$dims, x$value.var, fill = NULL)
    
    if (length(g$matrix) < nrow(data)) {
-      stop(paste("The formula", as.character(formula), "does not identify an unique observation for each cell."))
+      stop(paste("The formula", as.character(x), "does not identify an unique observation for each cell."))
    }
    
    N <- length(g$rowdims[[1]])
    
-   force(y)
-   y_name <- deparse(substitute(y))
-   y <- metR:::.tidy2matrix(data, formula$dims, y_name, fill = NULL)$matrix[, 1]
+   y <- metR:::.tidy2matrix(data, x$dims, y_name, fill = NULL)$matrix[, 1]
    
    if (verbose) message("Computing EOF")
    g$matrix <- scale(g$matrix, scale = FALSE)
@@ -118,17 +119,55 @@ Regression2D <- function(formula, y, data = NULL,
    M <- length(non_zero)
    N <- length(y)
    f.statistic <-  fit$r2/(1 - fit$r2)*(N - M - 1)/M
-   set(g$coldims, NULL, formula$value.var, c(fit$coef))
+   set(g$coldims, NULL, y_name, c(fit$coef))
    # set(g$coldims, NULL, "p.value", c(p.val_field))
-   return(
-      list(field = g$coldims,
-           coef_eof = coef_eof,
-           summary = data.frame(r2 = fit$r2,
-                                f.statistic = f.statistic,
-                                p.value = pf(f.statistic, N, N - M - 1, lower.tail = FALSE),
-                                non_zero = sum(coef_eof != 0)
-           )
-      ))
+   model <- list(field = g$coldims,
+                 coef_eof = coef_eof,
+                 summary = data.frame(r2 = fit$r2,
+                                      f.statistic = f.statistic,
+                                      p.value = pf(f.statistic, N, N - M - 1, lower.tail = FALSE),
+                                      non_zero = M,
+                                      N  = N),
+                 call = match.call()
+                 )
+   class(model) <-  "lm2d"
+   return(model)
+}
+
+
+summary.lm2d <- function(object, ..., colors = TRUE) {
+   cat("Call:")
+   cat("\n ", deparse(object$call), sep = "")
+   cat("\n")
+   object$summary <- lapply(object$summary, function(d) as.character(signif(d, 2)))
+   nchars <- vapply(object$summary, nchar, FUN.VALUE = 1)
+
+   cat("\n")
+   cat("R-squared   = ", object$summary$r2, sep = "")
+   cat("\n")
+   cat("F-statistic = ", object$summary$f.statistic, sep = "")
+   cat("\n")
+   cat("p-value     = ", object$summary$p.value, sep = "")
+   cat("\n\n")
+   
+   cat("Fit used ", object$summary$non_zero, 
+       " principal components (of the possible ",
+       length(object$coef_eof), ") with coefficients:", sep = "")
+   cat("\n")
+   trunc <- "...[truncated]"
+   
+   w <- min(length(object$coef_eof), options()$width - nchar(trunc))
+   w <- seq_len(w)
+   spark_bars(object$coef_eof[w], colors = colors)
+   if (length(object$coef_eof) > options()$width - nchar(trunc)) {
+      cat(trunc)
+   }
+   cat("\nRange: ", signif(min(object$coef_eof), 2), 
+       " to ", signif(max(object$coef_eof), 2), sep = "")
+}
+
+print.lm2d <- function(x, ..., colors = TRUE) {
+   summary(fit, colors = colors)
 }
 
 
@@ -156,13 +195,15 @@ enrich_formula <- function(formula) {
                col.vars = col.vars))
 }
 
-data_from_formula <- function(formula, data) {
+data_from_formula <- function(formula, data, extra.vars = NULL) {
+   formula$formula <- Formula::as.Formula(paste0(as.character(formula$formula), extra.vars, collapse = " + "))
+   
    if (is.null(data)) {
       data <- as.data.table(eval(quote(model.frame(Formula::as.Formula(formula$formula),
                                                    data  = data))))
    } else {
       # Check if columns are indata
-      all.cols <- c(formula$value.var, formula$row.vars, formula$col.vars)
+      all.cols <- c(formula$value.var, formula$row.vars, formula$col.vars, extra.vars)
       missing.cols <- all.cols[!(all.cols %in% colnames(data))]
       if (length(missing.cols) != 0) {
          stop(paste0("Columns not found in data: ", paste0(missing.cols, collapse = ", ")))
@@ -171,3 +212,16 @@ data_from_formula <- function(formula, data) {
    }
    return(data)
 }
+
+autoplot.lm2d <- function(object, ...) {
+   variables <- formula.tools::get.vars(object$call$x)
+   xy <- variables[seq(length(variables)-1, length(variables))] 
+   estimate <- as.character(object$call$y)
+   
+   ggplot(object$field, aes_string(xy[1], xy[2])) +
+      geom_raster(aes_string(fill = estimate), ...) 
+}
+
+plot.lm2d <- autoplot.lm2d
+
+Regression2D <- lm2d
