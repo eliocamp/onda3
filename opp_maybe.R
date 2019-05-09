@@ -67,11 +67,11 @@ gh <- ReadNetCDF("~/DATOS/NCEP Reanalysis/hgt.mon.mean.nc", c(gh = "hgt"),
 gh[, gh.w := Anomaly(gh), by = .(lon, lat, month(time))][, gh.w := gh.w*sqrt(cos(lat*pi/180))]
 
 
-eof <- EOF(gh.w ~ lon + lat | time, n = 1:10, data = gh)
+eof <- EOF(gh.w ~ lon + lat | time, n = 1:30, data = gh)
 
 opp <- OPP(as.matrix(dcast(eof$right, time ~ PC, value.var = "gh.w")[, -1]), 60)
 
-plot(opp$data$V1, type = "l")
+plot(unique(gh$time), - RcppRoll::roll_mean(opp$data$V1, 3, fill = NA), type = "l")
 
 acf(opp$data$V1, 100)
 
@@ -90,9 +90,6 @@ pat <- ggperiodic::periodic(pat, lon = c(-180, 180))
 
 world <- subset(fortify(rnaturalearth::ne_coastline()), 
                 lat > 0)
-
-
-
 
 ggplot(pat, aes(lon, lat))  +
   geom_contour_fill(aes(z = T1)) +
