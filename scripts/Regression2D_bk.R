@@ -156,14 +156,12 @@ summary.lm2d <- function(object, ..., colors = TRUE) {
    cat("\n")
    trunc <- "...[truncated]"
    
-   w <- min(length(object$coef_eof), options()$width - nchar(trunc))
+   w <- min(length(object$coef_eof), options()$width - nchar(trunc)-8)
    w <- seq_len(w)
    print(sparkbars::sparkbars(object$coef_eof[w], colors = colors))
    if (length(object$coef_eof) > options()$width - nchar(trunc)) {
       cat(trunc)
    }
-   cat("\nRange: ", signif(min(object$coef_eof), 2), 
-       " to ", signif(max(object$coef_eof), 2), sep = "")
 }
 
 print.lm2d <- function(x, ..., colors = TRUE) {

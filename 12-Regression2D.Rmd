@@ -166,8 +166,8 @@ source("scripts/Regression2D_bk.R")
 all_regression <- function(data) {
    
    point<- data[, FitLm(var, year, se = TRUE), by = .(lon, lat)]
-   cv <- Regression2D(var ~ year | lat + lon, year, data = data) 
-   lasso <- Regression2D(var ~ year | lat + lon, year, data = data,
+   cv <- lm2d(var ~ year | lat + lon, year, data = data) 
+   lasso <- lm2d(var ~ year | lat + lon, year, data = data,
                          method = "lasso") 
    g <- rbindlist(list(point = point[term == "year",
                                      .(lon, lat, year = estimate)],
