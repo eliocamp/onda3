@@ -113,8 +113,8 @@ lm2d <- function(x, y, data = NULL,
    non_zero <- which(fit$coef != 0)
    
    E <- eof$v%*%diag(eof$d, nrow = length(eof$d))/sqrt(N)
-   coef_eof <- fit$coef
-   fit$coef <-  fit$coef %*% t(E) / var(y)   # Why divide by variance of y?
+   coef_eof <- fit$coef 
+   fit$coef <- (fit$coef / var(y) * apply(eof$u*sqrt(N), 2, var)) %*% t(E)
    
    M <- length(non_zero)
    N <- length(y)
@@ -156,18 +156,16 @@ summary.lm2d <- function(object, ..., colors = TRUE) {
    cat("\n")
    trunc <- "...[truncated]"
    
-   w <- min(length(object$coef_eof), options()$width - nchar(trunc))
+   w <- min(length(object$coef_eof), options()$width - nchar(trunc)-8)
    w <- seq_len(w)
-   sparkbars(object$coef_eof[w], colors = colors)
+   print(sparkbars::sparkbars(object$coef_eof[w], colors = colors))
    if (length(object$coef_eof) > options()$width - nchar(trunc)) {
       cat(trunc)
    }
-   cat("\nRange: ", signif(min(object$coef_eof), 2), 
-       " to ", signif(max(object$coef_eof), 2), sep = "")
 }
 
 print.lm2d <- function(x, ..., colors = TRUE) {
-   summary(fit, colors = colors)
+   summary(x, colors = colors)
 }
 
 
@@ -196,7 +194,9 @@ enrich_formula <- function(formula) {
 }
 
 data_from_formula <- function(formula, data, extra.vars = NULL) {
-   formula$formula <- Formula::as.Formula(paste0(as.character(formula$formula), extra.vars, collapse = " + "))
+   env <- attr(formula$formula, ".Environment")
+   formula$formula <- Formula::as.Formula(paste(c(as.character(formula$formula), extra.vars), collapse = " + "))
+   attr(formula$formula, ".Environment") <- env
    
    if (is.null(data)) {
       data <- as.data.table(eval(quote(model.frame(Formula::as.Formula(formula$formula),

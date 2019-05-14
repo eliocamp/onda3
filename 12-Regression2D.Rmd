@@ -25,7 +25,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      cache.extra = 11, 
+                      cache.extra = 42, 
                       warning = FALSE, message = FALSE,
                       out.extra = "", 
                       cache.path = paste0("cache/", name, "/"),
@@ -166,17 +166,17 @@ source("scripts/Regression2D_bk.R")
 all_regression <- function(data) {
    
    point<- data[, FitLm(var, year, se = TRUE), by = .(lon, lat)]
-   cv <- Regression2D(var ~ year | lat + lon, year, data = data) 
-   lasso <- Regression2D(var ~ year | lat + lon, year, data = data,
+   cv <- lm2d(var ~ year | lat + lon, year, data = data) 
+   lasso <- lm2d(var ~ year | lat + lon, year, data = data,
                          method = "lasso") 
    g <- rbindlist(list(point = point[term == "year",
-                                     .(lon, lat, var = estimate)],
+                                     .(lon, lat, year = estimate)],
                        cv = cv$field, 
                        lasso = lasso$field), 
                   use.names = TRUE, idcol = "type") %>% 
       ggplot(aes(lon, lat)) +
       # geom_raster(aes(fill = u)) +
-      geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+      geom_contour_fill(aes(z = year),breaks = AnchorBreaks(0, exclude = 0)) +
       geom_world +
       scale_fill_divergent("Trend in U(300hpa)") +
       coord_quickmap() +
@@ -273,11 +273,11 @@ split <- data[, Regression2D(var ~ year | lon + lat, year)$field,
 rbindlist(list(split = split[, -"quadrant"], 
                full = regression_u$cv$field), idcol = "type", use.names = TRUE) %>% 
    ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour_fill(aes(z = year),breaks = AnchorBreaks(0, exclude = 0)) +
    geom_world +
    geom_hline(yintercept = 45, size = 0.5, linetype = 3) +
    geom_vline(xintercept = 180, size = 0.5, linetype = 3) +
-   scale_fill_divergent("Trend in V(1000hpa)") +
+   scale_fill_divergent("Trend in U(1000hpa)") +
    coord_quickmap() +
    metR:::theme_field() +
    facet_wrap(~type, ncol = 1)
@@ -296,9 +296,9 @@ rbindlist(list(zoom = zoom$field,
                full = regression_u$cv$field[lon %between% lonlim & lat %between% latlim]),
           idcol = "type", use.names = TRUE) %>% 
    ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = ifelse(type == "zoom", var, NA)),
+   geom_contour_fill(aes(z = ifelse(type == "zoom", year, NA)),
                      breaks = AnchorBreaks(0, exclude = 0)) +
-   geom_contour_fill(aes(z = ifelse(type == "full", var, NA)),
+   geom_contour_fill(aes(z = ifelse(type == "full", year, NA)),
                      breaks = AnchorBreaks(0, exclude = 0)) +
    # geom_raster(aes(fill = u)) +
    geom_world +
@@ -353,7 +353,7 @@ lohi_regr <- lapply(unique(data$res), function(r) {
 names(lohi_regr) <- unique(data$res)
 
 point <- data[res == "higres", FitLm(var, year), by = .(lon, lat)][term == "year"] %>% 
-   .[, .(lon, lat, var = estimate)]
+   .[, .(lon, lat, year = estimate)]
 ```
 
 ```{r}
@@ -365,7 +365,7 @@ list(lowres = lohi_regr$lowres$field,
    rbindlist(idcol = "res") %>% 
    ggplot(aes(lon, lat)) +
    # geom_raster(aes(fill = u)) +
-   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour_fill(aes(z = year),breaks = AnchorBreaks(0, exclude = 0)) +
    geom_world +
    scale_fill_divergent("Trend in U(300hpa)") +
    coord_quickmap(ylim = latlim, xlim = lonlim) +
@@ -374,7 +374,7 @@ list(lowres = lohi_regr$lowres$field,
    
    ggplot(point, aes(lon, lat)) +
    # geom_raster(aes(fill = u)) +
-   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour_fill(aes(z = year),breaks = AnchorBreaks(0, exclude = 0)) +
    geom_world +
    scale_fill_divergent("Trend in U(300hpa)") +
    coord_quickmap(ylim = latlim, xlim = lonlim) +
@@ -395,7 +395,7 @@ lohi_regr <- lapply(unique(data$res), function(r) {
 names(lohi_regr) <- unique(data$res)
 
 point <- data[res == "higres", FitLm(var, year), by = .(lon, lat)][term == "year"] %>% 
-   .[, .(lon, lat, var = estimate)]
+   .[, .(lon, lat, year = estimate)]
 
 library(patchwork)
 list(lowres = lohi_regr$lowres$field,
@@ -405,7 +405,7 @@ list(lowres = lohi_regr$lowres$field,
    rbindlist(idcol = "res") %>% 
    ggplot(aes(lon, lat)) +
    # geom_raster(aes(fill = u)) +
-   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour_fill(aes(z = year),breaks = AnchorBreaks(0, exclude = 0)) +
    geom_world +
    scale_fill_divergent("Trend in U(300hpa)") +
    coord_quickmap(ylim = latlim, xlim = lonlim) +
@@ -414,7 +414,7 @@ list(lowres = lohi_regr$lowres$field,
    
    ggplot(point, aes(lon, lat)) +
    # geom_raster(aes(fill = u)) +
-   geom_contour_fill(aes(z = var),breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour_fill(aes(z = year),breaks = AnchorBreaks(0, exclude = 0)) +
    geom_world +
    scale_fill_divergent("Trend in U(300hpa)") +
    coord_quickmap(ylim = latlim, xlim = lonlim) +
