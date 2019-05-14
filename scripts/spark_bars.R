@@ -1,4 +1,4 @@
-sparkbars <- function(x, midpoint = 0, colors = TRUE) {
+sparkbars <- function(x, midpoint = 0, colors = FALSE) {
    lookup_bars <- c("0" = "\033[4m \033[24m",
                     "1" = "\U2582",
                     "2" = "\U2583",
