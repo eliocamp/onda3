@@ -4,13 +4,13 @@ library(ggplot2)
 library(magrittr)
 
 
-gh <- ReadNetCDF("~/DATOS/NCEP Reanalysis/hgt.daily.nc", 
-                 c(gh = "hgt"),
+wvnd <- ReadNetCDF("~/DATOS/NCEP Reanalysis/vwnd.daily.nc", 
+                 c(v = "vwnd"),
                  subset = list(level = 300,
                                lat = -50:-30,
                                time = c("1979-01-01", "2018-12-31")))
 
-gh <- gh[, .(gh = mean(gh)), by = .(time, lon)]
+wvnd <- wvnd[, .(v = mean(v)), by = .(time, lon)]
 
 SH <- list(geom_path(data = subset(map_data("world2"), lat < 0),
                 aes(long, lat, group = group), color = "gray50", size =0.3),
@@ -54,35 +54,24 @@ TheilSen <- function(formula, data, weights = NULL, prop = 1, repeated = TRUE) {
 }
 
 
-
-filter_pacific <- function(lon, inverse = FALSE) {
-  lon_range <- c(217-90, 217+90) # half hemisphere centered in 217
-  ifelse(lon %between% lon_range, as.numeric(!inverse), as.numeric(inverse))
-}
-
-zw3_basins <- gh[, .(full_basin = FitWave(gh, 3)$amplitude,
-                     pacific = 2*FitWave(gh*filter_pacific(lon, FALSE), 3)$amplitude,
-                     no_pacific = 2*FitWave(gh*filter_pacific(lon, TRUE), 3)$amplitude),
-                 by = .(time)]
-
 FitWave2 <- function(x, y, n) {
   sqrt(sum(FitLm(y, cos(x*n), sin(x*n))$estimate[-1]^2))
 }
 
 lon_range <- c(180, 360)
-zw3_basins <- copy(gh) %>% 
-  .[, gh := RcppRoll::roll_mean(gh, 90, fill = NA), by = .(lon)] %>%
-  .[!is.na(gh), .(full_basin = FitWave(gh, 3)$amplitude,
-                  western_hemisphere = FitWave2(lon[lon  %between% lon_range]*pi/180, gh[lon  %between% lon_range], 3),
-                  eastern_hemisphere = FitWave2(lon[!(lon  %between% lon_range)]*pi/180, gh[!(lon  %between% lon_range)], 3)),
+zw3_basins <- copy(wvnd) %>% 
+  .[, v := RcppRoll::roll_mean(v, 90, fill = NA), by = .(lon)] %>%
+  .[!is.na(v), .(full_basin = FitWave(v, 3)$amplitude,
+                  western_hemisphere = FitWave2(lon[lon  %between% lon_range]*pi/180, v[lon  %between% lon_range], 3),
+                  eastern_hemisphere = FitWave2(lon[!(lon  %between% lon_range)]*pi/180, v[!(lon  %between% lon_range)], 3)),
     by = .(time)]
 
 
 zw3_basins %>% 
-  .[year(time) == 1983] %>% 
+  # .[year(time) == 1983] %>% 
   # melt(id.vars = c("time", "full_basin"), variable.name = "basin") %>% 
   ggplot(aes(western_hemisphere, eastern_hemisphere)) +
-  stat_subset(geom = "point", aes(subset = time == min(time))) +
+  # stat_subset(geom = "point", aes(subset = time == min(time))) +
   geom_path() +
   geom_smooth(method = "lm") 
 
@@ -106,9 +95,9 @@ zw3_basins %>%
 zw3_basins[, ccf(pacific, no_pacific, lag.max = 600)]
 
 
-wavelet <- gh[TRUE][, gh := RcppRoll::roll_mean(gh, 31, fill = NA), by = .(lon)] %>% 
-  .[!is.na(gh)] %>% 
-  .[, .(lon = lon, amplitude = PeriodicWavelet(gh, 3)[[1]]), by = time]
+wavelet <- copy(wvnd)[, v := RcppRoll::roll_mean(v, 31, fill = NA), by = .(lon)] %>% 
+  .[!is.na(v)] %>% 
+  .[, .(lon = lon, amplitude = PeriodicWavelet(v, 3)[[1]]), by = time]
   
 
 wavelet[, FitWave(amplitude, 1), by = time] %>% 
@@ -171,4 +160,5 @@ wavelet[, c(FitWave(amplitude, 1),
             mean_amplitude = mean(amplitude)), by = time] %>% 
   .[, c("amplitude", "mean_mplitude") := .(Anomaly(amplitude), Anomaly(mean_amplitude)), by = yday(time)] %>% 
   .[, ccf(mean_amplitude, amplitude, lag.max = 300)]
+
 

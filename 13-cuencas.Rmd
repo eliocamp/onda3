@@ -1,0 +1,184 @@
+---
+title: "¿Qué tan hemisféricas son las ondas zonales?"
+author: "Elio"
+output: 
+   pdf_document
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      cache.extra = 42, 
+                      warning = FALSE, message = FALSE,
+                      out.extra = "", 
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/"))
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(metR)
+library(magrittr)
+library(circular)
+library(RcppRoll)
+library(patchwork)
+library(lubridate)
+
+here <- here::here
+source("scripts/helperfun.R")
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+world <- list(geom_path(data = data.world,
+                aes(long, lat, group = group), color = "gray50", size =0.3))
+
+ggplot_build.Layer <- function(plot) {
+  plot <- ggplot() + 
+    plot +
+    theme_void()
+  ggplot_build(plot)
+}
+
+ggplot_build.list <- function(plot) {
+  plot <- ggplot() + 
+    plot +
+    theme_void()
+  ggplot_build(plot)
+}
+
+
+
+FitWave2 <- function(x, y, n) {
+   sqrt(sum(FitLm(y, cos(x*n), sin(x*n))$estimate[-1]^2))
+}
+
+```
+
+¿Qué tan "hemisféricas" son las ondas zonales? 
+
+La ampliud de una onda zonal en base a hacer fourier en un círuclo de latitud puede ser alta aún si la onda en cuestión no es simétrica en todo el hemisferio. Lo que voy a hacer acá es tomar la amplitud de las ondas zonales ajustando fourier pero usando medio círculo de latitud por vez. Eso provee dos series temporales y la correlación me dice si las ondas son hemisféricas. Para que se entienda mejor, el método es este:
+
+1. Tomo una longitud base $\lambda_0$
+
+1. Para cada día, calculo la amplitud de las ondas zonales usando el medio circulo de latitud centrado en $\lambda_0$ y el circulo de latitud centrado en su antípoda. 
+
+1. Calculo la correlación y el bias entre ambas series. 
+
+Como todo esto podría depender de $\lambda_0$, voy hacer lo anterior para distintas longitudes. 
+
+Lo primero para aclarar es que por construcción, estos números van a tener tienen una simetría de translación. La correlación entre la amplitud centrada en 180 con la centrada en 0 es la misma que la correlación entre la amplitude centrada en 0 y la centrada en 180. El bias, por su parte, es igual en magnitud pero distinto en signo. Más aún, el promedio del bias en todas las latitudes tiene que dar nulo.
+
+Valores abolutos de bias para algún $\lambda_0$ implica que esa onda, en promedio, está más activa cerca de esa latitud que en su antípoda. Valores grandes y positivos de correlación implican que la onda se comporta como una onda zonal, creciendo o decreciendo en intensidad al unísono en todo el hemisferio al mismo tiempo. Ambas variables brindan información sobre distintos aspectos de la onda y no tienen por qué coincidir. Es factible que el valor medio de una onda sea más intenso en una latitud que otra, pero que las variaciones estén altamente correlacionadas en todo el hemisferio.  
+
+Para este análisis voy a tomar datos de viento meridional medio entre 50° y 30° en 300hPa para cada hemisferio. 
+
+```{r}
+SH <- ReadNetCDF("~/DATOS/NCEP Reanalysis/vwnd.daily.nc", 
+                 c(v = "vwnd"),
+                 subset = list(level = 300,
+                               lat = -50:-30,
+                               time = c("1979-01-01", "2018-12-31")))
+
+NH <- ReadNetCDF("~/DATOS/NCEP Reanalysis/vwnd.daily.nc", 
+                 c(v = "vwnd"),
+                 subset = list(level = 300,
+                               lat = 50:30,
+                               time = c("1979-01-01", "2018-12-31")))
+
+wvnd <- rbindlist(list(SH = SH, NH = NH), idcol = "hemisphere")
+remove(SH, NH)
+wvnd <- wvnd[, .(v = mean(v)), by = .(time, lon, hemisphere)]
+```
+
+```{r}
+amplitude_2h <- function(lon0, ks = 3, data) {
+   # k = 4
+   data %>% 
+      .[, in_lon := acos(cos((lon0 - lon[1])*pi/180))*180/pi <= 90, by = lon]
+   
+   amplitudes <- lapply(ks, function(k) {
+      cat("\r", lon0, "  ", k, "       ")
+      data %>% 
+         .[, .(in_range = FitWave2(lon[in_lon]*pi/180, 
+                                   v[in_lon], k),
+               out_range = FitWave2(lon[!in_lon]*pi/180, 
+                                    v[!in_lon], k)),
+           by = .(time, hemisphere)] 
+   }) %>% 
+      setNames(ks) %>% 
+      rbindlist(idcol = "k")
+
+   # data[, in_lon := NULL]
+   return(amplitudes)
+}
+```
+
+```{r}
+hemispheres <- expand.grid(lon0 = seq(0, 360, length.out = 11)) %>% 
+   as.data.table() %>% 
+   .[, amplitude_2h(lon0, ks = 1:6, wvnd), by = lon0] 
+```
+
+
+```{r cor, fig.cap = "Bias normalizado (primera fila) y correlación (segunda fila) entre la serie de amplitud de onda zonal centrada en cada latitud y la serie centrada en su antípoda. Mapa como referencia de longitud"}
+hemispheres[, .(bias = mean(in_range - out_range)/mean((in_range + out_range)/2),
+                cor  = cor(in_range, out_range)), by =.(lon0, k, hemisphere)] %>% 
+   melt(id.vars = c("lon0", "hemisphere", "k")) %>% 
+   ggplot(aes(lon0, value)) +
+   annotation_custom(ggplotGrob(list(world, 
+                                     scale_x_continuous(expand = c(0, 0)),
+                                     geom_hline(color = "gray", yintercept = c(50, 30, -50, -30)) ))) +
+   geom_line(aes(color = factor(k))) +
+   # stat_subset(aes(subset = lon0 == max(lon0), label = k), geom = ggrepel::GeomTextRepel) +
+   directlabels::geom_dl(aes(label = k, color = factor(k)), method = "smart.grid") +
+   
+   scale_color_brewer(palette = "Set1") +
+   metR::scale_x_longitude(latex2exp::TeX("$\\lambda_0$"), ticks = 60) +
+   scale_y_continuous("") +
+   facet_grid(variable~hemisphere, scales = "free_y", switch = "y") +
+   theme(strip.placement = "outside") 
+```
+
+En el hemisferio norte las ondas 4, 5 y 6 tienen un claro máximo de actividad cerca de 120°O y además tienen poca correlación para todas las longitudes. Por lo tanto, se puede decir que son muy poco "zonales" y se dan principalmente alrededor de 120°. El bias en la onda 3 es bastante menor, pero también tiene poca correlación. Esto sugiere que la onda 3 del hemisferio norte no tiene una longitud de preferencia y no se compora muy zonalmente. 
+
+La onda 3 también tiene poca correlación 
