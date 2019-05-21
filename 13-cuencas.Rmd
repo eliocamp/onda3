@@ -125,9 +125,9 @@ NH <- ReadNetCDF("~/DATOS/NCEP Reanalysis/vwnd.daily.nc",
                                lat = 50:30,
                                time = c("1979-01-01", "2018-12-31")))
 
-wvnd <- rbindlist(list(SH = SH, NH = NH), idcol = "hemisphere")
+vwnd <- rbindlist(list(SH = SH, NH = NH), idcol = "hemisphere")
 remove(SH, NH)
-wvnd <- wvnd[, .(v = mean(v)), by = .(time, lon, hemisphere)]
+vwnd <- vwnd[, .(v = mean(v)), by = .(time, lon, hemisphere)]
 ```
 
 ```{r}
@@ -156,7 +156,7 @@ amplitude_2h <- function(lon0, ks = 3, data) {
 ```{r}
 hemispheres <- expand.grid(lon0 = seq(0, 360, length.out = 11)) %>% 
    as.data.table() %>% 
-   .[, amplitude_2h(lon0, ks = 1:6, wvnd), by = lon0] 
+   .[, amplitude_2h(lon0, ks = 1:6, vwnd), by = lon0] 
 ```
 
 
@@ -179,6 +179,28 @@ hemispheres[, .(bias = mean(in_range - out_range)/mean((in_range + out_range)/2)
    theme(strip.placement = "outside") 
 ```
 
-En el hemisferio norte las ondas 4, 5 y 6 tienen un claro máximo de actividad cerca de 120°O y además tienen poca correlación para todas las longitudes. Por lo tanto, se puede decir que son muy poco "zonales" y se dan principalmente alrededor de 120°. El bias en la onda 3 es bastante menor, pero también tiene poca correlación. Esto sugiere que la onda 3 del hemisferio norte no tiene una longitud de preferencia y no se compora muy zonalmente. 
+```{r}
+vwnd[, mean(ampl3), by = .(lon, hemisphere)] %>% 
+   ggplot(aes(lon, V1)) + 
+   geom_line(aes(color = hemisphere))
+```
 
-La onda 3 también tiene poca correlación 
+```{r}
+hemispheres[, .(bias = mean(in_range - out_range)/mean((in_range + out_range)/2),
+                cor  = cor(in_range, out_range)), by =.(lon0, k, hemisphere)] %>% 
+   .[k == 3] %>% 
+   .[, lon := lon0] %>% 
+   ggplot(aes(lon, bias)) +
+   geom_line() +
+   geom_line(data = vwnd[, .(bias = (mean(ampl3)-13)/10), by = .(lon, hemisphere)], 
+             color = "red") +
+   facet_wrap(~hemisphere)
+
+
+
+```
+
+
+En el hemisferio norte las ondas 4, 5 y 6 tienen un claro máximo de actividad cerca de 120°O y además tienen poca correlación para todas las longitudes. Por lo tanto, se puede decir que son muy poco "zonales" y se dan principalmente alrededor de 120°O. El bias en la onda 3 es bastante menor, pero también tiene poca correlación. Esto sugiere que la onda 3 del hemisferio norte no tiene una longitud de preferencia y no se compora muy zonalmente. Las ondas 1 y 2, en cambio, tienen una correlación importante en todas las longitudes y poca preferencia longitudinal. Se comportan como ondas zonales propiamente dichas. 
+
+En el hemisferio sur, ninguna onda tiene un bias tan grande como en el norte. Las ondas 3, 4 y 5 muestran una ligera preferencia al rededor de 40°E pero muy baja correlación (esencialmente nula). No hay 
