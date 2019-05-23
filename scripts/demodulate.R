@@ -42,61 +42,68 @@ lines(t, amp * sin(2 * pi * fc * t + phase*pi/180), col='red')
 
 
 Demodulate <- function(x, t, k = 3, mult = seq(0.1, 5, length.out = 10)) {
-   x <- vwnd[time == time[1] & hemisphere == "SH", v]
-   t <- unique(vwnd$lon)
+   # x <- vwnd[time == time[1] & hemisphere == "SH", v]
+   # t <- unique(vwnd$lon)
+   x_m <- mean(x)
+   x_a <- x - x_m
    
    fs <- 1/ggplot2::resolution(t, zero = FALSE)
    
-   var_x <- var(x)
+   var_x <- var(x_a)
    # Avoid edge effects
-   keep <- (length(x)+1):(2*length(x))
-   x <- rep(x, 3)
-   t <- c(t-360, t, t+360)
-
+   keep <- (length(x_a)+1):(2*length(x_a))
+   x_a <- rep(x_a, 3)
+ 
    # from https://dankelley.github.io/r/2014/02/17/demodulation.html
-
    ks <- k
    demod <- lapply(ks, function(k) {
       fc <- k/360
-      
-      xc <- x * cos(k*pi/180 * t)
-      xs <- x * sin(k*pi/180 * t)
+      t <- c(t-360, t, t+360)
+      xc <- x_a * cos(k*pi/180 * t)
+      xs <- x_a * sin(k*pi/180 * t)
       w_base <- 2 * fc / fs
       if (length(mult) > 1) {
          r2s <- lapply(mult, function(m) {
             ## Here, we use more smoothing
-            w <- w_base * m
+            w <- w_base 
             filter <- signal::butter(5, w)    # FIXME: why extras on w?
             xcs <- signal::filtfilt(filter, xc)
             xss <- signal::filtfilt(filter, xs)
             amplitude <- 2 * sqrt(xcs^2 + xss^2)
             phase <- -(180 / pi * atan2(xcs, xss) - 180/2) /k
+            carrier <- cos(k*pi/180 * (t - phase))
+            pred <- amplitude * carrier
             
-            pred <- amplitude * cos(k*pi/180 * (t - phase))
-            
-            r2 <- 1 - var((x-pred)[keep])/var_x
+            r2 <- 1 - var((x_a-pred)[keep])/var_x
             
             return(list(r2 = r2, 
                         amplitude = amplitude[keep], 
-                        phase = phase[keep]))
+                        carrier = carrier[keep]))
          })
          
          max <- which.max(vapply(r2s, function(x) x$r2, 1))
          
          return(with(r2s[[max]], 
-                     list(amplitude = amp,
-                          phase = phase)))
+                     list(amplitude = amplitude,
+                          carrier = carrier,
+                          offset = x_m)))
       } else {
-         w <- w * mult
+         # browser()
+         w <- w_base 
          filter <- signal::butter(5, w)    # FIXME: why extras on w?
          xcs <- signal::filtfilt(filter, xc)
          xss <- signal::filtfilt(filter, xs)
-         amp <- 2 * sqrt(xcs^2 + xss^2)
-         phase <- 180 / pi * atan2(xcs, xss)
-         return(list(amplitude = amp[keep], 
-                     phase = phase[keep]))
+         amplitude <- 2 * sqrt(xcs^2 + xss^2)
+         phase <- -(180 / pi * atan2(xcs, xss) - 180/2) /k
+         carrier <- cos(k*pi/180 * (t - phase))
+         
+         return(list(amplitude = amplitude[keep], 
+                     carrier = carrier[keep],
+                     offset = x_m))
       }
    })
+   # browser()
+   return(demod)
    
 }
 
@@ -113,28 +120,46 @@ vwnd[, c("ampl3", "phase3") := Demodulate(v, lon, 3, 1), by = .(time, hemisphere
 
 
 
-Demodulate  <- function(x, k) {
-   fit1 <- FitWave(x, k = k)
-   
-   cosfit <- cos(k*(t*pi/180 - fit1$phase))
-   
-   A <- FilterWave(x, 1:3)/cosfit
-   
-   near_zero <- abs(cosfit) < 0.0001
-   
-   A_full <- approx(seq_along(x)[!near_zero], A[!near_zero], xout = seq_along(x))
-   
-   FilterWave(A_full$y, seq(0, k-1))
-}
-
 
 
 t <- unique(vwnd$lon)
 
-amp1 <- 1.5 + cos(t*pi/180 - 30*pi/180) 
-amp <- amp1 + 0.3*cos(5*t*pi/180)
+amp1 <- 1.55 + cos(t*pi/180 - 30*pi/180) + 0.2*cos(2*t*pi/180 - 15*pi/180)
+amp <- amp1 +  0.6*cos(5*t*pi/180)
 carrier <- 1*cos(3*(t - 10)*pi/180)
 x <- carrier*amp 
+
+
+
+k <- 3
+
+
+
+Demodulate  <- function(x, k) {
+   t <- seq(0, 360 - 360/length(x), by = 360/length(x))*pi/180
+   
+   # Onda carrier
+   fit1 <- FitWave(x, k = k)
+   carrier <- cos(k*(t - fit1$phase))
+   
+   # "bases" de senos y cosenos de la amplitud
+   js <- seq_len(k-1)
+   cosjs <- lapply(js, function(j) cos(t*j)*carrier)
+   sinjs <- lapply(js, function(j) sin(t*j)*carrier)
+   
+   # Fit de todo esto
+   X <- do.call(cbind, c(list(carrier), cosjs, sinjs))
+   new_fit <- .lm.fit(X, FilterWave(x, 0:3))
+   
+   A <- (X/carrier) %*% new_fit$coefficients
+   
+   return(list(carrier = carrier, 
+               amplitude = A))
+}
+```
+
+
+
 
 
 plot(amp1)
@@ -152,6 +177,14 @@ lines(env)
 plot(amp1)
 lines(env)
 
-x <- vwnd[time == time[1] & hemisphere == "SH", v]
+x <- vwnd[time == unique(time)[20] & hemisphere == "SH", v]
+t <- unique(vwnd$lon)
+A <- Demodulate(x, t, 3)
+zw3 <- FilterWave(x, 3)
+plot(x)
+lines(A*zw3)
+lines(zw3)
+lines(FilterWave(x, 0:3), col = "red")
+lines(FilterWave(x, 0:3, -1))
 
 Demodulate(x, 3)

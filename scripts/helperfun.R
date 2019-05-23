@@ -1595,9 +1595,9 @@ WaveEnvelope <- function(y, k = "all") {
    x_hat <- fft(y)/N
    
    if (k[1] == "all") {
-      k <- 1:ceiling(l/2)
+      k <- 1:ceiling(N/2)
    }
-   
-   x_hat[-k] <- 0
+   # browser
+   x_hat[-(k+1)] <- 0
    Mod(fft(x_hat, inverse = T))*2
 }

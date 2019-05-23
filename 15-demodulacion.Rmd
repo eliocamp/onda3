@@ -1,0 +1,353 @@
+---
+title: "Demodulación de una onda"
+author: "Elio"
+output: 
+   pdf_document:
+      latex_engine: xelatex
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      cache.extra = 42, 
+                      warning = FALSE, message = FALSE,
+                      out.extra = "", 
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/"))
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(metR)
+library(magrittr)
+library(circular)
+library(RcppRoll)
+library(patchwork)
+library(lubridate)
+
+here <- here::here
+source("scripts/helperfun.R")
+
+data.world <- BuildMap(res = 1, smooth = 1)
+map.world <- geom_map2(data.world)
+map.SH <- geom_map2(data.world[lat %b% c(-90, 20)], color = "gray20")
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+      panel.ontop = TRUE)
+theme_set(theme_elio)
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+world <- list(geom_path(data = data.world,
+                        aes(long, lat, group = group), color = "gray50", size =0.3))
+
+ggplot_build.Layer <- function(plot) {
+   plot <- ggplot() + 
+      plot +
+      theme_void()
+   ggplot_build(plot)
+}
+
+ggplot_build.list <- function(plot) {
+   plot <- ggplot() + 
+      plot +
+      theme_void()
+   ggplot_build(plot)
+}
+
+
+
+FitWave2 <- function(x, y, n) {
+   sqrt(sum(FitLm(y, cos(x*n), sin(x*n))$estimate[-1]^2))
+}
+
+```
+
+
+
+
+Eso surge como parte de lo de ver qué tan zonales son las ondas planetarias. La idea es entender una onda planetaria de número de onda $k$ como una sinusoide modulada por una amplitud variable a lo largo del círculo de latitud. 
+
+## Matemática
+
+Sea $x$ una serie de datos, en vez de descomponerla como una suma de sinusoides, voy a proponer que es:
+
+$$
+x = A(\lambda)\cos(k(\lambda - \phi_k))
+$$
+
+De forma trivial, si se pide que $A(\lambda)= x/\cos(k(\lambda - \phi_k))$, el ajuste de los datos es perfecto. Pero si el espectro de $A$ incluye frecuencias mayores a $k$, ¿tiene sentido decir que está modulando la amplitud? Me parece razonable restringir la forma de $A$ a suma de sinusoides con número de onda mayor a $k$. De manera que la ecuación anterior queda:
+
+
+$$
+\tilde{x}_k = \sum_{k<k}  \left [ A_j \cos(j\lambda) + B_j\sin(j\lambda)  \right]\cos(k(\lambda - \phi_k))
+$$
+
+Donde $\tilde{x}_k$ es la serie original eliminando los números de onda menores a $k$.
+
+En esta ecuación las únicas incógnitas son $A_j$, $B_j$ y $\phi_k$. Este último lo voy a fijar simplemente haciendo fourier en la serie $x$ y que los anteriores salen de hacer un ajuste lineal usando $\cos(j\lambda)\cos(k(\lambda - \phi_k))$ y $\sin(j\lambda)\cos(k(\lambda - \phi_k))$ como "bases". 
+
+NOTA: Hacer el ajuste lineal seguro que es muy ineficiente y el hecho de que todos sean senos y cosenos me sugiere que hay una forma más directa. Pero por ahora queda así. 
+
+Esto se traduce en este código:
+
+```{r echo=TRUE}
+Demodulate  <- function(x, k) {
+   t <- seq(0, 360 - 360/length(x), by = 360/length(x))*pi/180
+   
+   # Onda carrier
+   fit1 <- FitWave(x, k = k)
+   carrier <- cos(k*(t - fit1$phase))
+   
+   # "bases" de senos y cosenos de la amplitud
+   js <- seq_len(k-1)
+   cosjs <- lapply(js, function(j) cos(t*j)*carrier)
+   sinjs <- lapply(js, function(j) sin(t*j)*carrier)
+   
+   # Fit de todo esto
+   X <- do.call(cbind, c(list(carrier), cosjs, sinjs))
+   new_fit <- .lm.fit(X, x)
+   
+   A <- (X/carrier) %*% new_fit$coefficients
+   
+   return(list(carrier = carrier, 
+               amplitude = A))
+}
+```
+
+
+## Ejemplo ideal
+
+Voy a hacer un ejemplo ideal, en el cual conozco la verdad. 
+
+```{r echo=TRUE}
+t <-  seq(0, 360 - 360/144, by = 360/144)
+
+# Modelación de la amplitud (onda 1 y onda 2)
+amp <- 1.5 + cos(t*pi/180 - 30*pi/180)  + 0.2*cos(2*t*pi/180 - 15*pi/180)
+
+# Onda 3 pura
+carrier <- cos(3*(t - 10)*pi/180)
+
+# Señal total 
+x <- carrier*amp 
+```
+
+Los puntos son la señal total observada, las líneas rojas son la onda 3 pura con su amplitud modulada y la línea negra es la onda 3 modulada. 
+
+```{r}
+plot(t, x)
+# lines(t, amp*carrier)
+lines(t, amp, col = "red")
+lines(t, carrier, col = "red")
+```
+
+Y estos son los resultados de la demodulación, en puntos la verdad y e línea roja lo estimado. 
+
+```{r}
+demod <- Demodulate(x, 3)
+
+par(mfrow = c(2,1))
+plot(t, carrier)
+lines(t, demod$carrier, col = "red")
+
+plot(t, amp)
+lines(t, demod$amplitude, col = "red")
+
+# plot(t, amp*carrier)
+# lines(t, with(demod, amplitude*carrier), col = "red")
+```
+
+La encaja perfecto, pero es un ejemplo ideal. ¿Cómo afecta esto la presencia de ondas más cortas? Por ejemplo, sumándole ondas más cortas:
+
+```{r echo=TRUE}
+# Más ondas de frecuencia mayor (onda 5)
+cortas <- 0.6*cos(5*t*pi/180)
+
+x_corta <- x + cortas
+```
+
+```{r}
+plot(t, x_corta)
+# lines(t, amp*carrier)
+lines(t, amp, col = "red")
+lines(t, carrier, col = "red")
+```
+
+Este es el resultado:
+
+```{r}
+demod <- Demodulate(x_corta, 3)
+
+par(mfrow = c(2,1))
+plot(t, carrier)
+lines(t, demod$carrier, col = "red")
+
+plot(t, amp)
+lines(t, demod$amplitude, col = "red")
+
+```
+
+
+Bastante malo `r emo::ji("sad")`. Si le agrego ondas largas:
+
+
+```{r}
+largas <- 0.7*cos(2*t*pi/180)
+x_larga <- x + largas 
+demod <- Demodulate(x_larga, 3)
+
+par(mfrow = c(2,1))
+plot(t, carrier)
+lines(t, demod$carrier, col = "red")
+
+plot(t, amp)
+lines(t, demod$amplitude, col = "red")
+
+```
+
+También esetá choto `r emo::ji("cry")`.
+
+El problema parece ser que este método es muy sensible a mala especificación del modelo. 
+
+
+## Otra metodolgía
+
+Primero, una forma más directa de hacer todo esto es usando el wave envelope, así que desde ahora voy a usar eso. Pero además, de la ecuación de la modulación se puede ver que una onda de número de onda $k$ modulada por una onda de número de onda $j$ genera ondas de número de onda $k \pm j$. Entonces se puede reducir los problemas de especificación asumiendo una franja acotada de números de onda que modulan la onda $k$. Por ejemplo, si para el caso de la contaminación con ondas cortas asumimos que la única modulación de la onda 3 es la onda 1, queda esto (en rojo)
+
+
+```{r}
+plot(x_corta)
+lines(WaveEnvelope(x_corta, c(2:4)), col = "red")
+lines(amp)
+```
+
+Que funciona razonablemente bien! `r emo::ji("happy")`. La diferencia está en que no estoy considerando la modulación de una onda 2. Esto no resuelve el problema de la contaminación con ondas largas:  
+
+```{r}
+plot(x_larga)
+lines(WaveEnvelope(x_larga, c(2:4)), col = "red")
+lines(amp)
+```
+
+La realidad es que el problema de la "contaminación" es irresoluble. No hay forma de distinguir entre ondas "independientes" y ondas producidas por la modulación de otras ondas. En realidad es sólo una cuestión de perspectiva. 
+
+### Conclusión
+
+Usar el wave envelope puede ser razonable pero hay que hacer suposiciones bastante fuertes de qué ondas modulan a cual. Lo más básico es pensar en la modulación por una onda 1 (es decir, un hemisferio más intenso que el otro, en promedio). 
+
+
+## Ejemplo real
+
+Para ir a un caso real, voy a usar datos de altura geopotencial media entre 50°S y 30°S en 300hPa. Además voy a asumir la modulación únicamente de la onda 1. 
+
+```{r}
+SH <- ReadNetCDF("~/DATOS/NCEP Reanalysis/hgt.mon.mean.nc", 
+                 c("hgt"),
+                 subset = list(level = 300,
+                               lat = -50:-30,
+                               time = c("1979-01-01", "2018-12-31"))) %>% 
+   .[, .(hgt = mean(hgt)), by = .(lon, time)]
+```
+
+Este es un caso para el `r unique(SH$time)[3]` (en negro la anomalía zonal de altura geopotencial, en rojo la modulación de la onda 3 y en verde la onda 3 modulada.)
+
+```{r}
+ej <- SH[time == unique(time)[3]]
+ej[, hgt.z := Anomaly(hgt), by = time]
+ej[, zw3 := FilterWave(hgt, 3)]
+ej[, env := WaveEnvelope(hgt.z, 2:3)]
+ggplot(ej, aes(lon, hgt.z)) +
+   geom_line() +
+   geom_line(aes(y = env), color = "red") +
+   # geom_line(aes(y = zw3), color = "blue") +
+   geom_line(aes(y = zw3/sd(zw3)*env), color = "darkgreen") +
+   NULL
+```
+
+Da un resultado muy razonable! Pära contrastar un poco, esto es lo mismo pero para el `r unique(SH$time)[30]`:
+
+```{r}
+ej <- SH[time == unique(time)[30]]
+ej[, hgt.z := Anomaly(hgt), by = time]
+ej[, zw3 := FilterWave(hgt, 3)]
+ej[, zw2 := FilterWave(hgt, 2)]
+ej[, env := WaveEnvelope(hgt.z, 2:3)]
+ggplot(ej, aes(lon, hgt.z)) +
+   geom_line() +
+   geom_line(aes(y = env), color = "red") +
+   # geom_line(aes(y = zw3), color = "blue") +
+   geom_line(aes(y = zw3/sd(zw3)*env), color = "darkgreen") +
+   geom_line(aes(y = zw2/sd(zw2)*env), color = "#ad5f00") +
+   NULL
+```
+
+El resultado de modular la onda 3 (linea verde) no es malo per sé, pero resulta inadecuado si se lo comprara con el resultado de modular la onda 2 (línea naranja). Esto surge de la ambigüedad de qué onda está modulando a cuál. En este caso, se ve que la varianza de los residuos tomando la onda 2 modulada por la envolvente es la mitad que la onda 3 modulada por la envolvente. 
+
+Pero bueno, sto no es más que otra ilustración de las ambigüedades involucradas en el modelo. 
+
+```{r}
+SH[, env3 := WaveEnvelope(hgt, 2:4), by = time]
+```
+
+De todas formas, si vemos la envolvente promedio asociada a las ondas 2 y 3 (que podría interpretarse como una modulación de baja frecuencia para la onda 3) se ve esto:
+
+```{r}
+SH[, .(lon = lon, 
+       env_low = WaveEnvelope(hgt, 2:4)), by = time] %>% 
+   .[, .(env_low = mean(env_low)), by = lon] %>% 
+   ggplot(aes(lon, env_low)) +
+   geom_line() +
+   scale_x_longitude()
+```
+
+
+Coincidente con otros análisis, se puede interpretar que la onda 3 es más activa en el hemisferio oriental que en el occidental. En realidad técnicamente lo que dice este gráfico es que, considerando únicamente las ondas 2, 3 y 4, el hemisferio oriental tiene más actividad de las ondas zonales que el occidental. 
+
+La correlación de la amplitud de cada longitud con la opuesta es esta:
+
+
+```{r}
+SH[lon < 180, 
+   SH[, cor(env3[lon == .BY$lon], 
+            env3[lon == (.BY$lon + 180)] ) ]  , by = lon] %>% 
+   ggplot(aes(lon, V1)) +
+   geom_line()
+```
+
+
+Se ve que es una correlación muy baja, por lo que se puede interpretar que no hay casi nada de comportamiento hemisférico. 
