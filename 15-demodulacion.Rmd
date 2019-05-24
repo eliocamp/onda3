@@ -282,6 +282,13 @@ SH <- ReadNetCDF("~/DATOS/NCEP Reanalysis/hgt.mon.mean.nc",
                                lat = -50:-30,
                                time = c("1979-01-01", "2018-12-31"))) %>% 
    .[, .(hgt = mean(hgt)), by = .(lon, time)]
+
+NH <- ReadNetCDF("~/DATOS/NCEP Reanalysis/hgt.mon.mean.nc", 
+                 c("hgt"),
+                 subset = list(level = 300,
+                               lat = 50:30,
+                               time = c("1979-01-01", "2018-12-31"))) %>% 
+   .[, .(hgt = mean(hgt)), by = .(lon, time)]
 ```
 
 Este es un caso para el `r unique(SH$time)[3]` (en negro la anomalía zonal de altura geopotencial, en rojo la modulación de la onda 3 y en verde la onda 3 modulada.)
@@ -290,7 +297,7 @@ Este es un caso para el `r unique(SH$time)[3]` (en negro la anomalía zonal de a
 ej <- SH[time == unique(time)[3]]
 ej[, hgt.z := Anomaly(hgt), by = time]
 ej[, zw3 := FilterWave(hgt, 3)]
-ej[, env := WaveEnvelope(hgt.z, 2:3)]
+ej[, env := WaveEnvelope(hgt.z, 2:4)]
 ggplot(ej, aes(lon, hgt.z)) +
    geom_line() +
    geom_line(aes(y = env), color = "red") +
@@ -306,7 +313,7 @@ ej <- SH[time == unique(time)[30]]
 ej[, hgt.z := Anomaly(hgt), by = time]
 ej[, zw3 := FilterWave(hgt, 3)]
 ej[, zw2 := FilterWave(hgt, 2)]
-ej[, env := WaveEnvelope(hgt.z, 2:3)]
+ej[, env := WaveEnvelope(hgt.z, 2:4)]
 ggplot(ej, aes(lon, hgt.z)) +
    geom_line() +
    geom_line(aes(y = env), color = "red") +
@@ -351,3 +358,123 @@ SH[lon < 180,
 
 
 Se ve que es una correlación muy baja, por lo que se puede interpretar que no hay casi nada de comportamiento hemisférico. 
+
+
+## Más completo
+
+Hasta acá una posible exploración del método. Ahora va una aplicación más extensiva a otros números de onda y ambos hemisferios. Este análisis no puede hacerse con la onda 1, ya que no tiene ondas de menor frecuencia que la pueda modular. Es decir, por definición la considero completamente zonal. 
+
+```{r}
+hgt <- rbindlist(list(SH = SH[, -"env3"], NH = NH), idcol = "hemisphere")
+```
+
+```{r}
+envelopes <- as.data.table(expand.grid(k = 2:6, 
+                                       time = unique(SH$time),
+                                       hemisphere = unique(hgt$hemisphere)))
+lons <- unique(SH$lon)
+envelopes <- envelopes[, .(lon = lons, 
+                           env = WaveEnvelope(hgt[time == .BY$time & 
+                                                  hemisphere == .BY$hemisphere, hgt], 
+                                              seq(k-1, k+1))),
+                       by = .(k, time, hemisphere)]
+```
+
+
+```{r}
+envelopes[, .(mean_env = mean(env)), by = .(k, hemisphere, lon)] %>% 
+   # .[, mean_env := mean_env/mean(mean_env), by = .(k, hemisphere)] %>% 
+   ggplot(aes(lon, mean_env)) +
+   annotation_custom(ggplotGrob(list(world, 
+                                     scale_x_continuous(expand = c(0, 0)),
+                                     geom_hline(color = "gray", yintercept = c(50, 30, -50, -30)) ))) +
+   geom_line(aes(color = factor(k))) +
+   scale_x_longitude() +
+   facet_wrap(~hemisphere) 
+```
+
+No es sorpresa que el HN tiene valores generalmente mayores de las ondas zonales que el HS. En le HN, la onda dos tiene mucha asimetría, alcanzando su máximo de amplitud cerca de 180°. Las demas ondas tienen un grado menor de asimetría. En el HS, la onda 3 es la que mayor asimetría tiene, con máximo en el índico. 
+
+Analizando la correlación de cada punto con respecto a su antípoda, se ve que en HN las ondas más largas tienen correlación relativamente alta, sugiriendo un comportamiento más zonal. En el HS,la onda 2 tiene algo de correlación alta, pero no el resto. La onda 3, en particular, tiene correlación virtualmente nula. Esto sugiere que la onda 3 en el HS no se comporta como onda zonal. 
+
+```{r}
+cors_env <- lapply(lons[lons < 180], function(l) {
+   envelopes[, .(cor_env = cor(env[lon == l], 
+                               env[lon == (l + 180)])), by = .(k, hemisphere)] 
+   
+}) %>% 
+   setNames(lons[lons < 180]) %>% 
+   rbindlist(idcol = "lon") %>% 
+   .[, lon := as.numeric(lon)]
+
+
+cors_env %>% 
+   ggperiodic::qwrap(lon = c(0, 180) ~ c(0, 360)) %>% 
+   ggplot(aes(lon, cor_env)) +
+   geom_line(aes(color = factor(k))) +
+   facet_wrap(~hemisphere)
+```
+
+
+
+```{r}
+wavelets <- hgt[, c(list(lon = lon), 
+                    PeriodicWavelet(hgt, 2:6)), by = .(time, hemisphere)] %>% 
+   melt(id.vars = c("time", "hemisphere", "lon"), variable.name = "k", value.name = "env") %>% 
+   .[, k := as.numeric(stringi::stri_replace(k, "", fixed = "k."))]
+
+
+                         
+```
+
+
+## Comparación con wavelets
+
+Otra forma de conseguir una amplitud localizada es usando wavelets. ¿Cómo se comparan los resultados anteriores? Depende de la onda y el hemisferio. Coincide mejor para ondas cortas que para ondas largas, pero en general la correlación media es alta. 
+
+```{r}
+wavelets[envelopes, on = c("time", "hemisphere", "lon", "k")] %>% 
+   .[, cor(env, i.env), by = .(k, hemisphere, time)] %>% 
+   .[, mean(V1), by = .(k, hemisphere)] %>% 
+   ggplot(aes(k, V1)) +
+   geom_point() +
+   scale_y_continuous("Correlación entre wavelet y envolvente", limits = c(0, 1)) +
+   facet_wrap(~hemisphere)
+```
+
+Esta correlación se puede apreciar en la similitud de la wavelet media por longtud con la envolvente media: 
+
+```{r}
+wavelets[, .(mean_env = mean(env)), by = .(k, hemisphere, lon)] %>% 
+   # .[, mean_env := mean_env/mean(mean_env), by = .(k, hemisphere)] %>% 
+   ggplot(aes(lon, mean_env)) +
+   annotation_custom(ggplotGrob(list(world, 
+                                     scale_x_continuous(expand = c(0, 0)),
+                                     geom_hline(color = "gray", yintercept = c(50, 30, -50, -30)) ))) +
+   geom_line(aes(color = factor(k))) +
+   scale_x_longitude() +
+   facet_wrap(~hemisphere) 
+```
+
+Pero son muy distintos en cuanto al comportamiento hemisférico!:
+
+```{r}
+wavelets[, ]
+cors_env <- lapply(lons[lons < 180], function(l) {
+   wavelets[, .(cor_env = cor(env[lon == l], 
+                               env[lon == (l + 180)])), by = .(k, hemisphere)] 
+   
+}) %>% 
+   setNames(lons[lons < 180]) %>% 
+   rbindlist(idcol = "lon") %>% 
+   .[, lon := as.numeric(lon)]
+
+
+cors_env %>% 
+   ggperiodic::qwrap(lon = c(0, 180) ~ c(0, 360)) %>% 
+   ggplot(aes(lon, cor_env)) +
+   geom_line(aes(color = factor(k))) +
+   facet_wrap(~hemisphere)
+```
+
+Mi sospecha es que las amplitudes de wavelets tienen mucha correlación para las ondas largas porque los wavelets son muy grandes y entonces responden a lo que pasa en todo el hemisferio. 
