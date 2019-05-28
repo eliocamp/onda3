@@ -24,7 +24,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      cache.extra = 42, 
+                      cache.extra = 43, 
                       warning = FALSE, message = FALSE,
                       out.extra = "", 
                       cache.path = paste0("cache/", name, "/"),
@@ -137,7 +137,7 @@ amplitude_2h <- function(lon0, ks = 3, data) {
       .[, in_lon := acos(cos((lon0 - lon[1])*pi/180))*180/pi <= 90, by = lon]
    
    amplitudes <- lapply(ks, function(k) {
-      cat("\r", lon0, "  ", k, "       ")
+      # cat("\r", lon0, "  ", k, "       ")
       data %>% 
          .[, .(in_range = FitWave2(lon[in_lon]*pi/180, 
                                    v[in_lon], k),
@@ -177,27 +177,6 @@ hemispheres[, .(bias = mean(in_range - out_range)/mean((in_range + out_range)/2)
    scale_y_continuous("") +
    facet_grid(variable~hemisphere, scales = "free_y", switch = "y") +
    theme(strip.placement = "outside") 
-```
-
-```{r}
-vwnd[, mean(ampl3), by = .(lon, hemisphere)] %>% 
-   ggplot(aes(lon, V1)) + 
-   geom_line(aes(color = hemisphere))
-```
-
-```{r}
-hemispheres[, .(bias = mean(in_range - out_range)/mean((in_range + out_range)/2),
-                cor  = cor(in_range, out_range)), by =.(lon0, k, hemisphere)] %>% 
-   .[k == 3] %>% 
-   .[, lon := lon0] %>% 
-   ggplot(aes(lon, bias)) +
-   geom_line() +
-   geom_line(data = vwnd[, .(bias = (mean(ampl3)-13)/10), by = .(lon, hemisphere)], 
-             color = "red") +
-   facet_wrap(~hemisphere)
-
-
-
 ```
 
 

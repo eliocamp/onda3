@@ -360,38 +360,47 @@ SH[lon < 180,
 Se ve que es una correlación muy baja, por lo que se puede interpretar que no hay casi nada de comportamiento hemisférico. 
 
 
+Ambiguedad!
+
+
 ## Más completo
 
 Hasta acá una posible exploración del método. Ahora va una aplicación más extensiva a otros números de onda y ambos hemisferios. Este análisis no puede hacerse con la onda 1, ya que no tiene ondas de menor frecuencia que la pueda modular. Es decir, por definición la considero completamente zonal. 
 
 ```{r}
+Demodulate <- function(x) {
+   waves <- FitWave(x, seq_along(x))
+   k <- which.max(waves$r2)
+   env <-  WaveEnvelope(x, seq(1, k))
+   carrier <- FilterWave(x, k)/waves$amplitude[k]
+   return(list(k = k,
+               carrier = carrier,
+               env = env))
+}
+
+
+```
+```{r}
 hgt <- rbindlist(list(SH = SH[, -"env3"], NH = NH), idcol = "hemisphere")
+
 ```
 
 ```{r}
-envelopes <- as.data.table(expand.grid(k = 2:6, 
-                                       time = unique(SH$time),
-                                       hemisphere = unique(hgt$hemisphere)))
-lons <- unique(SH$lon)
-envelopes <- envelopes[, .(lon = lons, 
-                           env = WaveEnvelope(hgt[time == .BY$time & 
-                                                  hemisphere == .BY$hemisphere, hgt], 
-                                              seq(k-1, k+1))),
-                       by = .(k, time, hemisphere)]
-```
 
+hgt[, c("k", "carrier", "env") := Demodulate(hgt), by = .(time, hemisphere)]
 
-```{r}
-envelopes[, .(mean_env = mean(env)), by = .(k, hemisphere, lon)] %>% 
-   # .[, mean_env := mean_env/mean(mean_env), by = .(k, hemisphere)] %>% 
-   ggplot(aes(lon, mean_env)) +
+hgt[, mean(env), by = .(lon, k, hemisphere)] %>% 
+   .[k <= 4] %>% 
+   ggplot(aes(lon, V1)) + 
    annotation_custom(ggplotGrob(list(world, 
                                      scale_x_continuous(expand = c(0, 0)),
                                      geom_hline(color = "gray", yintercept = c(50, 30, -50, -30)) ))) +
    geom_line(aes(color = factor(k))) +
-   scale_x_longitude() +
-   facet_wrap(~hemisphere) 
+      scale_x_longitude() +
+   scale_y_continuous("Mean modulated amplitude") +
+   facet_wrap(~hemisphere)
 ```
+
 
 No es sorpresa que el HN tiene valores generalmente mayores de las ondas zonales que el HS. En le HN, la onda dos tiene mucha asimetría, alcanzando su máximo de amplitud cerca de 180°. Las demas ondas tienen un grado menor de asimetría. En el HS, la onda 3 es la que mayor asimetría tiene, con máximo en el índico. 
 
@@ -399,7 +408,7 @@ Analizando la correlación de cada punto con respecto a su antípoda, se ve que 
 
 ```{r}
 cors_env <- lapply(lons[lons < 180], function(l) {
-   envelopes[, .(cor_env = cor(env[lon == l], 
+   hgt[, .(cor_env = cor(env[lon == l], 
                                env[lon == (l + 180)])), by = .(k, hemisphere)] 
    
 }) %>% 
@@ -409,9 +418,14 @@ cors_env <- lapply(lons[lons < 180], function(l) {
 
 
 cors_env %>% 
+   .[k <= 4] %>% 
    ggperiodic::qwrap(lon = c(0, 180) ~ c(0, 360)) %>% 
    ggplot(aes(lon, cor_env)) +
+      annotation_custom(ggplotGrob(list(world, 
+                                     scale_x_continuous(expand = c(0, 0)),
+                                     geom_hline(color = "gray", yintercept = c(50, 30, -50, -30)) ))) +
    geom_line(aes(color = factor(k))) +
+   scale_x_longitude() +
    facet_wrap(~hemisphere)
 ```
 
@@ -433,7 +447,7 @@ wavelets <- hgt[, c(list(lon = lon),
 Otra forma de conseguir una amplitud localizada es usando wavelets. ¿Cómo se comparan los resultados anteriores? Depende de la onda y el hemisferio. Coincide mejor para ondas cortas que para ondas largas, pero en general la correlación media es alta. 
 
 ```{r}
-wavelets[envelopes, on = c("time", "hemisphere", "lon", "k")] %>% 
+wavelets[hgt, on = c("time", "hemisphere", "lon", "k")] %>% 
    .[, cor(env, i.env), by = .(k, hemisphere, time)] %>% 
    .[, mean(V1), by = .(k, hemisphere)] %>% 
    ggplot(aes(k, V1)) +
@@ -478,3 +492,7 @@ cors_env %>%
 ```
 
 Mi sospecha es que las amplitudes de wavelets tienen mucha correlación para las ondas largas porque los wavelets son muy grandes y entonces responden a lo que pasa en todo el hemisferio. 
+
+
+
+
