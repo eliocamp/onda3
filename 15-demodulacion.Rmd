@@ -36,7 +36,6 @@ knitr::opts_chunk$set(echo = FALSE,
 library(metR)
 library(data.table)
 library(ggplot2)
-library(metR)
 library(magrittr)
 library(circular)
 library(RcppRoll)

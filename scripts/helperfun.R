@@ -1498,21 +1498,6 @@ autoplot.analyze.wavelet <- function(object, p.val = 0.01,
 }
 
 
-scale_range <- function(scale, limits = NULL, expand = TRUE) {
-   expansion <- if (expand) ggplot2:::expand_default(scale) else c(0, 0)
-   
-   if (is.null(limits)) {
-      scale$dimension(expansion)
-   } else {
-      limits <- ifelse(is.na(limits), scale$get_limits(), limits)
-      range <- range(scale$transform(limits))
-      scales::expand_range(range, expansion[1], expansion[2])
-   } 
-}
-
-assignInNamespace("scale_range", scale_range, ns = "ggplot2")
-
-
 Wavelets <- function(..., seed = 42) {
    set.seed(seed)
    invisible(capture.output(w <- invisible(WaveletComp::analyze.wavelet(..., verbose = FALSE))))

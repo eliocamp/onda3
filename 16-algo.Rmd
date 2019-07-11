@@ -1,0 +1,251 @@
+---
+title: ""
+author: "Elio Campitelli"
+output: 
+   pdf_document:
+      latex_engine: xelatex
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      cache.extra = 41, 
+                      warning = FALSE, message = FALSE,
+                      out.extra = "",
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/"),
+                      fig.align = "center")
+
+# knitr::opts_chunk$set(fig.width = 13, 
+#                       fig.height = 7)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+
+here <- here::here
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 11) +
+   theme(strip.background = element_rect(fill = "#fafafa", color = NA),
+         # text = element_text(family = font_rc),
+         legend.position = "bottom", legend.box = "vertical",
+         panel.spacing.y = unit(5, "mm"),
+         panel.spacing.x = unit(5, "mm"),
+         legend.spacing = unit(2, "mm"),
+         plot.margin = grid::unit(rep(3, 4), "mm"),
+         legend.title = element_blank(),
+         legend.box.spacing = unit(3, "mm"),
+         legend.margin = margin(t = -5),
+         panel.grid = element_line(color = "gray50", size = 0.2, linetype = 3),
+         panel.ontop = TRUE)
+theme_set(theme_elio)
+# theme_set(hrbrthemes::theme_ipsum_rc() + theme(panel.ontop = TRUE))
+
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+
+subset_data <- list(lat = c(-90, 0), 
+                    time = lubridate::as_datetime(c("1985-01-01",
+                                                    "2014-12-01")))
+breaks_zero <- AnchorBreaks(0, NULL, 0)
+
+
+
+makeActiveBinding(".", function(value) .Last.value, .GlobalEnv)
+
+setnames <- function(x, ...) {
+   names <- c(...)
+   # print(names)
+   data.table::setnames(x, names(names), unname(names))
+}
+
+ReIm <- function(complex) {
+   list(R = Re(complex), I = Im(complex))
+}
+
+Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
+   p.adjust(2*pt(abs(estimate)/std.error, df, lower.tail = FALSE), method = "fdr")
+}
+
+source(here::here("scripts", "facet_nested.R"))
+source(here::here("scripts", "helperfun.R"))
+
+
+map_simple <- function(wrap = c(0, 360), out = "sf") {
+   map <- maps::map("world", fill = TRUE, 
+                    col = "transparent", plot = FALSE, wrap = c(0, 360))
+   IDs <- vapply(strsplit(map$names, ":"), function(x) x[1], 
+                 "")
+   proj <- sp::CRS("+proj=longlat +datum=WGS84")
+   map <- maptools::map2SpatialPolygons(map, IDs = IDs, 
+                                        proj4string = proj)
+   
+   simple <- rmapshaper::ms_simplify(map, keep = 0.02)
+   simple
+}
+
+map_data <- subset(fortify(map_simple()), lat <= 0)
+map <- geom_path(data = map_data, aes(long, lat, group = group), 
+                 color = "black", 
+                 size = 0.2)
+```
+
+
+```{r read-data}
+subset <- list(latitude = -90:0, 
+               level = list(50, 200, 500))
+
+
+files <- c(era = here("DATA", "ERA-Interim", "hgt.mon.mean.nc"),
+           era20 =here("DATA", "ERA-20C", "hgt.mon.mean.nc"))
+
+datos <- rbindlist(lapply(files, function(f) {
+   ReadNetCDF(f, c(hgt = "z"), subset = subset)}), 
+   idcol = "dataset") %>% 
+   .[, hgt := hgt/9.8] %>% 
+   setnames(longitude = "lon", latitude = "lat", level = "lev") %>% 
+   .[, year := year(time[1]), by = time] %>% 
+   .[month(time) == 12, year := year + 1] %>%  # december counts to the next year
+   .[, .(hgt = mean(hgt), n = .N), by = .(dataset, lev, lat, lon, year, season(time))] %>% 
+   .[n == 3] %>%  # keep only full seasons
+   .[, n := NULL]
+
+# datos <- ReadNetCDF(here("DATA", "ERA-Interim", "uwnd.mon.mean.nc"), 
+#                     subset = subset) %>%
+#    .[, dataset := "era"] %>% 
+#    setnames(longitude = "lon", latitude = "lat", level = "lev") %>% 
+#    .[, year := year(time[1]), by = time] %>% 
+#    .[month(time) == 12, year := year + 1] %>%  # december counts to the next year
+#    .[, .(u = mean(u), n = .N), by = .(dataset, lev, lat, lon, year, season(time))] %>% 
+#    .[n == 3] %>%  # keep only full seasons
+#    .[, n := NULL] %>% 
+#    setnames(u = "hgt")
+
+modern <- range(datos[dataset == "era", year])
+# Surface mask
+pres <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "pres.mon.mean.nc"), 
+                   subset = list(lat = -90:0))
+pres.mean <- pres[, .(pres = median(pres)), by = lat]
+pres.mean <- rbind(data.table(lat = 0.0, pres = Inf), 
+                   pres.mean, 
+                   data.table(lat = -90.0, pres = Inf))
+
+censor_ground <- function(df, col = "underground") {
+   df[, c(col) := lev > pres.mean[lat == .BY$lat, pres] , by = lat][]
+}
+
+surface <- function(lats = c(-90:0)) {
+   geom_polygon(data = pres.mean[lat %between% range(lats)], aes(y = pres), fill = "white", 
+                alpha = 0.9, color = "gray10", size = 0.5)
+}
+```
+
+
+Vamos a separar las anomalías de geopogential $Z'$ en su partes zonalmente simétricas y asimétricas
+
+$$
+Z' = Z^{'*} + \left [Z' \right]
+$$
+
+La varianza de $Z'$ entonces puede descomponserse en:
+
+$$
+\mathrm{var}\left (Z' \right ) = \mathrm{var}\left (Z^{'*} \right) + \mathrm{var}\left ( \left [Z' \right ] \right ) + 2 \mathrm{cov}\left ( Z^{'*}, \left [ Z' \right ] \right)
+$$
+
+
+```{r}
+datos <- datos %>% 
+   .[, prime := Anomaly(hgt), by = .(lon, lat, lev, dataset, season)] %>% 
+   .[, prime_mean := mean(prime), by = .(lat, lev, dataset, year, season)] %>% 
+   .[, prime_star := prime - prime_mean]
+```
+
+
+```{r}
+varianzas <- datos %>% 
+   .[, .(prime      = var(prime), 
+         prime_star = var(prime_star),
+         prime_mean = var(prime_mean),
+         cov2       = 2*cov(prime_star, prime_mean)), 
+     by = .(dataset, lev, lon, lat, season)] %>% 
+   # .[, prime_z := Anomaly(prime), by = .(dataset, season, lev, lat)] %>%
+   melt(id.vars = c("dataset", "lev", "lon", "lat", "season")) %>% 
+   .[, variable := factor(variable, 
+                          levels = c("prime", "prime_star", "prime_mean", "cov2"),
+                          labels = c("Z'", "Z'*", "[Z']", "cov(Z'*, [Z'])"))]
+```
+
+```{r}
+plot_var <- function(season, lev) {
+   out_season <- season
+   out_lev    <- lev
+   varianzas %>%
+      # .[lat < -15] %>% 
+      .[dataset == "era"] %>% 
+      .[season %in% out_season] %>%
+      .[lev %in% out_lev] %>%
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(aes(z = value), breaks = AnchorBreaks(0, NULL, 0)) +
+      map +
+      # geom_contour(aes(z = value), color = "black") +
+      # geom_contour2(aes(z = value)) +
+      scale_fill_divergent(guide = guide_colorbar(barwidth = 0.5, barheight = 2)) +
+      scale_y_latitude(limits = c(-90, -30)) +
+      scale_x_longitude() +
+      # coord_quickmap() +
+      facet_nested(season ~ variable) +
+      theme(legend.position = "right")
+}
+
+plot_vars <- function(lev) {
+seasons <- levels(varianzas$season)
+
+lapply(seasons, plot_var, lev = lev) %>% 
+   Reduce("+", .) +
+   plot_layout(ncol = 1) +
+   plot_annotation(title = paste0(lev, "hPa"))
+}
+```
+
+
+```{r, fig.cap = "Descomposición de la varianza de Z' en 50hPa", fig.width=9, fig.height=9}
+plot_vars(50)
+```
+
+La variabilidad del geopotencial 
+
+
+```{r, fig.cap = "Descomposición de la varianza de Z' en 200hPa", fig.width=9, fig.height=9}
+plot_vars(500)
+```
+
