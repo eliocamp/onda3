@@ -109,7 +109,7 @@ map_simple <- function(wrap = c(0, 360), out = "sf") {
    map <- maptools::map2SpatialPolygons(map, IDs = IDs, 
                                         proj4string = proj)
    
-   simple <- rmapshaper::ms_simplify(map, keep = 0.02)
+   simple <- rmapshaper::ms_simplify(map, keep = 0.015)
    simple
 }
 
@@ -184,7 +184,8 @@ $$
 
 
 ```{r}
-datos <- datos %>% 
+datos <- datos %>%
+   .[, hgt_z := Anomaly(hgt), by = .(lat, lev, dataset, season, year)] %>% 
    .[, prime := Anomaly(hgt), by = .(lon, lat, lev, dataset, season)] %>% 
    .[, prime_mean := mean(prime), by = .(lat, lev, dataset, year, season)] %>% 
    .[, prime_star := prime - prime_mean]
@@ -228,12 +229,12 @@ plot_var <- function(season, lev) {
 }
 
 plot_vars <- function(lev) {
-seasons <- levels(varianzas$season)
-
-lapply(seasons, plot_var, lev = lev) %>% 
-   Reduce("+", .) +
-   plot_layout(ncol = 1) +
-   plot_annotation(title = paste0(lev, "hPa"))
+   seasons <- levels(varianzas$season)
+   
+   lapply(seasons, plot_var, lev = lev) %>% 
+      Reduce("+", .) +
+      plot_layout(ncol = 1) +
+      plot_annotation(title = paste0(lev, "hPa"))
 }
 ```
 
@@ -242,10 +243,38 @@ lapply(seasons, plot_var, lev = lev) %>%
 plot_vars(50)
 ```
 
-La variabilidad del geopotencial 
+La varianza de la parte zonalmente simétrica de geopotencial tiene siempre la misma estructura de máxima varianza en los polos. Esto creo que hay que agarrarlo con pinzas porque podría deberse más que nada a la dependencia con el parámetro de coriolis. Podría estar señalándo que es más razonable manejarse con la función corriente. Lo malo es que no encuentro dónde bajar la función corriente en ERA. 
+
+En cualquier caso, la varianza de $Z^{'*}$ es máxima en latitudes polares y longitudinalmente magimiza al sur de sudamérica y al sur del Índico en todas las estaciones, prácticamente. Sin embargo, el campo de varianza total no tiene ese doble máximo salvo en JJA y la razón está en la estructura de la covarianza. En todas las estaciones hay un máximo de covariana negativa cerca de la península antártica que cancela el máximo de varianza de $Z^{'*}$. Esta estructura "bipolar" es interesante pero hay que tener cuidado. Por las fórmulas matemáticas, el promedio zonal de la covarianza de $Z^{'*}$ y $[Z^{*}]$ tiene que ser nulo, por lo que es una certeza matemática que zonas con covarianza positiva tienen que estar compensadas por áreascon covarianza negativa. 
 
 
 ```{r, fig.cap = "Descomposición de la varianza de Z' en 200hPa", fig.width=9, fig.height=9}
-plot_vars(500)
+plot_vars(200)
 ```
+
+En 200hPa hay algunos cambios. La estructura de varianza es tiene escalas espaciales más pequeñas. Esto es de esperarse dado que como las ondas cortas no se propagan verticalmente tanto como las cortas, toda la estructura de la estratósfera es más "suave" que la de la tropósfera. La varianza de $[Z']$ sigue siendo máxima en el polo sur, salvo en verano, que tiene un máximo en latitudes medias que probablemente corresponda a la variabilidad del jet subtropical. La varianza de $Z*'$ maximiza en latitudes plares igual que en 5hPa, pero en vez de tener dos máximos, tiene uno solo que coincide con la Baja de Amundsen. En cuanto a la covarianza, sigue tieniendo un máximo negativo en el mar de Weddell. 
+
+
+Para analizar con más detalle la relación entre Z y [Z] pero sin los probelmas matemáticos de la covarianza mostrada arriba, abajo muestro directamente la correlación entre Z (sin ningún filtro) y [Z].
+
+```{r fig.cap="Correlación entre Z y [Z]"}
+datos %>% 
+   .[lev %in% c(50, 200)] %>% 
+   .[dataset == "era"] %>% 
+   .[, cor.test(hgt, prime_mean)[c("estimate", "p.value")], 
+     by = .(dataset, lev, lon, lat, season)] %>% 
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   geom_contour2(aes(z = estimate), breaks = 0, size = 0.1) +
+   # stat_subset(aes(subset = p.value < 0.01 & is.cross(lon, lat)), size = 0.1, alpha = 0.2) +
+   facet_nested(lev~season) +
+   scale_fill_divergent() +
+   map 
+```
+
+Como era de esperarse, la correlación es positiva en casi todos lados y muy cercana a uno por la estructura principalmente zonal de la circulación del hemisferio Sur. Sin embargo, resaltan áreas de correlación mínima. Estas se dan entre 45°S y 75°S aproximadamente aunque varían según la estación y el nivel. Es notorio encontrar que sobre el Pasaje de Drake la correlación es negativa en otoño (aunque no estadísticamente significativa).
+
+
+
 
