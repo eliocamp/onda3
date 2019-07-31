@@ -114,9 +114,16 @@ map_simple <- function(wrap = c(0, 360), out = "sf") {
 }
 
 map_data <- subset(fortify(map_simple()), lat <= 0)
-map <- geom_path(data = map_data, aes(long, lat, group = group), 
-                 color = "black", 
-                 size = 0.2)
+
+map <- function(subset, color = "black", size = 0.2, ...) {
+   data <- fortify(map_simple())
+   subset <- eval(substitute(subset), envir = data)
+   
+   geom_path(data = data[subset, ], 
+             aes(long, lat, group = group), 
+             color = color, 
+             size = size, ...)
+}
 ```
 
 
@@ -125,8 +132,8 @@ subset <- list(latitude = -90:0,
                level = list(50, 200, 500))
 
 
-files <- c(era = here("DATA", "ERA-Interim", "hgt.mon.mean.nc"),
-           era20 =here("DATA", "ERA-20C", "hgt.mon.mean.nc"))
+files <- c(era   = here("DATA", "ERA-Interim", "hgt.mon.mean.nc"),
+           era20 = here("DATA", "ERA-20C", "hgt.mon.mean.nc"))
 
 datos <- rbindlist(lapply(files, function(f) {
    ReadNetCDF(f, c(hgt = "z"), subset = subset)}), 
@@ -217,7 +224,7 @@ plot_var <- function(season, lev) {
       .[lev %in% out_lev] %>%
       ggplot(aes(lon, lat)) +
       geom_contour_fill(aes(z = value), breaks = AnchorBreaks(0, NULL, 0)) +
-      map +
+      map(lat < 0) +
       # geom_contour(aes(z = value), color = "black") +
       # geom_contour2(aes(z = value)) +
       scale_fill_divergent(guide = guide_colorbar(barwidth = 0.5, barheight = 2)) +
@@ -270,11 +277,138 @@ datos %>%
    # stat_subset(aes(subset = p.value < 0.01 & is.cross(lon, lat)), size = 0.1, alpha = 0.2) +
    facet_nested(lev~season) +
    scale_fill_divergent() +
-   map 
+   map(lat < 0)
 ```
 
 Como era de esperarse, la correlación es positiva en casi todos lados y muy cercana a uno por la estructura principalmente zonal de la circulación del hemisferio Sur. Sin embargo, resaltan áreas de correlación mínima. Estas se dan entre 45°S y 75°S aproximadamente aunque varían según la estación y el nivel. Es notorio encontrar que sobre el Pasaje de Drake la correlación es negativa en otoño (aunque no estadísticamente significativa).
 
 
+```{r}
+lats.eof <- c(-80, -20)
+ceof <-  datos[lev %in% c(10, 50, 200) & lat %between% lats.eof] %>%
+   .[dataset != "ncep"] %>% 
+   .[year %between% common_range(year, dataset)] %>%
+   .[, hgt := Anomaly(hgt),
+     by  = .(lat, season, year, lev, dataset)] %>%
+   .[, hgt := Anomaly(hgt), by = .(lon, lat, season, lev, dataset)] %>% 
+   .[, hgt := hgt*sqrt(cos(lat*pi/180))] %>%
+   .[, hgt.cpx := spectral::analyticFunction(hgt),
+     by = .(lat, season, year, dataset, lev)] %>% 
+   .[, hgt := hgt.cpx] %>%
+   .[, list(ceof = list(EOF(hgt ~ year | lon + lat, n = 1:2, suffix = "cPC"))),
+     by = .(dataset, season, lev)]
+```
 
+
+```{r}
+ceof[, ceof[[1]]$right, by = .(dataset, season, lev)] %>% 
+   # .[lev == 50] %>% 
+   # .[season == "DJF"] %>% 
+   .[dataset == "era"] %>%
+   # .[lev == 50] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = abs(hgt))) +
+   map(lat < 0) +
+   # geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
+   geom_contour2(aes(z = Re(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
+   geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2, color = "blue") +
+   # geom_contour(aes(z = Im(hgt)), color = "black") +
+   scale_fill_distiller(palette = "Oranges", direction = 1) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   facet_nested(lev + cPC  ~  season, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_quickmap()
+```
+
+
+```{r}
+ceof[, ceof[[1]]$right, by = .(dataset, season, lev)] %>% 
+   .[dataset == "era"] %>% 
+   .[, FitWave(Re(hgt), 1:6), by = .(lat, lev, dataset, cPC, season)] %>% 
+   
+   ggplot(aes(lat, amplitude)) +
+   geom_line(aes(color = factor(k))) +
+   facet_nested(lev + cPC  ~  season, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_flip()
+```
+
+
+```{r}
+sst <- ReadNetCDF(here::here("DATA/ERA-Interim/sst.mon.mean.nc"),
+                  subset = list(latitude = -90:20)) %>% 
+   setnames(longitude = "lon", latitude = "lat") %>% 
+   .[, lapply(.SD, mean), by = .(lon, lat, year(time), season(time))]
+
+air <- ReadNetCDF(here::here("DATA/ERA-Interim/air.mon.mean.nc"),
+                  subset = list(latitude = -90:20,
+                                level = list(850, 50))) %>% 
+      setnames(longitude = "lon", latitude = "lat", level = "lev") %>% 
+   .[, lapply(.SD, mean), by = .(lon, lat, lev, year(time), season(time))]
+```
+
+
+```{r}
+ceof_era <- ceof[dataset == "era"]
+
+ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
+   copy() %>% 
+   .[, c("Real", "Imaginary") := ReIm(hgt)] %>% 
+   melt(id.vars = c("dataset", "season", "lev", "year", "cPC"), measure.vars = c("Real", "Imaginary")) %>% 
+   sst[., on = c("season", "year"), allow.cartesian = TRUE] %>% 
+   na.omit() %>% 
+   .[, cor.test(sst, value, use = "complete.obs")[c("estimate", "p.value")],  
+     by = .(lon, lat, season, lev, dataset, cPC, variable)] %>% 
+   .[, p.val := p.adjust(p.value, "fdr"), by = .(lev, season, cPC, variable)] %>% 
+   .[lat > -75] %>%
+   ggplot(aes(lon, lat)) +
+   geom_raster(aes(fill = estimate)) +
+   stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
+   scale_fill_divergent(limits = c(-1, 1)) +
+   facet_nested(lev + cPC  ~  season + variable, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   map(lat < 25) +
+   coord_quickmap()
+```
+
+
+```{r}
+air850 <- air[lev == 850]
+
+ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
+   copy() %>% 
+   .[, c("Real", "Imaginary") := ReIm(hgt)] %>% 
+   melt(id.vars = c("dataset", "season", "lev", "year", "cPC"), measure.vars = c("Real", "Imaginary")) %>% 
+   air850[., on = c("season", "year"), allow.cartesian = TRUE] %>% 
+   na.omit() %>% 
+   .[, cor.test(t, value, use = "complete.obs")[c("estimate", "p.value")],  
+     by = .(lon, lat, season, lev, dataset, cPC, variable)] %>% 
+   .[, p.val := p.adjust(p.value, "fdr"), by = .(lev, season, cPC, variable)] %>% 
+   .[lat > -75] %>%
+   ggplot(aes(lon, lat)) +
+   geom_raster(aes(fill = estimate)) +
+   stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
+   scale_fill_divergent(limits = c(-1, 1)) +
+   facet_nested(lev + cPC  ~  season + variable, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   map(lat < 25) +
+   coord_quickmap()
+```
+
+
+```{r}
+as.list.acf <- function(x) {
+   list(acf = x[["acf"]][, 1, 1],
+        lag = x[["lag"]][, 1, 1])
+}
+
+ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>% 
+   .[, as.list(ccf(Re(hgt), Im(hgt), plot = FALSE)), by = .(season, lev, cPC)] %>% 
+   ggplot(aes(lag, acf)) +
+   geom_line() +
+   geom_point() +
+   facet_nested(lev + cPC  ~  season, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) 
+```
 
