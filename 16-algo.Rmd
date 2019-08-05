@@ -285,7 +285,7 @@ Como era de esperarse, la correlación es positiva en casi todos lados y muy cer
 
 ```{r}
 lats.eof <- c(-80, -20)
-ceof <-  datos[lev %in% c(10, 50, 200) & lat %between% lats.eof] %>%
+ceof <- datos[lev %in% c(10, 50, 200) & lat %between% lats.eof] %>%
    .[dataset != "ncep"] %>% 
    .[year %between% common_range(year, dataset)] %>%
    .[, hgt := Anomaly(hgt),
@@ -298,6 +298,18 @@ ceof <-  datos[lev %in% c(10, 50, 200) & lat %between% lats.eof] %>%
    .[, list(ceof = list(EOF(hgt ~ year | lon + lat, n = 1:2, suffix = "cPC"))),
      by = .(dataset, season, lev)]
 ```
+
+```{r}
+eof <- datos[lev %in% c(10, 50, 200) & lat %between% lats.eof] %>%
+   .[dataset != "ncep"] %>% 
+   .[year %between% common_range(year, dataset)] %>% 
+   .[, hgt := Anomaly(hgt),
+     by  = .(lat, season, year, lev, dataset)] %>%
+   .[, hgt := Anomaly(hgt), by = .(lon, lat, season, dataset, lev)] %>% 
+   .[, hgt := hgt/sd(hgt)*sqrt(cos(lat*pi/180)), by = .(dataset, season, lev)] %>% 
+   .[, list(eof = list(EOF(hgt ~ year | lon + lat + lev, n = 1:4))), by = .(dataset, season)]
+```
+
 
 
 ```{r}
@@ -321,18 +333,178 @@ ceof[, ceof[[1]]$right, by = .(dataset, season, lev)] %>%
    coord_quickmap()
 ```
 
+El PC1 en 50 hPa "va" con el PC2 en 200 tanto en estructura como en series temporales. Abajo se muestra las correlaciónes entre las series temporales de cada componente principal y cada nivel y para la parte imaginaria y real respectivamente. El cPC2 en 50hPa tiene una alta correlación con el cPC1 en 200hPa en JJA y SON. Entonce está claro que es el mismo modo que tiene una estructura barotrópica equivalente y que se propaga hacia o desde la estratósfera. En DJF y MAM la sincronización entre niveles se da más bien entre el PC1 de ambos niveles (aunque en menor medida).
 
 ```{r}
-ceof[, ceof[[1]]$right, by = .(dataset, season, lev)] %>% 
+ceof[, ceof[[1]]$left, by = .(dataset, season, lev)] %>% 
+   .[, c("R", "I") := ReIm(hgt)] %>% 
+   .[dataset == "era"] %>% 
+   tidyr::pivot_longer(R:I) %>% 
+   as.data.table() %>% 
+   .[, item :=  interaction(lev, cPC)] %>% 
+   .[, widyr::pairwise_cor(.SD, item, year, value), by = .(season, name)] %>%
+   ggplot(aes(item1, item2)) +
+   geom_raster(aes(fill = correlation)) +
+   geom_text(aes(label = round(correlation, 2))) +
+   scale_fill_divergent() +
+   facet_nested(season ~ name) 
+```
+
+Esto motiva hacer el EOF con ambos niveles juntos de manera de obtener modos de oscilación conjuntos. Lo bueno de esto es que reduce la dimensión del problema ya que se reducen las series temporales a la mitad (porque hay una sola serie temporal para cada componente principal para los dos niveles).
+
+```{r}
+# Sacado de James
+H <- 6.4*1000
+lats.eof <- c(-80, -20)
+ceof <- datos[lev %in% c(10, 50, 200) & lat %between% lats.eof] %>%
+   .[dataset != "ncep"] %>% 
+   # .[year %between% common_range(year, dataset)] %>%
+   # .[, hgt := hgt*exp(hgt/2*H)] %>% 
+   .[, hgt := Anomaly(hgt),
+     by  = .(lat, season, year, lev, dataset)] %>%
+   .[, hgt := Anomaly(hgt), by = .(lon, lat, season, lev, dataset)] %>% 
+   .[, hgt := hgt*sqrt(cos(lat*pi/180))*exp(hgt/(2*H)), by = .(season, dataset, lev)] %>%
+   .[, hgt.cpx := spectral::analyticFunction(hgt),
+     by = .(lat, season, year, dataset, lev)] %>% 
+   .[, hgt := hgt.cpx] %>%
+   .[, list(ceof = list(EOF(hgt ~ year | lon + lat + lev, n = 1:2, suffix = "cPC", B = 5000))),
+     by = .(dataset, season)]
+```
+
+
+```{r}
+ceof[, ceof[[1]]$sdev, by = .(dataset, season)] %>% 
+   ggplot(aes(cPC, sd)) +
+   geom_col() +
+   geom_errorbar(aes(ymax = upper, ymin = lower)) +
+   facet_grid(dataset ~ season)
+```
+
+
+```{r}
+ceof[, ceof[[1]]$right, by = .(dataset, season)] %>% 
+   # .[lev == 50] %>% 
+   # .[season == "DJF"] %>% 
+   .[dataset == "era"] %>%
+   # .[lev == 50] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = abs(hgt))) +
+   map(lat < 0) +
+   # geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
+   geom_contour2(aes(z = Re(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
+   # geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2, color = "blue") +
+   # geom_contour(aes(z = Im(hgt)), color = "black") +
+   scale_fill_distiller(palette = "Oranges", direction = 1) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   facet_nested(cPC + lev ~ season, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_quickmap()
+```
+
+
+```{r}
+ceof[, ceof[[1]]$right, by = .(dataset, season)] %>% 
+   # .[lev == 50] %>% 
+   # .[season == "DJF"] %>% 
+   .[dataset == "era"] %>%
+   # .[lev == 50] %>% 
+   .[, mean(abs(hgt)^2), by = .(dataset, season, lev, cPC)] %>% 
+   ggplot(aes(cPC, V1)) +
+   geom_col(aes(fill = factor(lev)), position = "dodge2") +
+   facet_grid(dataset  ~season)
+```
+
+
+```{r}
+ceof[, ceof[[1]]$left, by = .(dataset, season)] %>% 
+   .[dataset == "era20"] %>%
+   ggplot(aes(year, Im(hgt))) +
+   geom_line() +
+   geom_smooth() +
+   facet_grid(cPC ~ season + dataset)
+
+```
+
+
+```{r}
+ceof[, ceof[[1]]$right, by = .(dataset, season)] %>% 
    .[dataset == "era"] %>% 
    .[, FitWave(Re(hgt), 1:6), by = .(lat, lev, dataset, cPC, season)] %>% 
    
    ggplot(aes(lat, amplitude)) +
    geom_line(aes(color = factor(k))) +
-   facet_nested(lev + cPC  ~  season, 
+   facet_nested(cPC + lev  ~  season, 
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    coord_flip()
 ```
+
+
+
+
+
+```{r}
+ceof[, ceof[[1]]$right, by = .(dataset, season)] %>% 
+   # .[lev == 50] %>% 
+   # .[season == "DJF"] %>% 
+   .[dataset == "era"] %>%
+   # .[lev == 50] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = abs(hgt))) +
+   map(lat < 0) +
+   # geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
+   geom_contour2(aes(z = Re(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
+   # geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2, color = "blue") +
+   # geom_contour(aes(z = Im(hgt)), color = "black") +
+   scale_fill_distiller(palette = "Oranges", direction = 1) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   facet_nested(cPC + lev  ~  season, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_quickmap()
+```
+
+```{r}
+ceof[, ceof[[1]]$right, by = .(dataset, season)] %>% 
+   .[dataset == "era"] %>% 
+   .[, FitWave(Im(hgt), 1:6), by = .(lat, lev, dataset, cPC, season)] %>% 
+   
+   ggplot(aes(lat, amplitude)) +
+   geom_line(aes(color = factor(k))) +
+   facet_nested(cPC + lev  ~  season, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_flip()
+```
+
+```{r}
+ceof_era <- ceof[dataset == "era"]
+```
+
+
+
+```{r}
+ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
+   copy() %>% 
+   setnames(hgt = "EOF") %>% 
+   datos[., on = c("dataset", "season", "lev", "year")] %>% 
+   .[dataset == "era"]  %>% 
+   .[, c("R", "I") := ReIm(EOF)] %>% 
+   tidyr::pivot_longer(R:I, values_to = "value", names_to = "variable") %>% 
+   as.data.table() %>% 
+   .[, cor.test(hgt, value, use = "complete.obs")[c("estimate", "p.value")],  
+     by = .(lon, lat, lev, season, dataset, cPC, variable)] %>% 
+   .[, p.val := p.adjust(p.value, "fdr"), by = .(lev, season, cPC, variable)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   # stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
+   map(lat < 0) +
+   scale_fill_divergent() +
+   facet_nested(lev + cPC  ~  season + variable, 
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_quickmap()
+```
+
+
 
 
 ```{r}
@@ -344,13 +516,14 @@ sst <- ReadNetCDF(here::here("DATA/ERA-Interim/sst.mon.mean.nc"),
 air <- ReadNetCDF(here::here("DATA/ERA-Interim/air.mon.mean.nc"),
                   subset = list(latitude = -90:20,
                                 level = list(850, 50))) %>% 
-      setnames(longitude = "lon", latitude = "lat", level = "lev") %>% 
+   setnames(longitude = "lon", latitude = "lat", level = "lev") %>% 
    .[, lapply(.SD, mean), by = .(lon, lat, lev, year(time), season(time))]
 ```
 
 
 ```{r}
-ceof_era <- ceof[dataset == "era"]
+sst[, sst.z := Anomaly(sst, na.rm = TRUE), by = .(year, season, lat)]
+
 
 ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
    copy() %>% 
@@ -358,7 +531,7 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
    melt(id.vars = c("dataset", "season", "lev", "year", "cPC"), measure.vars = c("Real", "Imaginary")) %>% 
    sst[., on = c("season", "year"), allow.cartesian = TRUE] %>% 
    na.omit() %>% 
-   .[, cor.test(sst, value, use = "complete.obs")[c("estimate", "p.value")],  
+   .[, cor.test(sst.z, value, use = "complete.obs")[c("estimate", "p.value")],  
      by = .(lon, lat, season, lev, dataset, cPC, variable)] %>% 
    .[, p.val := p.adjust(p.value, "fdr"), by = .(lev, season, cPC, variable)] %>% 
    .[lat > -75] %>%
@@ -372,6 +545,7 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
    coord_quickmap()
 ```
 
+La correlación entre el la anomalía zonal de SST y las series temporales de casa EOF no da nada significativo 
 
 ```{r}
 air850 <- air[lev == 850]
@@ -411,4 +585,7 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
    facet_nested(lev + cPC  ~  season, 
                 labeller = labeller(lev = AddSuffix(" hPa"))) 
 ```
+
+
+
 
