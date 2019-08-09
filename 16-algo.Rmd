@@ -150,8 +150,8 @@ subset <- list(latitude = -90:0,
                level = list(50, 200, 500))
 
 
-files <- c(era   = here("DATA", "ERA-Interim", "hgt.mon.mean.nc"),
-           era20 = here("DATA", "ERA-20C", "hgt.mon.mean.nc"))
+files <- c(era   = here("DATA", "ERA-Interim", "erai.mon.mean.nc"),
+           era20 = here("DATA", "ERA-20C", "era20.mon.mean.nc"))
 
 datos <- rbindlist(lapply(files, function(f) {
    ReadNetCDF(f, c(hgt = "z"), subset = subset)}), 
@@ -473,12 +473,14 @@ ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>%
 
 
 ```{r}
-sst <- ReadNetCDF(here::here("DATA/ERA-Interim/sst.mon.mean.nc"),
+sst <- ReadNetCDF(here::here("DATA/ERA-Interim/erai-sfc.mon.mean.nc"),
+                  vars = "sst",
                   subset = list(latitude = -90:20)) %>% 
    setnames(longitude = "lon", latitude = "lat") %>% 
    .[, lapply(.SD, mean), by = .(lon, lat, year(time), season(time))]
 
-air <- ReadNetCDF(here::here("DATA/ERA-Interim/air.mon.mean.nc"),
+air <- ReadNetCDF(here::here("DATA/ERA-Interim/erai.mon.mean.nc"),
+                  vars = "t",
                   subset = list(latitude = -90:20,
                                 level = list(850, 50))) %>% 
    setnames(longitude = "lon", latitude = "lat", level = "lev") %>% 
