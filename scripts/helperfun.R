@@ -1603,8 +1603,3 @@ common_range <- function(x, groups) {
    }
    common_range
 }
-
-
-nest <- function(...) {
-   list(...)
-}

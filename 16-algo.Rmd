@@ -150,8 +150,8 @@ subset <- list(latitude = -90:0,
                level = list(50, 200, 500))
 
 
-files <- c(era   = here("DATA", "ERA-Interim", "erai.mon.mean.nc"),
-           era20 = here("DATA", "ERA-20C", "era20.mon.mean.nc"))
+files <- c(era   = here("DATA", "ERA-Interim", "hgt.mon.mean.nc"),
+           era20 = here("DATA", "ERA-20C", "hgt.mon.mean.nc"))
 
 datos <- rbindlist(lapply(files, function(f) {
    ReadNetCDF(f, c(hgt = "z"), subset = subset)}), 
@@ -326,7 +326,7 @@ gdata <- ceof[, ceof[[1]]$right, by = .(dataset, season, lev)] %>%
    .[dataset == "era"] 
 
 gdata %>%    
-ggplot(aes(lon, lat)) +
+   ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = abs(hgt))) +
    map(lat < 0) +
    # geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
@@ -368,7 +368,7 @@ H <- 6.4*1000
 lats.eof <- c(-80, -20)
 ceof <- datos[lev %in% c(50, 200) & lat %between% lats.eof] %>%
    .[dataset != "ncep"] %>% 
-   # .[year %between% common_range(year, dataset)] %>%
+   .[year %between% common_range(year, dataset)] %>%
    # .[, hgt := hgt*exp(hgt/2*H)] %>% 
    .[, hgt := Anomaly(hgt),
      by  = .(lat, season, year, lev, dataset)] %>%
@@ -392,7 +392,7 @@ gdata %>%
    geom_contour_fill(aes(z = abs(hgt))) +
    map(lat < 0) +
    # geom_contour2(aes(z = Im(hgt), linetype = factor(-sign(..level..))), size = 0.2) +
-   geom_contour2(data = sep_ReIm(gdata, hgt),
+   geom_contour2(data = sep_ReIm(gdata, hgt), breaks = AnchorBreaks(0, exclude = 0),
                  aes(z = hgt, linetype = factor(-sign(..level..)), color = part), size = 0.2) +
    scale_fill_distiller(palette = "Oranges", direction = 1) +
    scale_x_longitude() +
@@ -403,35 +403,29 @@ gdata %>%
    coord_quickmap()
 ```
 
-Estas nuevas componentes princpales son parecidas a las anteriorer sólo que se agrupan de forma más explícita según la covariabilidad entre 200hPa y 50hPa. En general, tienen una esctructura barotrópica equivalente. En DJF
+Estas nuevas componentes princpales son parecidas a las anteriorer sólo que se agrupan de forma más explícita según la covariabilidad entre 200hPa y 50hPa. 
+
+En general, se ven estructuras barotrópica equivalentes. Algunos PC tienen similar amplitud en ambos niveles, en ortos la amplitud es mucho mayor en uno que en el otro. ¿Eso significa que los primeros marcan variabilidad conjunta mientras que los otros variabilidad sólo en un nivel? 
+
+El PC1 en todas las estacioens marca la actividad de la onda 1 en 50hPa, salvo en MAM, que también tiene onda 2 que la modifica. Su "impacto" en 200hPa varía en cada estación. En JJA y SON es casi nulo, lo que indica la poca comunicación entre ambos niveles para ese modol. En DJF y MAM sí se observa actividad de la PC1 en 200hPa, con máxima amplitud en el Mar de Weddell y máximos y mínimos en fase con los de 50hPa. 
+
+El PC2 muestra más aparente conexión entre los niveles, excepto en DJF. En ese trimestre, en 50hPa hay una mezcla de onda 1 y onda 2 que genera un máximo y un mínimo en el Índico Sur mientras qu een 200hPa hay una mezcla variada de muchos números de onda que no parece tener una estructura muy coherente pero con máxima variabilidad en en Pacífico Sur. En MAM, la acticidad en ambos niveles está en el Pacífico Sur y muestra ondas barotrópicas equivalentes. En 50hPa es una onda 1+2 relativamente pura y sin propagación meridional mientras que en 200hPa parece haber un tren de ondas desde el Índico hacia Sudamérica. JJA y SON tienen estructuras parecidas pero el máximo de amplitud está maś corrido hacia el este. 
+
+
+En resumen la onda 1 en la estratósfera está representada principalmente por el PC1. Su amplitud es mayor en JJA y SON cuando además parece evidenciar menor conexión con la tropósfera. El PC2 representa ondas más cortas, barotrópicas equivalentes (salvo en DJF) con mayor actividad en el pacífico sur. Este resultado es medio raro porque implica que la variabilidad conjunta se da por las ondas más cortas que la onda 1. Pero por las condiciones de propagación vertical uno esperaría que ésta se propagara hasta la estratósfera más fácilmente. 
 
 
 ```{r}
-ceof[, ceof[[1]]$right, by = .(dataset, season)] %>% 
+ceof[, denormalize(ceof[[1]], "right"), by = .(dataset, season)] %>% 
    .[dataset == "era"] %>% 
    .[, FitWave(Re(hgt), 1:6), by = .(lat, lev, dataset, cPC, season)] %>% 
-   
    ggplot(aes(lat, amplitude)) +
    geom_line(aes(color = factor(k))) +
    facet_nested(cPC + lev  ~  season, 
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
+   scale_color_brewer(palette = "Set1") +
    coord_flip()
 ```
-
-
-
-```{r, fig.cap = "Series temporales de las partes reales e imaginarias de cada componente principal para ERA Interim y ERA20C"}
-ceof[, ceof[[1]]$left, by = .(dataset, season)] %>% 
-   # .[dataset == "era20"] %>% 
-   sep_ReIm(hgt) %>% 
-   ggplot(aes(year, hgt, color = dataset)) +
-   geom_line() +
-   # geom_smooth() +
-   facet_grid(cPC + part ~ season )
-```
-
-
-
 
 
 ```{r}
@@ -464,10 +458,86 @@ ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>%
    map(lat < 0) +
    scale_fill_divergent(breaks = AnchorBreaks(0, 0.25, 0),
                         guide = guide_colorstrip_bottom()) +
-   facet_nested(cPC + lev  ~  season , 
+   facet_nested(season + lev ~  cPC,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    coord_quickmap()
 ```
+
+
+Las correlaciones temporales entre el geopotencial y las series temporales de 
+```{r}
+ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
+   setnames(hgt = "EOF") %>% 
+   datos[., on = c("dataset", "season", "year")] %>%
+   .[lev %in% c(50, 200)] %>% 
+   .[dataset == "era"]  %>% 
+   # sep_ReIm(EOF) %>% 
+   .[, .(estimate = cor(hgt, abs(EOF))),
+     by = .(lon, lat, lev, season, dataset, cPC)] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, NULL, 0)) +
+   # geom_contour2(aes(z = I, linetype = factor(-sign(..level..))), breaks = AnchorBreaks(0, 0.25, 0)) +
+   # geom_text_contour(aes(z = I), rotate = FALSE, stroke = 0.1, stroke.color = "white", skip = 1,
+   # breaks = AnchorBreaks(0, 0.25, 0)) +
+   # stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
+   map(lat < 0) +
+   scale_fill_divergent(guide = guide_colorstrip_bottom()) +
+   facet_nested(season + lev ~  cPC,
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_quickmap()
+```
+
+
+```{r, fig.cap = "Series temporales de las partes reales e imaginarias de cada componente principal para ERA Interim y ERA20C"}
+ceof[, denormalize(ceof[[1]], "left"),  by = .(dataset, season)] %>% 
+   .[dataset == "era"] %>% 
+   # .[dataset == "era20"] %>% 
+   sep_ReIm(hgt) %>%
+   
+   # .[, change_sign := sign(widyr::pairwise_cor(.SD, dataset, year, hgt, upper = FALSE)$correlation), by = .(season, cPC, part)] %>%
+   # .[dataset == "era20", hgt := hgt*change_sign] %>% 
+   ggplot(aes(year, hgt, color = part)) +
+   geom_line() +
+   geom_smooth(method = "lm") +
+   facet_nested(cPC + dataset ~ season)
+```
+
+Cada PC tiene 2 series temporales, una Real y otra imaginaria. 
+
+
+```{r}
+psi <- ReadNetCDF("DATA/NCEP Reanalysis/psi.mon.mean.nc",
+                  subset = list(lat = c(-90, 20),
+                                level = 0.9950,
+                                time = c("1979-01-01", "2019-01-01"))) %>% 
+   setnames(level = "lev") %>% 
+   .[, year := year(time[1]), by = time] %>% 
+   .[month(time) == 12, year := year + 1] %>%  # december counts to the next year
+   .[, .(psi = mean(psi), n = .N), by = .(lev, lat, lon, year, season(time))] %>% 
+   .[n == 3] %>%  # keep only full seasons
+   .[, n := NULL] %>% 
+   .[, psi.z := Anomaly(psi), by = .(lat, season, year)]
+
+ceof[dataset == "era"] %>% 
+   .[, denormalize(ceof[[1]], "left"), by = .(season)] %>% 
+   sep_ReIm(hgt) %>% 
+   .[psi, on = c("year", "season"), allow.cartesian = TRUE] %>% 
+   na.omit() %>% 
+   .[, FitLm(psi.z, hgt = hgt/sd(hgt)), by = .(lat, lon, season, cPC, part)] %>% 
+   .[term == "hgt"] %>%
+   .[, psi.z := estimate] %>%
+   .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = .(season, cPC, part)] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = psi.z), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_streamline(aes(dx = f.lon, dy = f.lat), skip = 4, L = 10, min.L = 3) +
+   map(lat < 10) +
+   scale_fill_divergent() +
+   facet_nested(season ~  cPC + part)
+```
+
+
+
+
 
 
 
