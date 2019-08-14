@@ -150,8 +150,8 @@ subset <- list(latitude = -90:0,
                level = list(50, 200, 500))
 
 
-files <- c(era   = here("DATA", "ERA-Interim", "hgt.mon.mean.nc"),
-           era20 = here("DATA", "ERA-20C", "hgt.mon.mean.nc"))
+files <- c(era   = here("DATA", "ERA-Interim", "erai.mon.mean.nc"),
+           era20 = here("DATA", "ERA-20C", "era20c.mon.mean.nc"))
 
 datos <- rbindlist(lapply(files, function(f) {
    ReadNetCDF(f, c(hgt = "z"), subset = subset)}), 
@@ -465,6 +465,7 @@ ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>%
 
 
 Las correlaciones temporales entre el geopotencial y las series temporales de 
+
 ```{r}
 ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
    setnames(hgt = "EOF") %>% 
