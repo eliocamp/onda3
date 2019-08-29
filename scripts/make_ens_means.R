@@ -28,7 +28,7 @@ files_in <- cimadata::cmip_available(dir_to) %>%
 files_out <- paste0("DATA/", basename(files_in))
 
 
-make_mean <- function(file_in, file_out, verbose = FALSE) {
+make_mean <- function(file_in, file_out, ensemble_mean = TRUE, verbose = FALSE) {
    library(reticulate)
    use_condaenv("r-reticulate")
    xr <- import("xarray")
@@ -50,9 +50,13 @@ make_mean <- function(file_in, file_out, verbose = FALSE) {
    dt <- dt$resample(time = "QS")$
       mean(dim = "time")
    
-   if (verbose) cimadata:::message_time("Averaging ensemble")      
-   dt <- dt$mean(dim = "ensemble")$
-      to_netcdf(file_out)
+   if (ensamble_mean) {
+      if (verbose) cimadata:::message_time("Averaging ensemble")      
+      dt <- dt$mean(dim = "ensemble")
+   }
+   
+   if (verbose) cimadata:::message_time("Saving to ", file_out)      
+   dt$to_netcdf(file_out)
    
    return(file_out)
 }
