@@ -30,7 +30,7 @@ files_out <- paste0("DATA/", basename(files_in))
 
 make_mean <- function(file_in, file_out, ensemble_mean = TRUE, verbose = FALSE) {
    library(reticulate)
-   use_condaenv("r-reticulate")
+   py_install("netcdf4")
    xr <- import("xarray")
    
    if (file.exists(file_out)) {

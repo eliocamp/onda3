@@ -144,8 +144,9 @@ sep_ReIm <- function(dt, col, longer = TRUE) {
 
 ```
 
+# Análisis con un miembro cada uno 
 
-```{r read-data}
+```{r}
 subset <- list(lat = -90:0, 
                ensemble = 1,
                plev = list(50*10, 200*10))
@@ -156,6 +157,22 @@ files <- c(IPSL = "DATA/zg_Amon_IPSL-CM6A-LR_historical_i1p1f1_gr_185001-201412.
            MRI = "DATA/zg_Amon_MRI-ESM2-0_historical_i1p1f1_gn_185001-201412.nc4")
 
 files <- list.files("DATA", pattern = "zg_Amon", full.names = TRUE)
+
+file <- files[1]
+library(reticulate)
+py_install("netcdf4")
+xr <- import("xarray")
+
+
+dt <- xr$
+   open_dataset(file)$
+   sel(plev = c(50*10, 200*10))
+
+```
+
+
+```{r read-data}
+
 dataset <- unglue::unglue_data(files, "DATA/zg_Amon_{dataset}_{dummy}")
 names(files) <- dataset$dataset
 

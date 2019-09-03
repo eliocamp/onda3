@@ -175,22 +175,22 @@ datos <- rbindlist(lapply(files, function(f) {
 #    .[, n := NULL] %>% 
 #    setnames(u = "hgt")
 #    
-ipsl_file <- "~/DATOS/CMIP6/historical/mon/zg/zg_Amon_MRI-ESM2-0_historical_i1p1f1_gn_185001-201412.nc4"
-ipsl <- ReadNetCDF(ipsl_file, c(hgt = "zg"),
-                   subset = list(lat = -90:0,
-                                 plev = list(200*10, 50*10),
-                                 ensemble = 1)) %>% 
-   setnames(plev = "lev") %>% 
-   .[, lev := lev/10] %>% 
-   .[, year := year(time[1]), by = time] %>% 
-   .[month(time) == 12, year := year + 1] %>%  # december counts to the next year
-   .[, .(hgt = mean(hgt), n = .N), by = .(lev, lat, lon, year, season(time))] %>% 
-   .[n == 3] %>%  # keep only full seasons
-   .[, n := NULL] %>% 
-   .[, dataset := "MRI-ESM2-0"]
-
-
-datos <- rbind(datos, ipsl, use.names = TRUE)
+# ipsl_file <- "~/DATOS/CMIP6/historical/mon/zg/zg_Amon_MRI-ESM2-0_historical_i1p1f1_gn_185001-201412.nc4"
+# ipsl <- ReadNetCDF(ipsl_file, c(hgt = "zg"),
+#                    subset = list(lat = -90:0,
+#                                  plev = list(200*10, 50*10),
+#                                  ensemble = 1)) %>% 
+#    setnames(plev = "lev") %>% 
+#    .[, lev := lev/10] %>% 
+#    .[, year := year(time[1]), by = time] %>% 
+#    .[month(time) == 12, year := year + 1] %>%  # december counts to the next year
+#    .[, .(hgt = mean(hgt), n = .N), by = .(lev, lat, lon, year, season(time))] %>% 
+#    .[n == 3] %>%  # keep only full seasons
+#    .[, n := NULL] %>% 
+#    .[, dataset := "MRI-ESM2-0"]
+# 
+# 
+# datos <- rbind(datos, ipsl, use.names = TRUE)
 
 modern <- range(datos[dataset == "era", year])
 # Surface mask
@@ -482,9 +482,8 @@ ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>%
 ```
 
 
-Las correlaciones temporales entre el geopotencial y las series temporales de 
 
-```{r}
+```{r, fig.cap = "Correlación entre altura geopotencial y el valor absoluto del EOF complejo."}
 ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
    setnames(hgt = "EOF") %>% 
    datos[., on = c("dataset", "season", "year")] %>%
@@ -524,7 +523,7 @@ ceof[, denormalize(ceof[[1]], "left"),  by = .(dataset, season)] %>%
 Cada PC tiene 2 series temporales, una Real y otra imaginaria. 
 
 
-```{r}
+```{r, fig.cap = "Regresión entre la anomalía zonal de función corriente en sigma = 0.9950 y las partes real e imaginaria del EOF complejo. En flechas, el flujo de acción de onda derivado a partir de la mismma. "}
 psi <- ReadNetCDF("DATA/NCEP Reanalysis/psi.mon.mean.nc",
                   subset = list(lat = c(-90, 20),
                                 level = 0.9950,
@@ -548,7 +547,9 @@ ceof[dataset == "era"] %>%
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = .(season, cPC, part)] %>%
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = psi.z), breaks = AnchorBreaks(0, exclude = 0)) +
-   geom_streamline(aes(dx = f.lon, dy = f.lat), skip = 4, L = 10, min.L = 3) +
+   # geom_streamline(aes(dx = f.lon, dy = f.lat), skip = 4, L = 10, min.L = 3) +
+   geom_vector(aes(dx = f.lon, dy = f.lat), skip = 4, min.mag = 1e-6) +
+   scale_mag() + 
    map(lat < 10) +
    scale_fill_divergent() +
    facet_nested(season ~  cPC + part)
@@ -577,7 +578,7 @@ air <- ReadNetCDF(here::here("DATA/ERA-Interim/erai.mon.mean.nc"),
 ```
 
 
-```{r, fig.cap = "Regresión de la parte real e imaginaria de cada PC con la anomalía zonal de SST"}
+```{r, fig.cap = "Regresión de la parte real e imaginaria de cada PC con la anomalía zonal de SST. Puntos marcan valores con ṕ-valor <= 0.05 (ajustado por FDR)."}
 sst[, sst_z := Anomaly(sst, na.rm = TRUE), by = .(year, season, lat)]
 
 
@@ -596,10 +597,10 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
    ggplot(aes(lon, lat)) +
    # geom_raster(aes(fill = estimate)) +
    geom_contour_fill(aes(z = estimate), na.fill = TRUE) +
-   stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
+   stat_subset(aes(subset = p.val <= 0.05 & is.cross(lon, lat)), geom = "point", shape = "+") +
    # scale_fill_divergent(limits = c(-1, 1)) +
    scale_fill_divergent() +
-   facet_nested( cPC + part ~  season,
+   facet_nested(season ~  cPC + part,
                  labeller = labeller(lev = AddSuffix(" hPa"))) +
    map(lat < 25, fill = "white") +
    coord_quickmap()
@@ -607,7 +608,7 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
 
 La correlación entre el la anomalía zonal de SST y las series temporales de casa EOF no da mucho significativo. El PC2 en SON tiene una señal significativa de tipo niño que se muestra con más detalle abajo:
 
-```{r }
+```{r, fig.cap = "Detalle de la figura anterior sólo en SON y la segunda componente principal"}
 ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
    sep_ReIm(hgt) %>% 
    sst[., on = c("season", "year"), allow.cartesian = TRUE] %>% 
@@ -623,16 +624,22 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
    .[lat > -75] %>%
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = estimate), na.fill = TRUE) +
-   stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
+   stat_subset(aes(subset = p.val < 0.05 & is.cross(lon, lat)), geom = "point", shape = "+") +
    # scale_fill_divergent(limits = c(-1, 1)) +
    scale_fill_divergent() +
-   facet_nested( cPC + part ~  season,
+   facet_nested( cPC + season ~ part,
                  labeller = labeller(lev = AddSuffix(" hPa"))) +
    map(lat < 25, fill = "white") +
    coord_quickmap()
 
+```
+
+
+Pareciera que la parte real está más asociada a temperaturas cálidas de lado este del pacífico mientras que la parte imaginaria está asociada a anomalías cálidas en la parte central. De todas formas las diferencias no son muy grandes. 
+
+
+```{r, fig.cap = "Diferencia entre la parte Real y la parte imaginaria de la figura anterior."}
 ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
-   
    sep_ReIm(hgt) %>% 
    sst[., on = c("season", "year"), allow.cartesian = TRUE] %>% 
    na.omit() %>% 
@@ -653,9 +660,7 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
 ```
 
 
-Pareciera que la parte real está más asociada a temperaturas cálidas de lado este del pacífico mientras que la parte imaginaria está asociada a anomalías cálidas en la parte central. De todas formas las diferencias no son muy grandes. 
-
-```{r}
+```{r, fig.cap = "Regresión entre temperatura en 50hPa y las componentes principales complejas. Puntos marcan zonas con p.valor <= 0.05 (corregido por FDR)."}
 # air850 <- air[lev == 50]
 
 air_reg <- ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
@@ -671,16 +676,16 @@ air_reg[lev == 50] %>%
    ggplot(aes(lon, lat)) +
    # geom_raster(aes(fill = estimate)) +
    geom_contour_fill(aes(z = estimate), na.fill = TRUE) +
-   stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
+   stat_subset(aes(subset = p.val <= 0.05 & is.cross(lon, lat)), geom = "point", shape = "+") +
    # scale_fill_divergent(limits = c(-1, 1)) +
    scale_fill_divergent() +
-   facet_nested(cPC + part ~  season,
+   facet_nested(cPC + part ~  season + lev,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    map(lat < 25) +
    coord_quickmap()
 ```
 
-```{r}
+```{r, fig.cap = "Regresión entre temperatura en 850hPa y las componentes principales complejas. Puntos marcan zonas con p.valor <= 0.05 (corregido por FDR)."}
 air_reg[lev == 850] %>% 
    ggplot(aes(lon, lat)) +
    # geom_raster(aes(fill = estimate)) +
@@ -696,23 +701,6 @@ air_reg[lev == 850] %>%
 
 
 Las regresiones con la temperatura muestran los efectos esperables de advección meridional por parte de las anomalías de circulación. 
-
-```{r}
-as.list.acf <- function(x) {
-   list(acf = x[["acf"]][, 1, 1],
-        lag = x[["lag"]][, 1, 1])
-}
-
-ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>% 
-   .[, as.list(ccf(Re(hgt), Im(hgt), plot = FALSE)), by = .(season, cPC)] %>% 
-   ggplot(aes(lag, acf)) +
-   geom_line() +
-   geom_point() +
-   facet_nested(cPC  ~  season, 
-                labeller = labeller(lev = AddSuffix(" hPa"))) 
-
-```
-
 
 
 
