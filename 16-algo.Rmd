@@ -29,7 +29,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      cache.extra = 41, 
+                      cache.extra = 42, 
                       warning = FALSE, message = FALSE,
                       out.extra = "",
                       cache.path = paste0("cache/", name, "/"),
@@ -331,7 +331,7 @@ ceof <- datos[lev %in% c(50, 200) & lat %between% lats.eof] %>%
    .[, hgt := Anomaly(hgt),
      by  = .(lat, season, year, lev, dataset)] %>%
    .[, hgt := Anomaly(hgt), by = .(lon, lat, season, lev, dataset)] %>% 
-   # .[, hgt := hgt/sd(hgt), by = .(lev, season, dataset)] %>% 
+   .[, hgt := hgt/sd(hgt), by = .(lev, season, dataset)] %>%
    .[, hgt := hgt*sqrt(cos(lat*pi/180))] %>%
    .[, hgt.cpx := spectral::analyticFunction(hgt),
      by = .(lat, season, year, dataset, lev)] %>% 
@@ -361,6 +361,7 @@ gdata %>%
    facet_nested(season + lev ~  cPC,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    coord_quickmap()
+
 ```
 
 El PC1 en 50 hPa "va" con el PC2 en 200 tanto en estructura como en series temporales. Abajo se muestra las correlaciónes entre las series temporales de cada componente principal y cada nivel y para la parte imaginaria y real respectivamente. El cPC2 en 50hPa tiene una alta correlación con el cPC1 en 200hPa en JJA y SON. Entonce está claro que es el mismo modo que tiene una estructura barotrópica equivalente y que se propaga hacia o desde la estratósfera. En DJF y MAM la sincronización entre niveles se da más bien entre el PC1 de ambos niveles (aunque en menor medida).
@@ -378,9 +379,10 @@ ceof[, ceof[[1]]$left, by = .(dataset, season, lev)] %>%
    geom_text(aes(label = signif(correlation, 2))) +
    scale_fill_divergent(guide = "none") +
    facet_nested(season ~ name) 
+
 ```
 
-Esto motiva hacer el EOF con ambos niveles juntos de manera de obtener modos de oscilación conjuntos. Lo bueno de esto es que reduce la dimensión del problema ya que se reducen las series temporales a la mitad (porque hay una sola serie temporal para cada componente principal para los dos niveles). Además, voy a estandarizar la variable en función del desvío estándard de cada nivel. 
+Esto motiva hacer el EOF con ambos niveles juntos de manera de obtener modos de oscilación conjuntos. Lo bueno de esto es que reduce la dimensión del problema ya que se reducen las series temporales a la mitad (porque hay una sola serie temporal para cada componente principal para los dos niveles). 
 
 ```{r}
 # Sacado de James
@@ -425,12 +427,13 @@ gdata %>%
 ```
 
 
-```{r, fig.cap = "Detalle de la figura anterior para las estaciones JJA y SON en coordenadas polares.", fig.width=9, fig.height=11}
+```{r, fig.cap = "Detalle de la figura anterior para las estaciones  SON en coordenadas polares.", fig.width=9, fig.height=11}
 gdata <- gdata %>%    
-   .[season %in% c("JJA", "SON")] %>% 
+   .[season %in% c("SON")] %>% 
    ggperiodic::periodic(lon = c(0, 360))
-   # ggperiodic::qwrap(lon = c(0, 360) ~ c(-180, 180))
-   # identity()
+
+# ggperiodic::qwrap(lon = c(0, 360) ~ c(-180, 180))
+# identity()
 
 gdata %>% 
    ggplot(aes(lon, lat)) +
@@ -447,7 +450,7 @@ gdata %>%
    facet_nested(season + lev ~  cPC,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    coord_polar()
-   # coord_quickmap()
+# coord_quickmap()
 ```
 
 Estas nuevas componentes princpales son parecidas a las anteriorer sólo que se agrupan de forma más explícita según la covariabilidad entre 200hPa y 50hPa. 
@@ -462,9 +465,10 @@ El PC2 muestra más aparente conexión entre los niveles, excepto en DJF. En ese
 En resumen la onda 1 en la estratósfera está representada principalmente por el PC1. Su amplitud es mayor en JJA y SON cuando además parece evidenciar menor conexión con la tropósfera. El PC2 representa ondas más cortas, barotrópicas equivalentes (salvo en DJF) con mayor actividad en el pacífico sur. Este resultado es medio raro porque implica que la variabilidad conjunta se da por las ondas más cortas que la onda 1. Pero por las condiciones de propagación vertical uno esperaría que ésta se propagara hasta la estratósfera más fácilmente. 
 
 
-```{r}
+```{r fig.cap = "Amplitud de las ondas zonales de cada componente principal."}
 ceof[, denormalize(ceof[[1]], "right"), by = .(dataset, season)] %>% 
    .[dataset == "era"] %>% 
+   .[season == "SON"] %>% 
    .[, FitWave(Re(hgt), 1:6), by = .(lat, lev, dataset, cPC, season)] %>% 
    ggplot(aes(lat, amplitude)) +
    geom_line(aes(color = factor(k))) +
@@ -481,10 +485,11 @@ ceof_era <- ceof[dataset == "era"]
 
 
 
-```{r, fig.cap = "Correlación entre altura geopotencial y parte Real (sombreado) e Imaginaria (contornos) de cada componente principal", fig.width=9, fig.height=11}
-eof <- ceof_era[, ceof[[1]]]
+```{r, fig.cap = "Relación entre altura geopotencial y parte Real (sombreado) e Imaginaria (contornos) de cada componente principal. a) correlación, b) regresión.", fig.with = 5, fig.height=9}
 
-ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
+ceof_era %>% 
+   .[season == "SON"] %>% 
+   .[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
    setnames(hgt = "EOF") %>% 
    datos[., on = c("dataset", "season", "year")] %>%
    .[lev %in% c(50, 200)] %>% 
@@ -493,8 +498,7 @@ ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>%
    .[, .(estimate = cor(hgt, EOF)),
      by = .(lon, lat, lev, season, dataset, cPC, part)] %>% 
    tidyr::pivot_wider(names_from = part, values_from = estimate) %>% 
-   # .[term == "value"] %>% 
-   # .[, p.val := p.adjust(p.value, "fdr"), by = .(lev, season, cPC, variable)] %>% 
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = R), breaks = AnchorBreaks(0, 0.25, 0)) +
    geom_contour2(aes(z = I, linetype = factor(-sign(..level..))), breaks = AnchorBreaks(0, 0.25, 0)) +
@@ -506,49 +510,97 @@ ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>%
                         guide = guide_colorstrip_bottom()) +
    facet_nested(season + lev ~  cPC,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
-   coord_quickmap()
-```
-
-
-
-```{r, fig.cap = "Correlación entre altura geopotencial y el valor absoluto del EOF complejo.", fig.width=9, fig.height=11}
-ceof_era[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
+   coord_polar() +
+   
+   ceof_era %>% 
+   .[season == "SON"] %>% 
+   .[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
    setnames(hgt = "EOF") %>% 
    datos[., on = c("dataset", "season", "year")] %>%
    .[lev %in% c(50, 200)] %>% 
    .[dataset == "era"]  %>% 
-   # sep_ReIm(EOF) %>% 
-   .[, .(estimate = cor(hgt, abs(EOF))),
-     by = .(lon, lat, lev, season, dataset, cPC)] %>%
+   sep_ReIm(EOF) %>% 
+   .[, FitLm(hgt, EOF), 
+     # .[, .(estimate = cor(hgt, EOF)),
+     by = .(lon, lat, lev, season, dataset, cPC, part)] %>% 
+   .[term == "EOF"] %>% 
+   tidyr::pivot_wider(names_from = part, values_from = estimate) %>% 
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
    ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, NULL, 0)) +
-   # geom_contour2(aes(z = I, linetype = factor(-sign(..level..))), breaks = AnchorBreaks(0, 0.25, 0)) +
-   # geom_text_contour(aes(z = I), rotate = FALSE, stroke = 0.1, stroke.color = "white", skip = 1,
-   # breaks = AnchorBreaks(0, 0.25, 0)) +
+   geom_contour_fill(aes(z = R), breaks = AnchorBreaks(0, NULL, 0)) +
+   geom_contour2(aes(z = I, linetype = factor(-sign(..level..))), breaks = AnchorBreaks(0, NULL, 0)) +
+   geom_text_contour(aes(z = I), rotate = FALSE, stroke = 0.1, stroke.color = "white", skip = 1,
+                     breaks = AnchorBreaks(0, NULL, 0)) +
    # stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), geom = "point", shape = "+") +
    map(lat < 0) +
    scale_fill_divergent(guide = guide_colorstrip_bottom()) +
    facet_nested(season + lev ~  cPC,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
-   coord_quickmap()
-```
-
-
-```{r, fig.cap = "Series temporales de las partes reales e imaginarias de cada componente principal para ERA Interim y ERA20C"}
-ceof[, denormalize(ceof[[1]], "left"),  by = .(dataset, season)] %>% 
-   .[dataset == "era"] %>% 
-   # .[dataset == "era20"] %>% 
-   sep_ReIm(hgt) %>%
+   coord_polar() +
    
-   # .[, change_sign := sign(widyr::pairwise_cor(.SD, dataset, year, hgt, upper = FALSE)$correlation), by = .(season, cPC, part)] %>%
-   # .[dataset == "era20", hgt := hgt*change_sign] %>% 
-   ggplot(aes(year, hgt, color = part)) +
-   geom_line() +
-   geom_smooth(method = "lm") +
-   facet_nested(cPC + dataset ~ season)
+   plot_layout(ncol = 1) +
+   plot_annotation(tag_levels = "a")
 ```
 
-Cada PC tiene 2 series temporales, una Real y otra imaginaria. 
+
+
+```{r, fig.cap = "Correlación entre altura geopotencial y el valor absoluto del EOF complejo."}
+ceof_era %>% 
+   .[season == "SON"] %>% 
+   .[, denormalize(ceof[[1]], "left"), by = .(dataset, season)] %>% 
+   setnames(hgt = "EOF") %>% 
+   datos[., on = c("dataset", "season", "year")] %>%
+   .[lev %in% c(50, 200)] %>% 
+   .[dataset == "era"]  %>% 
+   .[, .(estimate = cor(hgt, abs(EOF))),
+     by = .(lon, lat, lev, season, dataset, cPC)] %>%
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, NULL, 0)) +
+   map(lat < 0) +
+   scale_fill_divergent(guide = guide_colorstrip_bottom()) +
+   facet_nested(season + lev ~  cPC,
+                labeller = labeller(lev = AddSuffix(" hPa"))) +
+   coord_polar()
+# coord_quickmap()
+```
+
+
+```{r, fig.cap = "Correlación entre el campo de geopotencial y la parte real e imaginaria de las series temporales de cada EOF. Para ERA20."}
+ceof[dataset == "era20"] %>% 
+   .[season == "SON"] %>% 
+   .[, ceof[[1]]$left, by = .(dataset, season)] %>% 
+   sep_ReIm(hgt) -> comp
+
+ceof[dataset == "era20"] %>% 
+   .[season == "SON"] %>% 
+   .[, ceof[[1]]$right, by = .(dataset, season)] %>% 
+   sep_ReIm(hgt, FALSE) %>% 
+   .[, hgt := NULL] %>% 
+   .[datos[dataset == "era20"], on = c("lon", "lat", "lev", "season", "dataset"), 
+     allow.cartesian = TRUE] %>% 
+   na.omit()  %>% 
+   .[, .(R = cor(R, hgt), 
+         I = cor(I, hgt)), by = .(cPC, year, lev)] -> ceof_cor
+
+ceof_cor %>% 
+   melt(id.vars = c("cPC", "year", "lev"), variable.name = "part", value.name = "hgt") %>% 
+   ggplot(aes(year, hgt)) +
+   geom_line(aes(color = part)) +
+   geom_smooth(aes(color = part), method = "lm") +
+   facet_grid(lev ~ cPC, scales = "free")
+```
+
+```{r, fig.cap = "\"Magnitud\" de la correlación de la figura anterior, calculada como la raiz cuadrada de la suma del cuadrado de las correlaciones."}
+ceof_cor %>% 
+   ggplot(aes(year, Mag(I, R))) +
+   geom_line() +
+   geom_smooth() +
+   facet_grid(lev ~ cPC, scales = "free")
+```
+
+
+
 
 
 ```{r, fig.cap = "Regresión entre la anomalía zonal de función corriente en sigma = 0.9950 y las partes real e imaginaria del EOF complejo. En flechas, el flujo de acción de onda derivado a partir de la mismma. "}
@@ -573,14 +625,18 @@ ceof[dataset == "era"] %>%
    .[term == "hgt"] %>%
    .[, psi.z := estimate] %>%
    .[, c("f.lon", "f.lat") := WaveFlux(.SD), by = .(season, cPC, part)] %>%
+   .[season == "SON"] %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = psi.z), breaks = AnchorBreaks(0, exclude = 0)) +
    # geom_streamline(aes(dx = f.lon, dy = f.lat), skip = 4, L = 10, min.L = 3) +
-   geom_vector(aes(dx = f.lon, dy = f.lat), skip = 4, min.mag = 1e-6) +
-   scale_mag() + 
-   map(lat < 10) +
+   geom_vector(aes(dx = f.lon, dy = f.lat, 
+                   x = ifelse(is.cross(lon, lat, 2), lon, NA)), 
+               skip = 0, min.mag = 3e-4, size = 0.2, arrow.angle = 12) +
+   scale_mag(max_size = 0.5) + 
+   map(lat <= 20) +
    scale_fill_divergent() +
-   facet_nested(season ~  cPC + part)
+   coord_quickmap() +
+   facet_nested(cPC ~ part)
 ```
 
 
@@ -619,45 +675,22 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
    # by = .(lon, lat, season, dataset, cPC, part)] %>%
    # .[, p.val := p.adjust(p.value, "fdr"), by = .(season, cPC, part)] %>%
    .[lat > -75] %>%
+   .[season == "SON"] %>% 
    ggplot(aes(lon, lat)) +
    # geom_raster(aes(fill = estimate)) +
    geom_contour_fill(aes(z = estimate), na.fill = TRUE) +
-   stat_subset(aes(subset = p.val <= 0.05 & is.cross(lon, lat, 1)), geom = "point", size = 0.01) +
+   stat_subset(aes(subset = p.val <= 0.05 & is.cross(lon, lat)), geom = "point",
+               size = 0.01,
+               alpha = 0.5) +
    # scale_fill_divergent(limits = c(-1, 1)) +
    scale_fill_divergent() +
-   facet_nested(season ~  cPC + part,
+   facet_nested(cPC ~ part,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    map(lat < 25, fill = "white") +
    coord_quickmap()
 ```
 
 La correlación entre el la anomalía zonal de SST y las series temporales de casa EOF no da mucho significativo. El PC2 en SON tiene una señal significativa de tipo niño que se muestra con más detalle abajo:
-
-```{r, fig.cap = "Detalle de la figura anterior sólo en SON y la segunda componente principal"}
-ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
-   sep_ReIm(hgt) %>% 
-   sst[., on = c("season", "year"), allow.cartesian = TRUE] %>% 
-   na.omit() %>% 
-   .[cPC == "cPC2" & season == "SON"] %>% 
-   .[, FitLm(sst, hgt, se = TRUE),  
-     by = .(lon, lat, season, dataset, cPC, part)] %>% 
-   .[term == "hgt"] %>% 
-   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(season, cPC, part)] %>% 
-   # .[, cor.test(sst.z, hgt, use = "complete.obs")[c("estimate", "p.value")],
-   # by = .(lon, lat, season, dataset, cPC, part)] %>%
-   # .[, p.val := p.adjust(p.value, "fdr"), by = .(season, cPC, part)] %>%
-   .[lat > -75] %>%
-   ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), na.fill = TRUE) +
-   stat_subset(aes(subset = p.val < 0.05 & is.cross(lon, lat, 1)), geom = "point", size = 0.1) +
-   # scale_fill_divergent(limits = c(-1, 1)) +
-   scale_fill_divergent() +
-   facet_nested( cPC + season ~ part,
-                 labeller = labeller(lev = AddSuffix(" hPa"))) +
-   map(lat < 25, fill = "white") +
-   coord_quickmap()
-
-```
 
 
 Pareciera que la parte real está más asociada a temperaturas cálidas de lado este del pacífico mientras que la parte imaginaria está asociada a anomalías cálidas en la parte central. De todas formas las diferencias no son muy grandes. 
@@ -689,6 +722,7 @@ ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
 # air850 <- air[lev == 50]
 
 air_reg <- ceof_era[, ceof[[1]]$left, by = .(dataset, season)] %>%
+   .[season == "SON"] %>% 
    sep_ReIm(hgt)  %>% 
    air[., on = c("season", "year"), allow.cartesian = TRUE] %>% 
    na.omit() %>%
@@ -704,7 +738,7 @@ air_reg[lev == 50] %>%
    stat_subset(aes(subset = p.val <= 0.05 & is.cross(lon, lat, 1)), geom = "point", size = 0.01) +
    # scale_fill_divergent(limits = c(-1, 1)) +
    scale_fill_divergent() +
-   facet_nested(cPC + part ~  season + lev,
+   facet_nested(cPC ~ part,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    map(lat < 25) +
    coord_quickmap()
@@ -712,13 +746,13 @@ air_reg[lev == 50] %>%
 
 ```{r, fig.cap = "Regresión entre temperatura en 850hPa y las componentes principales complejas. Puntos marcan zonas con p.valor <= 0.05 (corregido por FDR)."}
 air_reg[lev == 850] %>% 
-   ggplot(aes(lon, lat)) +
+  ggplot(aes(lon, lat)) +
    # geom_raster(aes(fill = estimate)) +
    geom_contour_fill(aes(z = estimate), na.fill = TRUE) +
-   stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat, 2)), geom = "point", size = 0.01) +
+   stat_subset(aes(subset = p.val <= 0.05 & is.cross(lon, lat, 1)), geom = "point", size = 0.01) +
    # scale_fill_divergent(limits = c(-1, 1)) +
    scale_fill_divergent() +
-   facet_nested(cPC + part ~  season,
+   facet_nested(cPC ~ part,
                 labeller = labeller(lev = AddSuffix(" hPa"))) +
    map(lat < 25) +
    coord_quickmap()
