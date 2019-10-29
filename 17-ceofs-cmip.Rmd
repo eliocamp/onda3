@@ -2,8 +2,13 @@
 title: ""
 author: "Elio Campitelli"
 output: 
-   pdf_document:
-   latex_engine: xelatex
+   # pdf_document:
+   #    latex_engine: xelatex
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 7.6
+        fig_width: 12.8
+        reference_doc: template.pptx
 urlcolor: blue
 header_includes:
    - \usepackage[utf8]{inputenc}
@@ -157,17 +162,6 @@ files <- c(IPSL = "DATA/zg_Amon_IPSL-CM6A-LR_historical_i1p1f1_gr_185001-201412.
            MRI = "DATA/zg_Amon_MRI-ESM2-0_historical_i1p1f1_gn_185001-201412.nc4")
 
 files <- list.files("DATA", pattern = "zg_Amon", full.names = TRUE)
-
-file <- files[1]
-library(reticulate)
-py_install("netcdf4")
-xr <- import("xarray")
-
-
-dt <- xr$
-   open_dataset(file)$
-   sel(plev = c(50*10, 200*10))
-
 ```
 
 
@@ -180,11 +174,12 @@ make_ceof <- function(file, lats_eof = c(-80, -20)) {
    ceof <- ReadNetCDF(file, subset = list(lat = lats_eof), vars = c(hgt = "zg")) %>% 
       setnames(plev = "lev") %>% 
       .[, lev := lev/10] %>% 
-      .[, season := season(time)] %>% 
-      .[, year := year(time)] %>% 
+      .[, season := season(time[1]), by = time] %>% 
+      .[, year := year(time[1]), by = time] %>% 
       .[, hgt_m := mean(hgt), by = .(lat, lev, season, year)] %>% 
       .[, hgt_z := hgt - hgt_m] %>% 
-      .[, hgt := Anomaly(hgt_z), by = .(lon, lat, season, lev)] %>% 
+      .[, hgt_m := mean(hgt_z), by = .(lon, lat, season, lev)] %>% 
+      .[, hgt := hgt_z - hgt_m, by = .(lon, lat, season, lev)] %>% 
       .[, hgt := hgt*sqrt(cos(lat*pi/180)), by = .(season, lev)] %>%
       .[, hgt.cpx := spectral::analyticFunction(hgt),
         by = .(lat, season, year, lev)] %>% 

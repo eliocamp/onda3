@@ -1,0 +1,373 @@
+---
+title: ""
+author: "Elio Campitelli"
+output: 
+   # pdf_document:
+   #    latex_engine: xelatex
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 7.6
+        fig_width: 12.8
+        reference_doc: template.pptx
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      cache.extra = 42, 
+                      warning = FALSE, message = FALSE,
+                      # out.extra = "",
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/")
+                      # fig.align = "center"
+)
+
+# knitr::opts_chunk$set(fig.width = 13, 
+#                       fig.height = 7)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+
+here <- here::here
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 16) +
+   theme(strip.background = element_rect(fill = NA, color = "gray30"),
+         # text = element_text(family = font_rc),
+         legend.position = "bottom", legend.box = "vertical",
+         panel.spacing.y = unit(5, "mm"),
+         panel.spacing.x = unit(5, "mm"),
+         legend.spacing = unit(2, "mm"), 
+         panel.border = element_rect(colour = "black", fill = NA),
+         plot.margin = grid::unit(rep(3, 4), "mm"),
+         # legend.title = element_blank(),
+         legend.box.spacing = unit(3, "mm"),
+         legend.margin = margin(t = -5),
+         panel.grid = element_line(color = "gray10", size = 0.4, linetype = 3),
+         panel.ontop = TRUE)
+theme_set(theme_elio)
+# theme_set(hrbrthemes::theme_ipsum_rc() + theme(panel.ontop = TRUE))
+
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+
+subset_data <- list(lat = c(-90, 0), 
+                    time = lubridate::as_datetime(c("1985-01-01",
+                                                    "2014-12-01")))
+breaks_zero <- AnchorBreaks(0, NULL, 0)
+
+
+
+makeActiveBinding(".", function(value) .Last.value, .GlobalEnv)
+
+setnames <- function(x, ...) {
+   names <- c(...)
+   # print(names)
+   data.table::setnames(x, unname(names), names(names))
+}
+
+ReIm <- function(complex) {
+   list(R = Re(complex), I = Im(complex))
+}
+
+Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
+   p.adjust(2*pt(abs(estimate)/std.error, df, lower.tail = FALSE), method = "fdr")
+}
+
+source(here::here("scripts", "facet_nested.R"))
+source(here::here("scripts", "helperfun.R"))
+
+
+map_simple <- function(wrap = c(0, 360), out = "sf") {
+   map <- maps::map("world", fill = TRUE, 
+                    col = "transparent", plot = FALSE, wrap = wrap)
+   IDs <- vapply(strsplit(map$names, ":"), function(x) x[1], 
+                 "")
+   proj <- sp::CRS("+proj=longlat +datum=WGS84")
+   map <- maptools::map2SpatialPolygons(map, IDs = IDs, 
+                                        proj4string = proj)
+   
+   simple <- rmapshaper::ms_simplify(map, keep = 0.015)
+   simple
+}
+
+map_data <- subset(fortify(map_simple()), lat <= 0)
+
+map <- function(subset = NULL, color = "black", size = 0.2, fill = NA, wrap = c(0, 360), ...) {
+   data <- fortify(map_simple(wrap = wrap)) %>% 
+      .[, c("long", "lat", "group")]
+   subset <- eval(substitute(subset), envir = data)
+   if (is.null(subset)) subset <- TRUE
+   
+   geom_polygon(data = data[subset, ], 
+                aes(long, lat, group = group), 
+                color = color, 
+                size = size, 
+                fill = fill,
+                ...)
+}
+
+sep_ReIm <- function(dt, col, longer = TRUE) {
+   names <- c("R", "I")
+   expr <- quote(copy(dt)[, (names) := ReIm(col)])
+   expr  <-  do.call(substitute, list(expr, 
+                                      list(col = substitute(col))))
+   data <- eval(expr)
+   
+   if (isTRUE(longer)) {
+      data[, deparse(substitute(col)) := NULL]
+      data <- setDT(tidyr::pivot_longer(data, R:I, names_to = "part", values_to = deparse(substitute(col))))
+   }
+   
+   return(data[])
+}
+
+geom_zero <- function(dir = "h", ...) {
+   switch(dir,
+          h = geom_hline(yintercept = 0, ...),
+          v = geom_vline(xintercept = 0, ...))
+}
+
+```
+
+
+```{r read-data}
+datos <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", var = c(hgt = "hgt"),
+                    subset = list(level = list(500, 200), 
+                                  lat = -90:0,
+                                  time = c("1958-01-01", "2001-12-01"))) %>% 
+   setnames(lev = "level")  
+
+```
+
+
+La idea de esto es explorar un poco la suposición de que la onda 3 es covariante en todo el hemisferio. Para eso, voy a agarrar el índice de Raphael que es el promedio de la anomalía estandarizada en tres puntos que coinciden con el máximo climatológico de la onda 3. 
+
+
+```{r raphael-points}
+# The three grid points chosen to represent ZW3 lie in the approximate
+# location of the ridges of the wave at latitude 49S and
+# longitudes 50E, 166E and 76W. The locations are based
+# on van Loon and Jenne [1972, Figure 2] which shows the
+# annual average location of the ridges of ZW3 in the 500 hPa
+# field.
+#      - Raphael 2003
+
+points_raphael <- data.table(lat = -49, 
+                             lon = ConvertLongitude(c(50, 166, -76)))
+
+filter_raphael <- function(data, points = points_raphael) {
+   data[lat %~% points_raphael$lat][lon %~% points_raphael$lon]
+}
+
+points <- datos %>%
+   copy() %>% 
+   .[, hgt := Anomaly(hgt), by = .(time, lev, lat)] %>% 
+   filter_raphael() %>% 
+   .[, hgt := frollmean(hgt, 3, fill = NA, align = "center"), by = .(lon, lat, lev)] %>%
+   na.omit() %>% 
+   .[, hgt := scale(hgt), by = .(lon, lat, month(time), lev)]
+
+
+raphael <- points %>% 
+   .[, .(zw3 = mean(hgt)), by = .(time, lev)]
+```
+
+
+
+```{r compositions, fig.cap = "Composiciones de anomalias zonales de geopotencial para la fase positiva y negativa del índice ZW3. En contornos el campo total, en sombreado, el campo sin la onda 1."}
+datos %>% 
+   .[raphael, on = .NATURAL] %>% 
+   .[lev == 500] %>% 
+   .[, hgt := Anomaly(hgt), by = .(lev, time, lat)] %>% 
+   .[, .(hgt = mean(hgt)), by = .(lon, lat, phase = sign(zw3))] %>% 
+   .[, phase := factor(phase, levels = c(1, -1))] %>%
+   .[, hgt_f := FilterWave(hgt, -1), by = .(phase, lat)] %>% 
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = hgt_f), breaks = AnchorBreaks(0, 10, 0)) +
+   geom_contour2(aes(z = hgt, linetype = factor(-sign(..level..))), 
+                 breaks = AnchorBreaks(0, 20, 0)) +
+   geom_point(data = points_raphael, size = 3) +
+   map(lat <= 0) +
+   scale_y_latitude(limits = c(-90, 0)) +
+   scale_x_longitude() +
+   scale_fill_divergent() +
+   coord_quickmap(ylim = c(NA, -15)) +
+   facet_grid(phase~., labeller = labeller(phase = c("1" = "Positiva", 
+                                                     "-1" = "Negativa"))) 
+
+```
+
+
+Las composiciones muestran que la fase "positiva" hay una onda 3 y en la negativa, no hay nada. Es decir, no hay una onda 3 "negativa". 
+
+Todo bien. Pero, ¿cuán covariables son esos puntos en realidad?
+
+```{r}
+concordance <- points %>% 
+   .[lev == 500] %>% 
+   .[, .(concordant = sum(sign(hgt) == sign(hgt[1])) == 3), by = time] 
+
+points %>% 
+   copy() %>% 
+   .[, lon := factor(lon)] %>% 
+   widyr::pairwise_cor(lon, time, hgt, diag = TRUE) %>% 
+   dcast(item1 ~ item2) %>% 
+   knitr::kable(digits = 3, caption = "Correlación entre la anomalía estandarizada de geopotential en los tres puntos considerados por Raphael.")
+```
+
+Poco y nada. Incluso se puede ver que el punto en 285° tiene correlación NEGATIVA con el punto en 50°. Más aún, los tres puntos tienen el mismo signo de anomalías sólo `r scales::percent(concordance[, mean(concordant)])` de las veces. 
+
+
+```{r}
+# points %>% 
+#    .[lev == 500] %>% 
+#    dcast(time ~ lon, value.var = "hgt") %>% 
+#    .[, -1] %>% 
+#    ggplot(aes(x = .panel_x, y = .panel_y)) + 
+#    geom_point(size = 0.4) + 
+#    geom_smooth(method = "lm") +
+#    geom_blank() +
+#    ggforce::facet_matrix(vars( dplyr::everything()), layer.diag = 3, layer.upper = 3)
+```
+
+```{r}
+
+# n <- 7
+# 
+# low10 <- raphael[lev == 500] %>% 
+#    .[order(zw3)] %>% 
+#    .[1:n] %>% 
+#    .[, sign := -1] %>% 
+#    .[, id := 1:.N]
+# 
+# top10 <- raphael[lev == 500] %>% 
+#    .[order(-zw3)] %>% 
+#    .[1:n] %>% 
+#    .[, sign := 1] %>% 
+#    .[, id := 1:.N]
+# 
+# datos %>% 
+#    .[rbind(top10, low10), on = .NATURAL] %>% 
+#    .[lev == 500] %>% 
+#    .[, hgt := Anomaly(hgt), by = .(lev, time, lat)] %>% 
+#    .[, hgt := FilterWave(hgt, -1), by = .(lat, time)] %>%
+#    ggperiodic::periodic(lon = c(0, 360)) %>% 
+#    ggplot(aes(lon, lat)) +
+#    geom_contour_fill(aes(z = hgt)) +
+#    geom_point(data = points_raphael) +
+#    scale_fill_divergent() +
+#    facet_grid(id ~ sign) +
+#    map(lat <= 0) +
+#    scale_y_latitude(limits = c(-90, -15))
+```
+
+
+Entonces, vayamos de a poco. Tomemos cada punto de Raphael uno a uno y hagamos la correlacióndel campo de geopotential (completo y anomalías zonales).
+
+
+```{r, fig.cap = "Correlación del campo de geopotencial (completo y anomalías zonales) con las anomaliás estandarizadas en cada punto considerado por Raphael."}
+datos %>% 
+   .[lev == 500] %>% 
+   copy() %>% 
+   .[, hgt_z := Anomaly(hgt), by = .(time, lat, lev)] %>% 
+   melt(id.vars = c("lat", "lon", "time"), measure.vars = c("hgt", "hgt_z"), 
+        value.name = "hgt") %>% 
+   .[points[lev == 500, .(lon_point = lon, value = hgt, time)] , on = "time", allow.cartesian = TRUE] %>%
+   .[, cor.test(hgt, value)[c("p.value", "estimate")], by = .(lon, lat, variable, lon_point)] %>% 
+   .[, p.value := p.adjust(p.value, "fdr"), by = .(lon_point, variable)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, 0.1, 0)) +
+   geom_point(data = unique(points[, .(lat, lon)])) +
+   geom_point(data = unique(points[, .(lat, lon)])[, lon_point := lon], size = 3) +
+   stat_subset(aes(subset = p.value <= 0.05 & is.cross(lon, lat)), size = 0.1) +
+   map(lat <= 0) +
+   scale_fill_divergent() +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap() +
+   facet_grid(lon_point~variable, labeller = labeller(variable = c(hgt = "Geopotential completo",
+                                                                   hgt_z = "Anomalías zonales"),
+                                                      lon_point = LonLabel))
+```
+
+Es notorio que los campos son muy distintos y, además, no hay correlación entre los puntos. El campo asociado a anomalías en el Índico (50°E) no tiene nada que ver con lo que pasa en el pacífico. Los puntos en el pacífico, en cambio, sí tienen un poco de pinta de teleconexión. 
+
+Otro paso más, ¿qué pasa si juntamos los puntos de a dos? 
+
+
+```{r, fig.cap = "Correlación del campo de geopotencial (completo y anomalías zonales) con las anomaliás estandarizadas medias entre cada par de puntos considerado por Raphael."}
+
+list(izquierdos = points %>% 
+        copy() %>% 
+        .[lev == 500] %>% 
+        .[lon %~% c(50, 165)] %>% 
+        .[, .(value = mean(hgt)), by = time],
+     derechos = points %>% 
+        copy() %>% 
+        .[lev == 500] %>% 
+        .[lon %~% c(165, 285)] %>% 
+        .[, .(value = mean(hgt)), by = time],
+     extremos = points %>% 
+        copy() %>% 
+        .[lev == 500] %>% 
+        .[lon %~% c(50, 285)] %>% 
+        .[, .(value = mean(hgt)), by = time]) %>% 
+   rbindlist(idcol = "index") -> indexes
+
+
+
+datos %>% 
+   copy() %>% 
+   .[lev == 500] %>% 
+   .[, hgt_z := Anomaly(hgt), by = .(time, lat)] %>% 
+   melt(id.vars = c("lat", "lon", "time"), measure.vars = c("hgt", "hgt_z"), 
+        value.name = "hgt") %>% 
+   .[indexes, on = "time", allow.cartesian = TRUE] %>% 
+   .[, cor.test(hgt, value)[c("p.value", "estimate")], by = .(lon, lat, index, variable)] %>% 
+   .[, p.value := p.adjust(p.value, "fdr"), by = .(index, variable)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(0, 0.1, 0)) +
+   stat_subset(aes(subset = p.value <= 0.05 & is.cross(lon, lat)), size = 0.1) +
+   geom_point(data = unique(points[, .(lat, lon)])) +
+   map(lat <= 0) +
+   scale_fill_divergent() +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap() +
+   facet_grid(index~ variable, labeller = labeller(variable = c(hgt = "Geopotential completo",
+                                                                hgt_z = "Anomalías zonales")))
+```
+
+

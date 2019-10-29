@@ -122,7 +122,8 @@ map_simple <- function(wrap = c(0, 360), out = "sf") {
 map_data <- subset(fortify(map_simple()), lat <= 0)
 
 map <- function(subset = NULL, color = "black", size = 0.2, fill = NA, wrap = c(0, 360), ...) {
-   data <- fortify(map_simple(wrap = wrap))
+   data <- fortify(map_simple(wrap = wrap)) %>% 
+      .[, c("long", "lat", "group")]
    subset <- eval(substitute(subset), envir = data)
    if (is.null(subset)) subset <- TRUE
    
