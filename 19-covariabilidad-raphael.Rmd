@@ -371,3 +371,121 @@ datos %>%
 ```
 
 
+
+
+Otra cosa...
+Datos diarios con media móvil de 31 días -> EOF complejo en 200 hPa.
+
+
+
+```{r}
+remove(datos)
+remove(points)
+gc()
+```
+
+
+
+```{r}
+d_eof <- ReadNetCDF("~/DATOS/reanalisys/NCEP Reanalysis/hgt.daily.nc", 
+                    vars = c(hgt = "hgt"),
+                    subset = list(level = 200,
+                                  time = c("1980-01-01", NA),
+                                  lat = c(-80, -20))) %>% 
+   .[, hgt_z := Anomaly(hgt), by = .(lat, time)] %>% 
+   .[, hgt_z_low := frollmean(hgt_z, 31, align = "center"), by = .(lon, lat)] %>% 
+   .[!is.na(hgt_z_low)] %>% 
+   .[, hgt_z_low := hgt_z_low*sqrt(cos(lat*pi/180))] %>%
+   .[, hgt.cpx := spectral::analyticFunction(hgt_z_low),
+     by = .(lat, time)] %>% 
+   .[, hgt_z_low := hgt.cpx] %>% 
+   EOF(hgt_z_low ~ time | lon + lat, n = 1:2, data = .)
+```
+
+
+
+```{r}
+d_eof$right %>% 
+   sep_ReIm(hgt_z_low, FALSE) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = R)) +
+   geom_contour2(aes(z = I)) +
+   map(lat <= 0) +
+   scale_fill_divergent() +
+   coord_quickmap() +
+   facet_wrap(~PC, ncol = 2) 
+```
+
+
+```{r}
+d_eof$left %>%
+   sep_ReIm(hgt_z_low) %>% 
+   ggplot(aes(time, hgt_z_low)) +
+   geom_line() +
+   geom_smooth() +
+   facet_grid(part~PC)
+```
+
+```{r}
+
+my_spectrum <- function(data, spans = NULL, R = 1000, ..., probs = 0.95) {
+   mtm <- spec.pgram(data, spans = spans, ..., plot = FALSE)
+   
+   out <- as.data.table(mtm[c("freq", "spec")])
+   
+   out[, boot_null := null_spec(data, spans = spans, R = R, ..., probs = probs)]
+   
+   return(out[])
+}
+
+
+
+null_spec <- memoise::memoise(function(data, spans, R = 1000, ..., probs = 0.95) {
+   
+   b <- boot::boot(data, function(d, i) spec.pgram(d[i], spans = spans, 
+                                                   ...,
+                                                   plot = FALSE)$spec, 
+                   R = R)
+   
+   apply(b$t, 2, quantile, probs = probs)
+}
+)
+```
+
+
+
+```{r}
+d_eof$left %>% 
+   sep_ReIm(hgt_z_low) %>%
+   .[, hgt_z_low := scale(hgt_z_low), by = .(PC, part)] %>%
+   .[, my_spectrum(hgt_z_low, spans = 5, R = 1, detrend = TRUE, demean = TRUE),
+     by = .(PC, part)] %>% 
+   # .[, spec.pgram(hgt_z_low, span = c(3, 5), detrend = TRUE, 
+   #                demean = TRUE, plot = FALSE)[c("freq", "spec")], 
+   #   by = .(PC, part)] %>% 
+   # .[, my_spectrum(hgt_z_low, span = 5, R = 10000, detrend = TRUE, demean = TRUE),
+   #   by = .(PC, part)] %>% 
+   ggplot(aes(1/freq/365, spec, color = part)) +
+   geom_line() +
+   geom_line(aes(y = boot_null), linetype = 2) +
+   scale_x_log10("Period (years)", expand = c(0, 0)) +
+   scale_y_continuous("Spectrum", expand = expansion(mult = c(0, 0.05), add = 0)) +
+   # scale_y_log10("Spectrum", expand = expansion(mult = c(0, 0.05), add = 0)) +
+   annotation_logticks(sides = "b") +
+   scale_color_brewer("Part", palette = "Set1") +
+   facet_grid(~ PC) 
+```
+
+```{r}
+d_eof$left %>% 
+   sep_ReIm(hgt_z_low) %>% 
+   .[, hgt_z_low := scale(hgt_z_low), by = .(PC, part)] %>%
+   .[, time := update(time, year = 1900)] %>% 
+   ggplot(aes(time, hgt_z_low)) +
+   geom_point(size = 0.1, alpha = 0.2) +
+   geom_smooth(method = "loess", span = 31/365, n = 400) +
+   scale_x_datetime(date_labels = "%b", date_breaks = "2 month") +
+   facet_grid(part~PC)
+```
+
+

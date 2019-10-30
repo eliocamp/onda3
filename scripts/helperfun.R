@@ -112,6 +112,7 @@ names(month.abb) <- as.character(1:12)
 # Función que hace autocorrelograma y su test según Anderson o large lag.
 acf.sig <- function(x, lag.max=0.3*length(x), alpha = 0.05,
                     method=c("anderson","large.lag", "salas"), sided="one") {
+   # browser()
    autocor <- acf(x, lag.max=lag.max, plot = F)$acf
    N <- length(x)
    e <- -1/(N-1)
@@ -136,13 +137,13 @@ acf.sig <- function(x, lag.max=0.3*length(x), alpha = 0.05,
       a <- alpha
       q <- qnorm(a, lower.tail=F)
       sigupp <- e + sqrt(var)*q
-      ret <- data.table(lag=0:lag.max, acf=autocor, sig.cut=sigupp)
+      ret <- data.table(lag=0:lag.max, acf=autocor[, 1, 1], sig.cut=sigupp)
    } else if (sided == "two"){
       a <- alpha/2
       q <- qnorm(a, lower.tail=F)
       sigupp <- e+sqrt(var)*q
       siginf <- e-sqrt(var)*q
-      ret <- data.table(lag=0:lag.max, acf=autocor, upp.sig.cut=sigupp, low.sig.cut=siginf)
+      ret <- data.table(lag=0:lag.max, acf=autocor[, 1, 1], upp.sig.cut=sigupp, low.sig.cut=siginf)
    }
    ret
 }
