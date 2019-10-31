@@ -35,7 +35,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      cache.extra = 42, 
+                      cache.extra = 41, 
                       warning = FALSE, message = FALSE,
                       # out.extra = "",
                       cache.path = paste0("cache/", name, "/"),
@@ -378,7 +378,7 @@ Datos diarios con media móvil de 31 días -> EOF complejo en 200 hPa.
 
 
 
-```{r}
+```{r include=FALSE}
 remove(datos)
 remove(points)
 gc()
@@ -404,12 +404,12 @@ d_eof <- ReadNetCDF("~/DATOS/reanalisys/NCEP Reanalysis/hgt.daily.nc",
 
 
 
-```{r}
+```{r, fig.cap = "Patrones espaciales de EOF complejos"}
 d_eof$right %>% 
    sep_ReIm(hgt_z_low, FALSE) %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = R)) +
-   geom_contour2(aes(z = I)) +
+   geom_contour2(aes(z = I, linetype = factor(sign(..level..)))) +
    map(lat <= 0) +
    scale_fill_divergent() +
    coord_quickmap() +
@@ -417,7 +417,7 @@ d_eof$right %>%
 ```
 
 
-```{r}
+```{r, fig.cap = "Series temporales"}
 d_eof$left %>%
    sep_ReIm(hgt_z_low) %>% 
    ggplot(aes(time, hgt_z_low)) +
@@ -454,7 +454,7 @@ null_spec <- memoise::memoise(function(data, spans, R = 1000, ..., probs = 0.95)
 
 
 
-```{r}
+```{r, fig.cap = "Peridiogramas"}
 d_eof$left %>% 
    sep_ReIm(hgt_z_low) %>%
    .[, hgt_z_low := scale(hgt_z_low), by = .(PC, part)] %>%
@@ -465,10 +465,11 @@ d_eof$left %>%
    #   by = .(PC, part)] %>% 
    # .[, my_spectrum(hgt_z_low, span = 5, R = 10000, detrend = TRUE, demean = TRUE),
    #   by = .(PC, part)] %>% 
-   ggplot(aes(1/freq/365, spec, color = part)) +
+   ggplot(aes(1/freq/365*12, spec, color = part)) +
    geom_line() +
    geom_line(aes(y = boot_null), linetype = 2) +
-   scale_x_log10("Period (years)", expand = c(0, 0)) +
+   scale_x_log10("Period (meses)", expand = c(0, 0), limits = c(1, NA),
+                 breaks = c(1, 12*c(1/4, 1/2, 1, 2, 4, 8, 16))) +
    scale_y_continuous("Spectrum", expand = expansion(mult = c(0, 0.05), add = 0)) +
    # scale_y_log10("Spectrum", expand = expansion(mult = c(0, 0.05), add = 0)) +
    annotation_logticks(sides = "b") +
@@ -476,16 +477,126 @@ d_eof$left %>%
    facet_grid(~ PC) 
 ```
 
-```{r}
+
+```{r, fig.cap = "Ciclo anual de cada EOF"}
 d_eof$left %>% 
    sep_ReIm(hgt_z_low) %>% 
    .[, hgt_z_low := scale(hgt_z_low), by = .(PC, part)] %>%
-   .[, time := update(time, year = 1900)] %>% 
-   ggplot(aes(time, hgt_z_low)) +
-   geom_point(size = 0.1, alpha = 0.2) +
-   geom_smooth(method = "loess", span = 31/365, n = 400) +
+   .[, time2 := update(time, year = 1900)] %>% 
+   ggplot(aes(time2, hgt_z_low)) +
+   geom_line(size = 0.1, alpha = 0.3, aes(group = year(time))) +
+   geom_smooth(method = "loess", span = 31/365, n = 400, method.args = list(degree = 1)) +
    scale_x_datetime(date_labels = "%b", date_breaks = "2 month") +
    facet_grid(part~PC)
 ```
+
+
+
+```{r, fig.cap = "Peridiograma de la amplitud"}
+d_eof$left %>% 
+   copy() %>% 
+   .[, hgt_z_low := Mod(hgt_z_low)] %>% 
+   .[, hgt_z_low := scale(hgt_z_low), by = .(PC)] %>%
+   .[, my_spectrum(hgt_z_low, spans = 5, R = 1, detrend = TRUE, demean = TRUE),
+     by = .(PC)] %>% 
+   ggplot(aes(1/freq/365*12, spec)) +
+   geom_line() +
+   geom_line(aes(y = boot_null), linetype = 2) +
+   scale_x_log10("Period (meses)", expand = c(0, 0), limits = c(1, NA),
+                 breaks = c(1, 12*c(1/4, 1/2, 1, 2, 4, 8, 16))) +
+   scale_y_continuous("Spectrum", expand = expansion(mult = c(0, 0.05), add = 0)) +
+   # scale_y_log10("Spectrum", expand = expansion(mult = c(0, 0.05), add = 0)) +
+   annotation_logticks(sides = "b", base = 12) +
+   scale_color_brewer("Part", palette = "Set1") +
+   facet_grid(~ PC)
+```
+
+```{r, fig.cap = "Ciclo anual de la amplitud"}
+d_eof$left %>% 
+   copy() %>% 
+   .[, phase := circular::circular(Arg(hgt_z_low), mod = "2pi")] %>% 
+   .[, mag := Mod(hgt_z_low)] %>% 
+   .[, time2 := update(time, year = 1900)] %>% 
+   # .[, .(phase = mean(phase),
+   #       mag = mean(mag),
+   #       phase_sd = sd(phase)/sqrt(.N),
+   #       mag_sd = sd(mag)/sqrt(.N)), by = .(PC, time)] %>% 
+   ggplot(aes(time2, mag)) +
+   # geom_ribbon(aes(ymin = mag - 2*mag_sd, 
+   #                 ymax = mag + 2*mag_sd), alpha = 0.5) +
+   geom_line(size = 0.1, alpha = 0.3, aes(group = year(time))) +
+   geom_smooth(method = "loess", span = 31/365, n = 400, method.args = list(degree = 1)) +
+
+   # geom_smooth(method = "loess", span = 31/365, n = 400) +
+   scale_x_datetime(date_labels = "%b", date_breaks = "2 month") +
+   facet_grid(~PC)
+```
+
+
+```{r, fig.cap = "Ciclo anual de la fase (para casos con magnitud >= 0.0025)"}
+d_eof$left %>% 
+   copy() %>% 
+   .[, phase := circular::circular(Arg(hgt_z_low), mod = "2pi")] %>% 
+   .[, mag := Arg(hgt_z_low)] %>% 
+   .[, time2 := update(time, year = 1900)] %>% 
+   .[mag >= 0.0025] %>% 
+   # .[, .(phase = mean(phase),
+   #       mag = mean(mag),
+   #       phase_sd = sd(phase)/sqrt(.N),
+   #       mag_sd = sd(mag)/sqrt(.N)), by = .(PC, time)] %>% 
+   ggplot(aes(time2, mag)) +
+   # geom_ribbon(aes(ymin = mag - 2*mag_sd, 
+   #                 ymax = mag + 2*mag_sd), alpha = 0.5) +
+   geom_line(size = 0.1, alpha = 0.3, aes(group = year(time))) +
+   geom_smooth(method = "loess", span = 31/365, n = 400, method.args = list(degree = 1)) +
+
+   # geom_smooth(method = "loess", span = 31/365, n = 400) +
+   scale_x_datetime(date_labels = "%b", date_breaks = "2 month") +
+   facet_grid(~PC)
+```
+
+
+```{r, fig.cap = "Densidad de phase."}
+d_eof$left %>% 
+   copy() %>% 
+   .[, phase := circular::circular(Arg(hgt_z_low), mod = "2pi")] %>% 
+   .[, mag := Arg(hgt_z_low)] %>% 
+   .[, time2 := update(time, year = 1900)] %>% 
+   # .[mag >= 0.0025] %>% 
+   # .[, .(phase = mean(phase),
+   #       mag = mean(mag),
+   #       phase_sd = sd(phase)/sqrt(.N),
+   #       mag_sd = sd(mag)/sqrt(.N)), by = .(PC, time)] %>% 
+   ggplot(aes(time2, mag)) +
+   geom_point(alpha = 0.1, size = 0.2) +
+   # geom_ribbon(aes(ymin = mag - 2*mag_sd, 
+   #                 ymax = mag + 2*mag_sd), alpha = 0.5) +
+   # geom_line(size = 0.1, alpha = 0.3, aes(group = year(time))) +
+   geom_density_2d() +
+   # geom_smooth(method = "loess", span = 31/365, n = 400, method.args = list(degree = 1)) +
+
+   # geom_smooth(method = "loess", span = 31/365, n = 400) +
+   scale_x_datetime(date_labels = "%b", date_breaks = "2 month") +
+   facet_grid(~PC)
+```
+
+```{r, fig.cap = "Fase del ciclo anual de R e I."}
+d_eof$left %>%
+   sep_ReIm(hgt_z_low, FALSE) %>% 
+   copy() %>% 
+   # .[, phase := Arg(hgt_z_low)] %>% 
+   .[, time2 := update(time, year = 1900)] %>% 
+   .[, .(R = mean(R), I = mean(I)), by = .(PC, time2)] %>% 
+   .[, phase := atan2(I, R)] %>% 
+   .[, phase := signal::unwrap(phase), by = .(PC)] %>% 
+   ggplot(aes(time2, phase)) +
+   geom_line() +
+   scale_x_datetime("", date_labels = "%b", date_breaks = "2 month") +
+   facet_grid(~PC)
+```
+
+
+
+
 
 
