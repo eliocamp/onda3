@@ -1,5 +1,5 @@
 ---
-title: "Estratósfera o no?"
+title: "Estratósfera o estratosfeNO?"
 author: "Elio Campitelli"
 output: 
    # pdf_document:
@@ -35,7 +35,7 @@ knitr::knit_hooks$set(document = function(x) {
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
-                      cache.extra = 41, 
+                      cache.extra = 42, 
                       warning = FALSE, message = FALSE,
                       # out.extra = "",
                       cache.path = paste0("cache/", name, "/"),
@@ -334,20 +334,40 @@ ceof_sep <- datos %>%
 
 
 
-```{r eof-espacial, fig.cap = "cEOF calculado usando la anomalía zonal. Parte real en sombreado, parte imaginaria en contornos (dataset = ERA Interim)."}
+```{r eof-espacial-200, fig.cap = "cEOF calculado usando la anomalía zonal. Parte real en sombreado, parte imaginaria en contornos (dataset = ERA Interim)."}
 # gdata <- ceof[, ceof[[1]]$right, by = .(dataset, season)] %>% 
 #    .[dataset == "era"] 
-list(separado = ceof_sep[dataset == "era", ceof[[1]]$right, by = .(lev, season)],
-     junto = ceof_junto[dataset == "era", ceof[[1]]$right, by = season]) %>% 
-   rbindlist(use.names = TRUE, idcol = "metodo") %>%
+#    
+correction <- function(data) {
+   data %>% 
+      copy() %>% 
    .[lev == 200 & PC == "PC2" & season == "SON" & metodo == "separado",
      hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
    
    .[lev == 200 & PC == "PC2" & season == "MAM" & metodo == "separado",
      hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
    
+   .[lev == 200 & PC == "PC1" & season == "SON" & metodo == "separado",
+     hgt := complex(real = -Im(hgt), imaginary = Re(hgt))] %>% 
    
-   .[lev == 200] %>% 
+   
+   .[lev == 200 & PC == "PC2" & season == "DJF" & metodo == "separado",
+     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
+   
+   
+   .[lev == 50 & PC == "PC2" & metodo == "separado" & season == "MAM",
+     hgt := -hgt] %>%
+   
+   .[lev == 50 & PC == "PC2" & metodo == "separado" & season != "DJF",
+     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] 
+}
+
+espacial_corregido <- list(separado = ceof_sep[dataset == "era", ceof[[1]]$right, by = .(lev, season)],
+                           junto = ceof_junto[dataset == "era", ceof[[1]]$right, by = season]) %>% 
+   rbindlist(use.names = TRUE, idcol = "metodo") %>%
+   correction()
+
+espacial_corregido[lev == 50] %>% 
    ggperiodic::periodic(lon = c(0, 360)) %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = Re(hgt)),
@@ -357,7 +377,7 @@ list(separado = ceof_sep[dataset == "era", ceof[[1]]$right, by = .(lev, season)]
    map(lat < 10) +
    scale_fill_divergent(guide = guide_colorstrip_bottom(35), 
                         breaks = AnchorBreaks(0, 0.005, exclude = 0),
-                        limits = pm(0.039)) +
+                        limits = pm(0.049)) +
    scale_x_longitude() +
    scale_y_latitude() +
    scale_linetype_manual(values = c("1" = 1, "-1" = 2), labels = c("1" = "+", "-1" = "-"), 
@@ -370,24 +390,8 @@ list(separado = ceof_sep[dataset == "era", ceof[[1]]$right, by = .(lev, season)]
 ```
 
 
-```{r}
-list(separado = ceof_sep[dataset == "era", ceof[[1]]$right, by = .(lev, season)],
-     junto = ceof_junto[dataset == "era", ceof[[1]]$right, by = season]) %>% 
-   rbindlist(use.names = TRUE, idcol = "metodo") %>%
-   # .[lev == 50 & PC == "PC2" & metodo == "junto", 
-   #   hgt := complex(real = -Im(hgt), imaginary = Re(hgt))] %>% 
-   
-   # .[lev == 50 & PC == "PC2" & metodo == "separado" & season == "DJF",
-   #   hgt := complex(real = -Im(hgt), imaginary = Re(hgt))] %>%
-   # 
-   .[lev == 50 & PC == "PC2" & metodo == "separado" & season == "MAM",
-     hgt := -hgt] %>%
-   
-   .[lev == 50 & PC == "PC2" & metodo == "separado" & season != "DJF",
-     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
-   
-   
-   .[lev == 50] %>% 
+```{r eof-espacial-50, fig.cap = "cEOF calculado usando la anomalía zonal. Parte real en sombreado, parte imaginaria en contornos (dataset = ERA Interim)."}
+espacial_corregido[lev == 200] %>% 
    ggperiodic::periodic(lon = c(0, 360)) %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = Re(hgt)),
@@ -397,7 +401,7 @@ list(separado = ceof_sep[dataset == "era", ceof[[1]]$right, by = .(lev, season)]
    map(lat < 10) +
    scale_fill_divergent(guide = guide_colorstrip_bottom(35), 
                         breaks = AnchorBreaks(0, 0.005, exclude = 0),
-                        limits = pm(0.039)) +
+                        limits = pm(0.049)) +
    scale_x_longitude() +
    scale_y_latitude() +
    scale_linetype_manual(values = c("1" = 1, "-1" = 2), labels = c("1" = "+", "-1" = "-"), 
@@ -411,64 +415,57 @@ list(separado = ceof_sep[dataset == "era", ceof[[1]]$right, by = .(lev, season)]
 ```
 
 
-```{r}
-left <- list(separado = ceof_sep[dataset == "era", ceof[[1]]$left, by = .(lev, season)],
-             junto = ceof_junto[dataset == "era", ceof[[1]]$left, by = season][, lev := "conjunto"]) %>% 
-   rbindlist(use.names = TRUE, idcol = "metodo")
+```{r corr-espacial, fig.cap = "Correlación espacial"}
 
-left %>%
-   copy() %>% 
-   .[lev == 50 & PC == "PC2" & metodo == "separado" & season == "MAM",
-     hgt := -hgt] %>%
-   .[lev == 50 & PC == "PC2" & metodo == "separado" & season != "DJF",
-     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
-   
-   .[lev == 200 & PC == "PC2" & season == "SON" & metodo == "separado",
-     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
-   
-   .[lev == 200 & PC == "PC2" & season == "MAM" & metodo == "separado",
-     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
-   
-   
+espacial_corregido %>% 
    sep_ReIm(hgt) %>% 
+   # dcast(lev + season + lon + lat + PC ~ metodo, value.var = "hgt") %>% 
+   .[, lonlat := interaction(lon, lat)] %>%
+   .[part == "R",
+     widyr::pairwise_cor(.SD, metodo, lonlat, hgt, upper = FALSE), by = .(lev, season, PC)] %>% 
+   # dcast(lev + season + PC ~ part, value.var = "correlation") %>% 
+   # .[, corr := sqrt(R*I)] %>% 
+   # .[]
+   ggplot(aes(season, correlation)) +
+   geom_col(aes(fill = PC), position = "dodge2") +
+   facet_grid(lev~.)
    
-   # .[PC == "PC2" & part == "I" & lev == 200 & season == "MAM", hgt := -hgt] %>%
-   # .[PC == "PC2" & part == "R" & lev == 50 & season == "MAM", hgt := -hgt] %>%
-   # .[PC == "PC2" & part == "I" & lev == "conjunto" & season == "SON", hgt := -hgt] %>%
-   # .[PC == "PC2" & part == "R" & lev == "conjunto" & season == "SON", hgt := -hgt] %>%
+
+
+
+```
+
+
+
+```{r eof-temporal, fig.cap = "cEOF temporales en cada nivel para el cEOF computado en cada nivel por separado y el obtenido por el cEOF conjunto."}
+corregido <- list(separado = ceof_sep[dataset == "era", ceof[[1]]$left, by = .(lev, season)],
+             junto = ceof_junto[dataset == "era", ceof[[1]]$left, by = season][, lev := "conjunto"]) %>% 
+   rbindlist(use.names = TRUE, idcol = "metodo") %>% 
+   correction() 
+   
+   
+   
+sep_ReIm(corregido, hgt)[, hgt := as.numeric(scale(hgt)), by = .(season, PC, part, lev)] %>% 
    ggplot(aes(year, hgt)) +
    geom_line(aes(color = lev)) +
    facet_nested(season  ~ PC + part)
 ```
 
 
-```{r}
-left %>% copy() %>% 
-   .[lev == 50 & PC == "PC2" & metodo == "separado" & season == "MAM",
-     hgt := -hgt] %>%
-   .[lev == 50 & PC == "PC2" & metodo == "separado" & season != "DJF",
-     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
-   
-   .[lev == 200 & PC == "PC2" & season == "SON" & metodo == "separado",
-     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
-   
-   .[lev == 200 & PC == "PC2" & season == "MAM" & metodo == "separado",
-     hgt := complex(real = Im(hgt), imaginary = -Re(hgt))] %>% 
-   
-   
+
+```{r correlaciones, fig.cap = "Correlación cruzada entre las series temporales"}
+corregido %>% 
    sep_ReIm(hgt) %>% 
-   # 
-   # copy() %>% 
-   # .[PC == "PC2" & part == "I" & lev == 200 & season == "MAM", hgt := -hgt] %>%
-   # .[PC == "PC2" & part == "R" & lev == 50 & season == "MAM", hgt := -hgt] %>%
-   # .[PC == "PC2" & part == "I" & lev == "conjunto" & season == "SON", hgt := -hgt] %>%
-   # .[PC == "PC2" & part == "R" & lev == "conjunto" & season == "SON", hgt := -hgt] %>%
    .[, widyr::pairwise_cor(.SD, lev, year, hgt, upper = FALSE), by = .(season, PC, part)] %>% 
    ggplot(aes(item1, item2)) +
    geom_raster(aes(fill = correlation)) +
    geom_text(aes(label = signif(correlation, 2))) +
    # scale_fill_viridis_c() +
    scale_fill_divergent() +
+   scale_x_discrete("Nivel 1") +
+   scale_y_discrete("Nivel 2") +
    facet_nested(season  ~ PC + part)
 ```
+
+
 

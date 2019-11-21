@@ -1,0 +1,362 @@
+---
+title: "EP flujos"
+author: "Elio Campitelli"
+output: 
+   # pdf_document:
+   #    latex_engine: xelatex
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 7.6
+        fig_width: 12.8
+        reference_doc: template.pptx
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      cache.extra = 42, 
+                      warning = FALSE, message = FALSE,
+                      # out.extra = "",
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/")
+                      # fig.align = "center"
+)
+
+# knitr::opts_chunk$set(fig.width = 13, 
+#                       fig.height = 7)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+
+here <- here::here
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 16) +
+   theme(strip.background = element_rect(fill = NA, color = "gray30"),
+         # text = element_text(family = font_rc),
+         legend.position = "bottom", legend.box = "vertical",
+         panel.spacing.y = unit(5, "mm"),
+         panel.spacing.x = unit(5, "mm"),
+         legend.spacing = unit(2, "mm"), 
+         panel.border = element_rect(colour = "black", fill = NA),
+         plot.margin = grid::unit(rep(3, 4), "mm"),
+         # legend.title = element_blank(),
+         legend.box.spacing = unit(3, "mm"),
+         legend.margin = margin(t = -5),
+         panel.grid = element_line(color = "gray10", size = 0.4, linetype = 3),
+         panel.ontop = TRUE)
+theme_set(theme_elio)
+# theme_set(hrbrthemes::theme_ipsum_rc() + theme(panel.ontop = TRUE))
+
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+
+
+subset_data <- list(lat = c(-90, 0), 
+                    time = lubridate::as_datetime(c("1985-01-01",
+                                                    "2014-12-01")))
+breaks_zero <- AnchorBreaks(0, NULL, 0)
+
+
+
+makeActiveBinding(".", function(value) .Last.value, .GlobalEnv)
+
+setnames <- function(x, ...) {
+   names <- c(...)
+   # print(names)
+   data.table::setnames(x, unname(names), names(names))
+}
+
+ReIm <- function(complex) {
+   list(R = Re(complex), I = Im(complex))
+}
+
+Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
+   p.adjust(2*pt(abs(estimate)/std.error, df, lower.tail = FALSE), method = "fdr")
+}
+
+source(here::here("scripts", "facet_nested.R"))
+source(here::here("scripts", "helperfun.R"))
+
+
+map_simple <- function(wrap = c(0, 360), out = "sf") {
+   map <- maps::map("world", fill = TRUE, 
+                    col = "transparent", plot = FALSE, wrap = wrap)
+   IDs <- vapply(strsplit(map$names, ":"), function(x) x[1], 
+                 "")
+   proj <- sp::CRS("+proj=longlat +datum=WGS84")
+   map <- maptools::map2SpatialPolygons(map, IDs = IDs, 
+                                        proj4string = proj)
+   
+   simple <- rmapshaper::ms_simplify(map, keep = 0.015)
+   simple
+}
+
+map_data <- subset(fortify(map_simple()), lat <= 0)
+
+map <- function(subset = NULL, color = "black", size = 0.2, fill = NA, wrap = c(0, 360), ...) {
+   data <- fortify(map_simple(wrap = wrap)) %>% 
+      .[, c("long", "lat", "group")]
+   subset <- eval(substitute(subset), envir = data)
+   if (is.null(subset)) subset <- TRUE
+   
+   geom_polygon(data = data[subset, ], 
+                aes(long, lat, group = group), 
+                color = color, 
+                size = size, 
+                fill = fill,
+                ...)
+}
+
+sep_ReIm <- function(dt, col, longer = TRUE) {
+   names <- c("R", "I")
+   expr <- quote(copy(dt)[, (names) := ReIm(col)])
+   expr  <-  do.call(substitute, list(expr, 
+                                      list(col = substitute(col))))
+   data <- eval(expr)
+   
+   if (isTRUE(longer)) {
+      data[, deparse(substitute(col)) := NULL]
+      data <- setDT(tidyr::pivot_longer(data, R:I, names_to = "part", values_to = deparse(substitute(col))))
+   }
+   
+   return(data[])
+}
+
+geom_zero <- function(dir = "h", ...) {
+   switch(dir,
+          h = geom_hline(yintercept = 0, ...),
+          v = geom_vline(xintercept = 0, ...))
+}
+
+normalise_coords <- function(data, 
+                             rules =  list(lev = c("level"),
+                                           lat = c("latitude"),
+                                           lon = c("longitude", "long"),
+                                           time = c("date")
+                             ), 
+                             extra = list()) {
+   rules <- c(rules, extra)
+   
+   for (f in seq_along(rules)) {
+      old <- colnames(data)[colnames(data) %in% rules[[f]]]
+      
+      if (length(old) != 0) {
+         data.table::setnames(data,
+                              old,
+                              names(rules)[[f]], skip_absent = TRUE)   
+      }
+   }
+   return(invisible(data))
+}
+
+```
+
+
+
+```{r define-funs}
+compute_ceof <- function(dt, temporal = FALSE, lats.eof = c(-80, -20), n = 1:2) {
+   # browser()
+   dt <- dt[lat %between% lats.eof] %>%
+      .[, hgt := Anomaly(hgt),
+        by  = .(lat, year)] 
+   
+   if (temporal) {
+      dt <- dt[, hgt := Anomaly(hgt), by = .(lon, lat)]
+   }
+   
+   dt %>% 
+      # .[, hgt := hgt/sd(hgt), by = lev] %>%
+      .[, hgt := hgt*sqrt(cos(lat*pi/180))] %>%
+      .[, hgt.cpx := spectral::analyticFunction(hgt),
+        by = .(lat, year)] %>% 
+      .[, hgt := hgt.cpx] %>%
+      EOF(hgt ~ year | lon + lat, n = n, suffix = "PC", data = .)
+}
+```
+
+
+
+
+```{r read-data}
+datos <- ReadNetCDF(here("DATA", "ERA-Interim", "erai.mon.mean.nc"), 
+                    vars = c(hgt = "z", "v", "u", "t"), 
+                    subset = list(latitude = -90:0)) %>%
+   normalise_coords() 
+
+datos %>% 
+   .[, c("Flon", "Flat", "Flev") := EPflux(lon, lat, lev, t, u, v), by = .(time)]
+
+datos_medio <- datos[, year := year(time[1]), by = time] %>% 
+   .[month(time) == 12, year := year + 1] %>%  # december counts to the next year
+   .[,  n := .N, by = .(lev, lat, lon, year, season(time))] %>% 
+   .[n == 3] %>%  # keep only full seasons
+   .[, n := NULL] 
+
+remove(datos)
+
+datos_medio <- datos_medio[, lapply(.SD, mean, na.rm = TRUE), 
+                           by = .(lev, lat, lon, year, season(time))] %>% 
+   .[]
+
+
+# datos <- rbind(datos, ipsl, use.names = TRUE)
+# Surface mask
+pres <- ReadNetCDF(here("DATA", "NCEP Reanalysis", "pres.mon.mean.nc"), 
+                   subset = list(lat = -90:0))
+pres.mean <- pres[, .(pres = median(pres)), by = lat]
+pres.mean <- rbind(data.table(lat = 0.0, pres = Inf), 
+                   pres.mean, 
+                   data.table(lat = -90.0, pres = Inf))
+
+censor_ground <- function(df, col = "underground") {
+   df[, c(col) := lev > pres.mean[lat == .BY$lat, pres] , by = lat][]
+}
+
+surface <- function(lats = c(-90:0)) {
+   geom_polygon(data = pres.mean[lat %between% range(lats)], aes(y = pres), fill = "white", 
+                alpha = 0.9, color = "gray10", size = 0.5)
+}
+
+
+labs_part <- c(R = "Real", I = "Imaginary", M = "Module")
+
+params <- list(season = "SON")
+```
+
+
+
+```{r calcula-ceof}
+# Sacado de James
+H <- 6.4*1000
+lats.eof <- c(-80, -20)
+
+ceof <- datos_medio %>% 
+   .[lev == 200] %>% 
+   .[, list(ceof = list(compute_ceof(.SD, temporal = FALSE, n = 1:2))), 
+     by = .(season)]
+```
+
+
+```{r}
+cor_cplx <- function(x, y) {
+   rbind(
+      R = cor(Re(x), as.matrix(y)),
+      I = cor(Im(x), as.matrix(y))
+   ) %>% 
+      as.data.table() %>% 
+      .[, part := c("R", "I")] %>% 
+      .[]
+}
+
+
+reg_cplx <- function(x, y) {
+   sdy <- matrixStats::colSds(as.matrix(y))
+   
+   rbind(
+      R = cor(Re(x), as.matrix(y))*sdy/sd(Re(x)) ,
+      I = cor(Im(x), as.matrix(y))*sdy/sd(Im(x))
+   ) %>% 
+      as.data.table() %>% 
+      .[, part := c("R", "I")] %>% 
+      .[]
+}
+```
+
+
+```{r}
+reg_patterns <- ceof[, denormalize(ceof[[1]], "left"), by = .(season)] %>% 
+   .[PC == "PC2"] %>% 
+   setnames(EOF = "hgt") %>% 
+   .[datos_medio, on = .NATURAL] %>% 
+   # .[lev == 200] %>% 
+   .[, reg_cplx(EOF, as.matrix(.SD)), by = .(season, lon, lat, lev, PC),
+     .SDcols = -c("year", "EOF")]
+
+
+reg_patterns[, c("Flon2", "Flat2", "Flev2") := EPflux(lon, lat, lev, t, u, v), by = .(part, season)]
+```
+
+
+```{r}
+sign_rev <- function(x) factor(-sign(x))
+```
+
+
+```{r}
+lapply(unique(reg_patterns$season), function(s) {
+   reg_patterns %>% 
+      .[lev %in% c(50, 200)] %>% 
+      .[season == s] %>% 
+      .[part == "R" & lev == 200] %>% 
+      # .[, c("Flon", "Flat", "Flev") := EPflux(lon, lat, lev, t, u, v), by = .(part)] %>% 
+      # .[, div := Divergence(Flon + Flat ~ lon + lat), by = .(lev, part)] %>% 
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(aes(z  = Flev), breaks = AnchorBreaks(0, NULL, 0)) +
+      geom_contour2(aes(z = hgt, linetype = sign_rev(..level..)),
+                    size = 0.2,
+                    breaks = AnchorBreaks(0, NULL, 0)) +
+      geom_vector(aes(dx = Flon, dy = Flat), 
+                  data = function(d) d[is.cross(lon, lat, 1)]) +
+      # geom_streamline(aes(dx = Flon, dy = Flat), skip = 1, res = 2) +
+      map(lat <= 0) +
+      scale_fill_divergent() +
+      scale_x_longitude() +
+      scale_y_latitude() +
+      # coord_quickmap() +
+      facet_grid(part ~ lev) +
+      
+      reg_patterns %>% 
+      .[lev %in% c(50, 200)] %>% 
+      .[season == s] %>% 
+      .[part == "R" & lev == 200] %>% 
+      # .[, c("Flon", "Flat", "Flev") := EPflux(lon, lat, lev, t, u, v), by = .(part)] %>% 
+      # .[, div := Divergence(Flon + Flat ~ lon + lat), by = .(lev, part)] %>% 
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(aes(z  = Flev2), breaks = AnchorBreaks(0, NULL, 0)) +
+      geom_contour2(aes(z = hgt, linetype = sign_rev(..level..)),
+                    size = 0.2,
+                    breaks = AnchorBreaks(0, NULL, 0)) +
+      geom_vector(aes(dx = Flon2, dy = Flat2), 
+                  data = function(d) d[is.cross(lon, lat, 1)]) +
+      # geom_streamline(aes(dx = Flon, dy = Flat), skip = 1, res = 2) +
+      map(lat <= 0) +
+      scale_fill_divergent() +
+      scale_x_longitude() +
+      scale_y_latitude() +
+      # coord_quickmap() +
+      facet_grid(part~lev ) +
+      plot_layout(ncol = 2)
+})
+```
+
+
