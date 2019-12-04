@@ -71,13 +71,35 @@ BuildMap <- function(res = 1, smooth = 1, pm = 180,
    return(m)
 }
 
-geom_map2 <- function(map, size = 0.2, color = "gray50") {
-   # Un geom_path con defaults copados para agregar mapas
-   g <- geom_path(data = map, aes(long, lat, group = group),
-                  inherit.aes = F, color = color, size = size)
-   return(g)
+
+map_simple <- function(wrap = c(0, 360), out = "sf") {
+   map <- maps::map("world", fill = TRUE, 
+                    col = "transparent", plot = FALSE, wrap = wrap)
+   IDs <- vapply(strsplit(map$names, ":"), function(x) x[1], 
+                 "")
+   proj <- sp::CRS("+proj=longlat +datum=WGS84")
+   map <- maptools::map2SpatialPolygons(map, IDs = IDs, 
+                                        proj4string = proj)
+   
+   simple <- rmapshaper::ms_simplify(map, keep = 0.015)
+   simple
 }
 
+
+
+geom_map2 <- function(subset = NULL, color = "black", size = 0.2, fill = NA, wrap = c(0, 360), ...) {
+   data <- fortify(map_simple(wrap = wrap)) %>% 
+      .[, c("long", "lat", "group")]
+   subset <- eval(substitute(subset), envir = data)
+   if (is.null(subset)) subset <- TRUE
+   
+   geom_polygon(data = data[subset, ], 
+                aes(long, lat, group = group), 
+                color = color, 
+                size = size, 
+                fill = fill,
+                ...)
+}
 
 # Repetir vector en negativo
 fill_neg <- function(vector) {
@@ -213,10 +235,13 @@ guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
                     barwidth = width, ...)
 }
 
+
+
 scale_x_longitude <- function(ticks = 60, xwrap = c(0, 360), ...) {
    b <- seq(min(xwrap), max(xwrap), by = ticks)
    metR::scale_x_longitude(ticks = ticks, breaks = b, labels = LonLabel(b),...)
 }
+
 scale_s_map <- function(ylim = c(-90, -15), xlim = c(0, 360)) {
    list(scale_y_latitude(limits = ylim),
         scale_x_longitude(xwrap = xlim)) 
@@ -792,7 +817,7 @@ RunMean <- function(data, weights = NULL, k) {
 
 notify <- function(title = "title", text = NULL, time = 2) {
    time <- time*1000
-   system(paste0('notify-send "', title, '" "', text, '" -t ', time, ' -a rstudio'))
+   system(paste0('notify-send "', title, '" "', text, '" -t ', time, ' -a rstudio -i rstudio'))
 }
 
 notify_after <- function(expression, ...) {
@@ -1542,7 +1567,7 @@ smooth.loess <- function(formula, span = 0.75, degree = 1, ...) {
    predict(loess(formula, span = span, degree = degree, ...))
 }
 
-                           
+
 .daymonth <- function(x) {
    paste0(formatC(month(x), width = 2, flag = "0"), "-", 
           formatC(day(x), width = 2, flag = "0"))
@@ -1552,7 +1577,7 @@ smooth.loess <- function(formula, span = 0.75, degree = 1, ...) {
 
 daymonth <- function(x) {
    factor(paste0(formatC(month(x), width = 2, flag = "0"), "-", 
-          formatC(day(x), width = 2, flag = "0")),
+                 formatC(day(x), width = 2, flag = "0")),
           levels = .daymonth.levels)
 }
 
@@ -1603,4 +1628,149 @@ common_range <- function(x, groups) {
       
    }
    common_range
+}
+
+
+compute_ceof <- function(dt, temporal = FALSE, lats.eof = c(-80, -20), n = 1:2) {
+   dt <- dt[lat %between% lats.eof] %>%
+      .[, hgt := Anomaly(hgt),
+        by  = .(lat, time, lev)] 
+   
+   if (temporal) {
+      dt <- dt[, hgt := Anomaly(hgt), by = .(lon, lat, lev)]
+   }
+   
+   dt %>% 
+      # .[, hgt := hgt/sd(hgt), by = lev] %>%
+      .[, hgt := hgt*sqrt(cos(lat*pi/180))] %>%
+      .[, hgt.cpx := spectral::analyticFunction(hgt),
+        by = .(lat, time, lev)] %>% 
+      .[, hgt := hgt.cpx] %>% 
+      EOF(hgt ~ time | lon + lat + lev, n = n, suffix = "PC", data = .)
+}
+
+normalise_coords <- function(data, 
+                             rules =  list(lev = c("level"),
+                                           lat = c("latitude"),
+                                           lon = c("longitude", "long"),
+                                           time = c("date")), 
+                             extra = list()) {
+   
+   checkmate::assert_list(rules, types = "character", names = "named", any.missing = FALSE)
+   checkmate::assert_list(extra, types = "character", names = "named", any.missing = FALSE)
+   
+   rules <- c(rules, extra)
+   
+   for (f in seq_along(rules)) {
+      old <- colnames(data)[colnames(data) %in% rules[[f]]]
+      
+      if (length(old) != 0) {
+         data.table::setnames(data,
+                              old,
+                              names(rules)[[f]], skip_absent = TRUE)   
+      }
+   }
+   return(invisible(data))
+}
+
+
+
+ReIm <- function(complex) {
+   list(R = Re(complex), I = Im(complex))
+}
+
+
+sep_ReIm <- function(dt, col, longer = TRUE) {
+   names <- c("R", "I")
+   expr <- quote(copy(dt)[, (names) := ReIm(col)])
+   expr  <-  do.call(substitute, list(expr, 
+                                      list(col = substitute(col))))
+   data <- eval(expr)
+   
+   if (isTRUE(longer)) {
+      data[, deparse(substitute(col)) := NULL]
+      data <- setDT(tidyr::pivot_longer(data, R:I, names_to = "part", values_to = deparse(substitute(col))))
+   }
+   
+   return(data[])
+}
+
+Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
+   p.adjust(2*pt(abs(estimate)/std.error, df, lower.tail = FALSE), method = "fdr")
+}
+
+
+
+lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
+
+theme_elio <- theme_minimal(base_size = 16) +
+   theme(strip.background = element_rect(fill = NA, color = "gray30"),
+         # text = element_text(family = font_rc),
+         legend.position = "bottom", legend.box = "vertical",
+         panel.spacing.y = unit(5, "mm"),
+         panel.spacing.x = unit(5, "mm"),
+         legend.spacing = unit(2, "mm"), 
+         panel.border = element_rect(colour = "black", fill = NA),
+         plot.margin = grid::unit(rep(3, 4), "mm"),
+         # legend.title = element_blank(),
+         legend.box.spacing = unit(3, "mm"),
+         legend.margin = margin(t = -5),
+         panel.grid = element_line(color = "gray10", size = 0.4, linetype = 3),
+         panel.ontop = TRUE)
+theme_set(theme_elio)
+
+
+setnames2 <- function(x, ...) {
+   names <- c(...)
+   # print(names)
+   data.table::setnames(x, unname(names), names(names))
+}
+
+
+knitr_set_cache <- function(cache = TRUE, cache.extra = 42) {
+   name <- tools::file_path_sans_ext(knitr::current_input())
+   
+   knitr::opts_chunk$set(cache = cache,
+                         cache.extra = cache.extra, 
+                         cache.path = paste0("cache/", name, "/"),
+                         fig.path = paste0("fig/", name, "/")
+   )
+}
+
+knitr_set_timer <- function(min.time = 10) {
+   start.time <- unclass(Sys.time())
+   
+   knit_doc <- knitr::knit_hooks$get("document")
+   
+   knitr::knit_hooks$set(document = function(x) {
+      took <- unclass(Sys.time()) - start.time
+      if (unclass(Sys.time()) - start.time >= min.time) {
+         notify("Done knitting!", 
+                paste0("Took ", round(took), " seconds"),
+                time = 5)
+      }  
+      knit_doc(x)
+   })   
+}
+
+
+
+erai <- function() {
+   file <-  here::here("DATA", "ERA-Interim", "erai.mon.mean.nc")
+   checkmate::assert_access(file)
+   file
+}
+era20 <- function() {
+   file <- here::here("DATA", "ERA-20C", "era20c.mon.mean.nc")
+   checkmate::assert_access(file)
+   file
+}
+ncep <- function(var = c("hgt", "vwnd", "uwnd", "air", "chi", "psi", "pres", "slp", "omega")) {
+   possible = c("hgt", "vwnd", "uwnd", "air", "chi", "psi", "pres", "slp", "omega")
+   var <- var[1]
+   checkmate::assert_choice(var, possible)
+   
+   file <- here::here("DATA", "NCEP Reanalysis", paste0(var, ".mon.mean.nc"))
+   checkmate::assert_access(file)
+   file
 }

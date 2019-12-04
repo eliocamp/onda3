@@ -1,0 +1,58 @@
+---
+title: "SON"
+author: "Elio Campitelli"
+output: 
+   # pdf_document:
+   #    latex_engine: xelatex
+   powerpoint_presentation:
+   # ioslides_presentation:
+   fig_height: 7.6
+fig_width: 12.8
+reference_doc: template.pptx
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE, message = FALSE
+)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+
+here <- here::here
+
+
+source(here("scripts", "facet_nested.R"))
+source(here("scripts", "helperfun.R"))
+knitr_set_timer()
+knitr_set_cache()
+```
+
+
+
+```{r}
+datos <- ReadNetCDF(erai(), vars = c(hgt = "z"),
+                    subset = list(level = list(200, 500))) %>% 
+   normalise_coords() %>% 
+   .[is.full_season(time)] %>% 
+   .[, lapply(.SD, mean), by = .(lon, lat, lev, time = seasonaly(time))]
+
+```
+
+
+```{r}
+ceof <- datos %>% 
+   copy() %>% 
+   .[, season := season(time)] %>% 
+   .[, .(ceof = list(compute_ceof(.SD))), by = .(season)]
+```
+
