@@ -157,28 +157,6 @@ geom_zero <- function(dir = "h", ...) {
           h = geom_hline(yintercept = 0, ...),
           v = geom_vline(xintercept = 0, ...))
 }
-
-normalise_coords <- function(data, 
-                             rules =  list(lev = c("level"),
-                                           lat = c("latitude"),
-                                           lon = c("longitude", "long"),
-                                           time = c("date")
-                             ), 
-                             extra = list()) {
-   rules <- c(rules, extra)
-   
-   for (f in seq_along(rules)) {
-      old <- colnames(data)[colnames(data) %in% rules[[f]]]
-      
-      if (length(old) != 0) {
-         data.table::setnames(data,
-                              old,
-                              names(rules)[[f]], skip_absent = TRUE)   
-      }
-   }
-   return(invisible(data))
-}
-
 ```
 
 
@@ -213,20 +191,18 @@ datos <- ReadNetCDF(here("DATA", "ERA-Interim", "erai.mon.mean.nc"),
                     subset = list(latitude = -90:0)) %>%
    normalise_coords() 
 
-datos %>% 
-   .[, c("Flon", "Flat", "Flev") := EPflux(lon, lat, lev, t, u, v), by = .(time)]
 
 datos_medio <- datos[, year := year(time[1]), by = time] %>% 
    .[month(time) == 12, year := year + 1] %>%  # december counts to the next year
    .[,  n := .N, by = .(lev, lat, lon, year, season(time))] %>% 
    .[n == 3] %>%  # keep only full seasons
    .[, n := NULL] 
-
 remove(datos)
 
 datos_medio <- datos_medio[, lapply(.SD, mean, na.rm = TRUE), 
                            by = .(lev, lat, lon, year, season(time))] %>% 
-   .[]
+   .[, vt_t := Anomaly(v)*Anomaly(t), by = .(lon, lat, season)] %>% 
+   .[, vt_z := Anomaly(v)*Anomaly(t), by = .(lon, year, season)]
 
 
 # datos <- rbind(datos, ipsl, use.names = TRUE)
@@ -299,11 +275,12 @@ reg_patterns <- ceof[, denormalize(ceof[[1]], "left"), by = .(season)] %>%
    setnames(EOF = "hgt") %>% 
    .[datos_medio, on = .NATURAL] %>% 
    # .[lev == 200] %>% 
+   .[lat != -90] %>% 
    .[, reg_cplx(EOF, as.matrix(.SD)), by = .(season, lon, lat, lev, PC),
      .SDcols = -c("year", "EOF")]
 
 
-reg_patterns[, c("Flon2", "Flat2", "Flev2") := EPflux(lon, lat, lev, t, u, v), by = .(part, season)]
+reg_patterns[, c("Flon", "Flat", "Flev") := EPflux(lon, lat, lev, t, u, v), by = .(part, season)]
 ```
 
 
@@ -313,18 +290,24 @@ sign_rev <- function(x) factor(-sign(x))
 
 
 ```{r}
-lapply(unique(reg_patterns$season), function(s) {
+# lapply(unique(reg_patterns$season), function(s) {
    reg_patterns %>% 
-      .[lev %in% c(50, 200)] %>% 
-      .[season == s] %>% 
-      .[part == "R" & lev == 200] %>% 
+      .[lev %in% c(50, 200, 100)] %>% 
+      # .[season == s] %>% 
+      .[part == "R"] %>% 
       # .[, c("Flon", "Flat", "Flev") := EPflux(lon, lat, lev, t, u, v), by = .(part)] %>% 
       # .[, div := Divergence(Flon + Flat ~ lon + lat), by = .(lev, part)] %>% 
       ggplot(aes(lon, lat)) +
-      geom_contour_fill(aes(z  = Flev), breaks = AnchorBreaks(0, NULL, 0)) +
-      geom_contour2(aes(z = hgt, linetype = sign_rev(..level..)),
+      # geom_contour_fill(aes(z  = Flev), breaks = AnchorBreaks(0, NULL, 0)) +
+      # geom_contour_fill(aes(z  = vt_t*abs(f(lat))), breaks = AnchorBreaks(0, NULL, 0)) +
+      geom_contour_fill(aes(z  = t*v*abs(f(lat))), breaks = AnchorBreaks(0, NULL, 0)) +
+      geom_contour2(aes(z = t, linetype = sign_rev(..level..)),
                     size = 0.2,
                     breaks = AnchorBreaks(0, NULL, 0)) +
+      geom_contour2(aes(z = v, linetype = sign_rev(..level..)),
+                    size = 0.2, color = "red",
+                    breaks = AnchorBreaks(0, NULL, 0)) +
+   
       geom_vector(aes(dx = Flon, dy = Flat), 
                   data = function(d) d[is.cross(lon, lat, 1)]) +
       # geom_streamline(aes(dx = Flon, dy = Flat), skip = 1, res = 2) +
@@ -332,31 +315,9 @@ lapply(unique(reg_patterns$season), function(s) {
       scale_fill_divergent() +
       scale_x_longitude() +
       scale_y_latitude() +
-      # coord_quickmap() +
-      facet_grid(part ~ lev) +
-      
-      reg_patterns %>% 
-      .[lev %in% c(50, 200)] %>% 
-      .[season == s] %>% 
-      .[part == "R" & lev == 200] %>% 
-      # .[, c("Flon", "Flat", "Flev") := EPflux(lon, lat, lev, t, u, v), by = .(part)] %>% 
-      # .[, div := Divergence(Flon + Flat ~ lon + lat), by = .(lev, part)] %>% 
-      ggplot(aes(lon, lat)) +
-      geom_contour_fill(aes(z  = Flev2), breaks = AnchorBreaks(0, NULL, 0)) +
-      geom_contour2(aes(z = hgt, linetype = sign_rev(..level..)),
-                    size = 0.2,
-                    breaks = AnchorBreaks(0, NULL, 0)) +
-      geom_vector(aes(dx = Flon2, dy = Flat2), 
-                  data = function(d) d[is.cross(lon, lat, 1)]) +
-      # geom_streamline(aes(dx = Flon, dy = Flat), skip = 1, res = 2) +
-      map(lat <= 0) +
-      scale_fill_divergent() +
-      scale_x_longitude() +
-      scale_y_latitude() +
-      # coord_quickmap() +
-      facet_grid(part~lev ) +
-      plot_layout(ncol = 2)
-})
+      coord_quickmap() +
+      facet_grid(lev ~ part + season) 
 ```
+
 
 
