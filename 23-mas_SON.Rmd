@@ -35,25 +35,42 @@ source(here("scripts", "facet_nested.R"))
 source(here("scripts", "helperfun.R"))
 knitr_set_timer()
 knitr_set_cache()
+
+
+rm_intercept <- function(dt) {
+   dt[term != "(Intercept)"]
+}
 ```
 
 
 
 ```{r}
-datos <- ReadNetCDF(erai(), vars = c(hgt = "z"),
-                    subset = list(level = list(200, 500))) %>% 
+datos <- ReadNetCDF(ERAI(), vars = c(hgt = "z", "u", vort = "vo", air = "t"),
+                    subset = list(level = list(200, 500, 925),
+                                  latitude = c(-90:10))) %>% 
    normalise_coords() %>% 
-   .[is.full_season(time)] %>% 
+   .[is.full_season(time)] %>%  
+   .[season(time) == "SON"] %>% 
    .[, lapply(.SD, mean), by = .(lon, lat, lev, time = seasonaly(time))]
-
-
-
-
 ```
 
 ```{r}
 
+ks <- function(vorticity_gradient, u, lat) {
+   sqrt(vorticity_gradient/u)*(metR:::a*cos(lat*pi/180))
+}
 
+datos[, vort.dlat := Derivate(vort ~ lon + lat, cyclical = TRUE, sphere = TRUE)[[2]], 
+      by = .(time, lev)] %>% 
+   .[, U := mean(u), by = .(lat, lev, time)] %>% 
+   .[, ks := ks(vort.dlat + f.dy(lat), U, lat)]
+
+```
+
+
+
+
+```{r}
 divide_eof <- function(eof, which = c("left", "right", "sd")){
    setNames(lapply(which, function(x) eof[x]), which)
 }
@@ -73,20 +90,68 @@ unnest_eof <- function(dt, col, which) {
 
 
 ```{r}
-ceof <- datos %>% 
-   copy() %>% 
+ceofs <- datos %>% 
+   .[lev %in% c(200, 500)] %>% 
    .[, season := season(time)] %>% 
    .[, .(ceof = list(compute_ceof(.SD))), by = .(season)]
 ```
 
 
 ```{r}
-ceof
+datos_long <- regr <- ceofs %>% 
+   unnest_eof(ceof, "left") %>% 
+   .[, season := NULL] %>%
+   setnames("hgt", "EOF") %>% 
+   .[datos %>% 
+        melt(id.vars = c("lon", "lat", "lev", "time")), 
+     on = "time", allow.cartesian = TRUE] %>% 
+   sep_ReIm(EOF)
 ```
 
 
 
 ```{r}
-unnest_eof(ceof, ceof, "left")
+regr_air <- datos_long %>% 
+   .[variable == "air" & lev == 925] %>% 
+   .[, FitLm(EOF, value, se = TRUE), by = .(lon, lat, PC, part, season(time))] %>% 
+   rm_intercept()
 ```
+
+```{r}
+regr_air %>% 
+   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(season, part, PC)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   stat_subset(aes(subset = p.val < 0.05 & is.cross(lon, lat, 1)), 
+               size = 0.1, alpha = 0.4) +
+   geom_map2(lat <= 10) +
+   scale_fill_divergent() +
+   scale_x_longitude() +
+   scale_y_latitude()
+   coord_quickmap() +
+   facet_nested(part ~ PC)
+```
+
+
+
+```{r}
+FitLogistic <- function(y, ...) {
+   x <- cbind(...)
+   fit <- Rfast::glm_logistic(x, y, full = TRUE)
+   list(term = dimnames(fit$info)[[1]],
+        estimate = fit$info[, 1],
+        std.error = fit$info[, 2],
+        p.val = fit$info[, 4])
+}
+
+regr_ks <- datos_long %>% 
+   .[variable == "ks" & lev %in% c(200, 500)] %>% 
+   .[, prohibido := is.na(value) || value <= 3] %>% 
+   .[, FitLogistic(prohibido, EOF), by = .(lon, lat, lev, part, PC)] %>% 
+   rm_intercept()
+```
+
+
+
+
 

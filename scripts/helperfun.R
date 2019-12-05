@@ -1755,17 +1755,17 @@ knitr_set_timer <- function(min.time = 10) {
 
 
 
-erai <- function() {
+ERAI <- function() {
    file <-  here::here("DATA", "ERA-Interim", "erai.mon.mean.nc")
    checkmate::assert_access(file)
    file
 }
-era20 <- function() {
+ERA20 <- function() {
    file <- here::here("DATA", "ERA-20C", "era20c.mon.mean.nc")
    checkmate::assert_access(file)
    file
 }
-ncep <- function(var = c("hgt", "vwnd", "uwnd", "air", "chi", "psi", "pres", "slp", "omega")) {
+NCEP <- function(var = c("hgt", "vwnd", "uwnd", "air", "chi", "psi", "pres", "slp", "omega")) {
    possible = c("hgt", "vwnd", "uwnd", "air", "chi", "psi", "pres", "slp", "omega")
    var <- var[1]
    checkmate::assert_choice(var, possible)
