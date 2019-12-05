@@ -46,6 +46,29 @@ datos <- ReadNetCDF(erai(), vars = c(hgt = "z"),
    .[is.full_season(time)] %>% 
    .[, lapply(.SD, mean), by = .(lon, lat, lev, time = seasonaly(time))]
 
+
+
+
+```
+
+```{r}
+
+
+divide_eof <- function(eof, which = c("left", "right", "sd")){
+   setNames(lapply(which, function(x) eof[x]), which)
+}
+
+unnest_eof <- function(dt, col, which) {
+   colstr <- deparse(substitute(col))
+   cols <- colnames(dt)[!(colnames(dt) %in% colstr)]
+   # browser()
+   expr <- quote(
+      dt[, col[[1]][[which]], by = c(cols)]
+   )
+   expr  <-  do.call(substitute, list(expr, 
+                                      list(col = substitute(col))))
+   eval(expr)
+}
 ```
 
 
@@ -54,5 +77,16 @@ ceof <- datos %>%
    copy() %>% 
    .[, season := season(time)] %>% 
    .[, .(ceof = list(compute_ceof(.SD))), by = .(season)]
+```
+
+
+```{r}
+ceof
+```
+
+
+
+```{r}
+unnest_eof(ceof, ceof, "left")
 ```
 
