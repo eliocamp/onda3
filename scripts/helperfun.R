@@ -72,7 +72,7 @@ BuildMap <- function(res = 1, smooth = 1, pm = 180,
 }
 
 
-map_simple <- function(wrap = c(0, 360), out = "sf") {
+map_simple <- function(wrap = c(0, 360), out = "sf", keep = 0.015) {
    map <- maps::map("world", fill = TRUE, 
                     col = "transparent", plot = FALSE, wrap = wrap)
    IDs <- vapply(strsplit(map$names, ":"), function(x) x[1], 
@@ -81,20 +81,22 @@ map_simple <- function(wrap = c(0, 360), out = "sf") {
    map <- maptools::map2SpatialPolygons(map, IDs = IDs, 
                                         proj4string = proj)
    
-   simple <- rmapshaper::ms_simplify(map, keep = 0.015)
+   simple <- rmapshaper::ms_simplify(map, keep = keep)
    simple
 }
 
 
 
-geom_map2 <- function(subset = NULL, color = "black", size = 0.2, fill = NA, wrap = c(0, 360), ...) {
-   data <- fortify(map_simple(wrap = wrap)) %>% 
-      .[, c("long", "lat", "group")]
+geom_map2 <- function(subset = NULL, color = "black", size = 0.2, fill = NA, wrap = c(0, 360), keep = 0.015, ...) {
+   data <- fortify(map_simple(wrap = wrap, keep  = keep)) %>% 
+      as.data.table() %>% 
+      .[, c("long", "lat", "group")] %>% 
+      setnames("long", "lon")
    subset <- eval(substitute(subset), envir = data)
    if (is.null(subset)) subset <- TRUE
    
    geom_polygon(data = data[subset, ], 
-                aes(long, lat, group = group), 
+                aes(lon, lat, group = group), 
                 color = color, 
                 size = size, 
                 fill = fill,
@@ -1754,23 +1756,14 @@ knitr_set_timer <- function(min.time = 10) {
 }
 
 
+rm_intercept <- function(dt) {
+   dt[term != "(Intercept)"]
+}
 
-ERAI <- function() {
-   file <-  here::here("DATA", "ERA-Interim", "erai.mon.mean.nc")
-   checkmate::assert_access(file)
-   file
+is.sa <- function(data, lons = c(265, 325), lats = c(-65, -10)) {
+   data[, lon %between% lons & lat %between% lats]
 }
-ERA20 <- function() {
-   file <- here::here("DATA", "ERA-20C", "era20c.mon.mean.nc")
-   checkmate::assert_access(file)
-   file
-}
-NCEP <- function(var = c("hgt", "vwnd", "uwnd", "air", "chi", "psi", "pres", "slp", "omega")) {
-   possible = c("hgt", "vwnd", "uwnd", "air", "chi", "psi", "pres", "slp", "omega")
-   var <- var[1]
-   checkmate::assert_choice(var, possible)
-   
-   file <- here::here("DATA", "NCEP Reanalysis", paste0(var, ".mon.mean.nc"))
-   checkmate::assert_access(file)
-   file
+
+filter_sa <- function(data, lons = c(265, 325), lats = c(-65, -10)) {
+   data[is.sa(data, lons = lons, lats = lats)]
 }
