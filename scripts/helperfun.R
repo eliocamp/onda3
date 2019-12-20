@@ -1706,7 +1706,8 @@ Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
 lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
 
 theme_elio <- theme_minimal(base_size = 16) +
-   theme(strip.background = element_rect(fill = NA, color = "gray30"),
+   theme(
+      strip.background = element_rect(fill = NA, color = "gray30"),
          # text = element_text(family = font_rc),
          legend.position = "bottom", legend.box = "vertical",
          panel.spacing.y = unit(5, "mm"),

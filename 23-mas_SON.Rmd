@@ -60,7 +60,7 @@ cmap <- ReadNetCDF(CMAP(), vars = c(pp = "precip"),
    normalise_coords() %>%
    # .[season(time) == "SON"] %>% 
    mean_season()
-   
+
 olr <- ReadNetCDF(OLR(), vars = "olr", 
                   subset = list(lat = -90:10)) %>% 
    normalise_coords() %>%
@@ -134,100 +134,103 @@ datos_join <- ceofs %>%
 ```
 
 
-```{r}
-datos_join %>% 
-   .[lat <= -10 & lat != -90] %>% 
-   .[, FitLm(EOF, vt, se = TRUE), by = .(lon, lat, lev, part, PC, season)] %>% 
-   rm_intercept() %>% 
-   .[, p.val := Pvaluate(estimate, std.error, df), by = .(part, season, PC, lev)] %>% 
-   # .[lev == 200] %>% 
-   na.omit() %>% 
-   ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate), bins = 20) +
-   # geom_raster(aes(fill = estimate)) +
-   stat_subset(aes(subset = p.val < 0.01 & is.cross(lon, lat)), size = 0.1) +
-   geom_map2(lat <= 10) +
-   scale_fill_divergent() +
-   scale_x_longitude() +
-   scale_y_latitude() +
-   coord_quickmap() +
-   facet_nested(lev ~ part + PC)
-```
-
 
 
 ```{r}
-
 ceofs %>% 
    unnest_eof(ceof, "left") %>% 
-   sep_ReIm(hgt) %>% 
-   .[cmap, on = .NATURAL, allow.cartesian = TRUE] %>% 
-   filter_sa() %>% 
-   .[, FitLm(hgt, pp, se = TRUE), by = .(lon, lat, part, PC, season)] %>% 
+   setnames("hgt", "EOF") %>% 
+   sep_ReIm(EOF, FALSE) %>% 
+   .[datos, on = .NATURAL, allow.cartesian = TRUE] %>% 
+   .[lat <= -10 & lat != -90] %>%
+   .[, FitLm(vt, R, I, se = TRUE), by = .(lon, lat, PC, season)] %>% 
    rm_intercept() %>% 
-   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(part, season, PC)] %>% 
+   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(term, season, PC)] %>% 
    na.omit() %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = estimate), bins = 20) +
    # geom_raster(aes(fill = estimate)) +
    stat_subset(aes(subset = p.val < 0.05), size = 0.1) +
-   geom_map2(is.sa(data), keep = 1) +
+   geom_map2(lat <= -10) +
    scale_fill_divergent() +
    scale_x_longitude() +
    scale_y_latitude() +
    coord_quickmap() + 
-   facet_nested(season ~ PC + part)
+   facet_nested(season ~ PC + term)
+```
+
+```{r}
+cmap_mean <- cmap %>% 
+   .[, .(pp = mean(pp)), by = .(lon, lat, season(time))]
+```
+
+
+```{r}
+ceofs %>% 
+   unnest_eof(ceof, "left") %>% 
+   sep_ReIm(hgt, longer = FALSE) %>% 
+   .[cmap, on = .NATURAL, allow.cartesian = TRUE] %>% 
+   filter_sa() %>% 
+   .[, FitLm(pp, R, I, se = TRUE), by = .(lon, lat, PC, season)] %>% 
+   rm_intercept() %>% 
+   cmap_mean[., on = .NATURAL] %>% 
+   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(term, season, PC)] %>% 
+   na.omit() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate), bins = 20) +
+   geom_contour2(aes(z = pp), bins = 5, size = 0.2, alpha = 0.5) +
+   # geom_raster(aes(fill = estimate)) +
+   stat_subset(aes(subset = p.val < 0.05), size = 0.1) +
+   geom_map2(is.sa(data), keep = 1) +
+   scale_fill_distiller(palette = "BrBG", direction = 1) +
+   scale_x_longitude(ticks = 20) +
+   scale_y_latitude() +
+   coord_quickmap() + 
+   facet_nested(season ~ PC + term)
 ```
 
 
 
 ```{r}
-
 ceofs %>% 
    unnest_eof(ceof, "left") %>% 
-   sep_ReIm(hgt) %>% 
+   sep_ReIm(hgt, FALSE) %>% 
    .[olr, on = .NATURAL, allow.cartesian = TRUE] %>% 
-   .[, FitLm(hgt, olr, se = TRUE), by = .(lon, lat, part, PC, season)] %>% 
+   .[, FitLm(olr, R, I, se = TRUE), by = .(lon, lat, PC, season)] %>% 
    rm_intercept() %>% 
-   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(part, season, PC)] %>% 
+   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(term, season, PC)] %>% 
    na.omit() %>% 
    ggplot(aes(lon, lat)) +
-   # geom_contour_fill(aes(z = estimate), bins = 20) +
-   geom_raster(aes(fill = estimate)) +
+   geom_contour_fill(aes(z = estimate), bins = 20) +
+   # geom_raster(aes(fill = estimate)) +
    stat_subset(aes(subset = p.val < 0.05), size = 0.1) +
    geom_map2(lat < 10) +
    scale_fill_divergent() +
    scale_x_longitude() +
    scale_y_latitude() +
    coord_quickmap() + 
-   facet_nested(season ~ PC + part)
-```
-
-
-```{r}
-regr_air <- datos_long %>% 
-   .[variable == "air" & lev == 925] %>% 
-   .[, FitLm(EOF, value, se = TRUE), by = .(lon, lat, PC, part, season(time))] %>% 
-   rm_intercept()
+   facet_nested(season ~ PC + term)
 ```
 
 ```{r}
-regr_air %>% 
-   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(season, part, PC)] %>% 
+ceofs %>% 
+   unnest_eof(ceof, "left") %>% 
+   setnames("hgt", "EOF") %>% 
+   sep_ReIm(EOF, FALSE) %>% 
+   .[datos, on = .NATURAL, allow.cartesian = TRUE] %>% 
+   .[, FitLm(air, R, I, se = TRUE), by = .(lon, lat, PC, season)] %>% 
+   rm_intercept() %>% 
+   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(term, season, PC)] %>% 
+   na.omit() %>% 
    ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate)) +
-   stat_subset(aes(subset = p.val < 0.05 & is.cross(lon, lat, 1)), 
-               size = 0.1, alpha = 0.4) +
-   geom_map2(lat <= 10) +
+   geom_contour_fill(aes(z = estimate), bins = 20) +
+   # geom_raster(aes(fill = estimate)) +
+   stat_subset(aes(subset = p.val < 0.05), size = 0.1) +
+   geom_map2(lat < 10) +
    scale_fill_divergent() +
    scale_x_longitude() +
-   scale_y_latitude()
-coord_quickmap() +
-   facet_nested(part ~ PC)
+   scale_y_latitude() +
+   coord_quickmap() + 
+   facet_nested(season ~ PC + term)
 ```
-
-
-
-
-
 
