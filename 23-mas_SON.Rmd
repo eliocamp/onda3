@@ -126,28 +126,36 @@ ceofs <- datos %>%
 
 
 ```{r}
-datos_join <- ceofs %>% 
-   unnest_eof(ceof, "left") %>% 
-   setnames("hgt", "EOF") %>% 
-   sep_ReIm(EOF) %>% 
-   .[datos, on = .NATURAL, allow.cartesian = TRUE] 
-```
-
-```{r}
-regress <- function(ceof, data, variable) {
-   variable <- deparse(substitute(variable))
+regress_m <- memoise::memoise(function(ceof, data, variable) {
+   
+   regr_by <- c("lon", "lat", "PC", "season")
+   pval_by <- c("term", "season", "PC")
+   formula <- season ~ PC + term
+   if ("lev" %in% colnames(data)) {
+      regr_by <- c("lev", regr_by)
+      pval_by <- c("lev", pval_by)
+      formula <- season + lev ~ PC + term
+   }
+   
    regr <- ceof %>% 
       unnest_eof(ceof, "left") %>% 
       setnames("hgt", "EOF") %>% 
       sep_ReIm(EOF, FALSE) %>% 
       .[data, on = .NATURAL, allow.cartesian = TRUE] %>% 
-      .[, FitLm(get(variable), R, I, se = TRUE), by = .(lon, lat, PC, season)] %>% 
+      .[, FitLm_m(get(variable), R, I, se = TRUE), by = c(regr_by)] %>% 
       rm_intercept() %>% 
-      .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(term, season, PC)] %>% 
+      .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = c(pval_by)] %>% 
       .[]
    
+   
    class(regr) <- c("regression", class(regr))
+   attr(regr, "formula") <- formula
    regr
+})
+
+regress <- function(ceof, data, variable) {
+   variable <- deparse(substitute(variable))
+   regress_m(ceof, data, variable)
 }
 
 plot.regression <- function(x, ..., keep = 0.015) {
@@ -163,13 +171,14 @@ plot.regression <- function(x, ..., keep = 0.015) {
       scale_x_longitude(limits = lons) +
       scale_y_latitude(limits = lats) +
       coord_quickmap() + 
-      facet_nested(season ~ PC + term)
+      facet_nested(attr(x, "formula", TRUE))
 }
 ```
 
 
 ```{r, fig.cap = "Regresión con v*T*"}
 regress(ceofs, datos, vt) %>% 
+   .[lev %in% c(200, 500)] %>% 
    plot(bins = 20)
 ```
 
@@ -188,10 +197,71 @@ regress(ceofs, olr, olr) %>%
 ```{r, fig.cap = "Regresión con temperatura del aire"}
 ceofs %>% 
    regress(datos, air) %>% 
+   .[lev %in% max(lev)] %>% 
    plot(bins = 20)
 ```
 
 
+```{r}
+
+FitLr <- function(y, ...) {
+   X <- cbind(`(Intercept)` = 1, ...)
+   term <- dimnames(X)[[2]]
+   fit <- RcppNumerical::fastLR(X, y)
+   list(term = term, 
+        estimate = fit$coefficients
+   )
+}
+
+ceofs %>% 
+   unnest_eof(ceof, "left") %>% 
+   setnames("hgt", "EOF") %>% 
+   sep_ReIm(EOF, FALSE) %>% 
+   .[datos, on = .NATURAL, allow.cartesian = TRUE] %>% 
+   .[, prop_3 := is.finite(ks) & ks > 3 ] %>% 
+   # filter_sa() %>%  abs(R),
+   .[lev == 500 & season == "SON"]  %>% 
+   .[, FitLr(prop_3, EOF = abs(EOF)), by = .(lon, lat, lev, PC, season)] %>%
+   ggplot(aes(lon, lat)) +
+   geom_raster(aes(fill = sign(estimate))) +
+   geom_map2(lat < 0) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent() +
+   coord_quickmap() +
+   facet_grid(PC~term)
+```
+
+```{r}
+
+prop_mean <- datos %>% 
+   copy() %>% 
+   .[, prop_3 := is.finite(ks) & ks > 3 ] %>% 
+   .[, .(prop_mean = mean(prop_3)), by = .(lon, lev, lat, season(time))]
+
+mean_ks <- ceofs %>% 
+   unnest_eof(ceof, "left") %>% 
+   setnames("hgt", "EOF") %>% 
+   sep_ReIm(EOF) %>% 
+   .[datos, on = .NATURAL, allow.cartesian = TRUE] %>% 
+   .[, EOF_p := Percentile(abs(EOF)), by = .(PC, part, season)] %>%
+   .[, prop_3 := is.finite(ks) & ks > 3 ] %>% 
+   .[, .(n = .N, 
+         prop = mean(prop_3)), by = .(lon, lat, lev, season, PC, cut(EOF_p, c(0, 1/3, 2/3, 1)))] %>% 
+   prop_mean[., on = .NATURAL]
+
+mean_ks %>% 
+   .[lev == 200] %>% 
+   .[PC == "PC2"] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_raster(aes(fill = prop - prop_mean)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent(midpoint = 0) +
+   coord_quickmap() +
+   facet_nested(season ~ cut)
+
+```
 
 
 ```{r "Regresión con precipitación en sudamérica"}
@@ -200,7 +270,7 @@ lons <- ConvertLongitude(c(-63.75, -51.25))
 
 
 regress(ceofs, filter_sa(cmap), pp) %>% 
-   .[PC == "PC2"] %>% 
+   # .[PC == "PC2"] %>% 
    plot(keep = 1) +
    annotate("rect", xmin = min(lons), xmax = max(lons), ymin = min(lats), ymax = max(lats),
             fill = NA, color = "black") +
