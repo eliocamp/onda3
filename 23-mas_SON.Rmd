@@ -71,13 +71,18 @@ olr <- ReadNetCDF(OLR(), vars = "olr",
 ```{r}
 
 ks <- function(vorticity_gradient, u, lat) {
-   vorticity_gradient/u*(metR:::a*cos(lat*pi/180)^2)
+   vorticity_gradient/u*(metR:::a*cos(lat*pi/180))^2
 }
+
+sqrti <- function(x) {
+   sqrt(abs(x))*sign(x)
+}
+
 
 datos[, vort.dlat := Derivate(vort ~ lon + lat, cyclical = TRUE, sphere = TRUE)[[2]], 
       by = .(time, lev)] %>% 
    .[, U := mean(u), by = .(lat, lon, lev, season(time))] %>% 
-   .[, ks := ks(vort.dlat + f.dy(lat), U, lat)] %>% 
+   .[, ks := sqrti(ks(vort.dlat + f.dy(lat), U, lat))] %>% 
    .[, vt := Anomaly(v)*Anomaly(air)*abs(f(lat)), by = .(lat, lev, time)] 
 ```
 
@@ -202,23 +207,23 @@ ceofs %>%
 
 ```{r}
 
-sqrti <- function(x) {
-   sqrt(abs(x))*sign(x)
-}
+datos[, hgt_a := Anomaly(hgt), by = .(lon, lat, lev, season(time))] 
+
+mean_ks <- datos[, .(ksm = mean(ks)), by = .(lat, lon, lev, season(time))] 
 
 ks_join <- ceofs %>% 
    unnest_eof(ceof, "left") %>% 
    setnames("hgt", "EOF") %>% 
    sep_ReIm(EOF) %>% 
    .[, EOF := Percentile(EOF), by = .(season, PC, part)] %>% 
-   .[, tercil := cut(EOF, c(0, 1/3, 2/3, 1), labels = c("low", "medium", "high"))] %>% 
+   .[, tercil := cut(EOF, c(0, 1/4, 3/4, 1), labels = c("low", "medium", "high"))] %>% 
    .[datos, on = .NATURAL, allow.cartesian = TRUE] %>% 
-   .[, ksm := suppressWarnings(mean(sqrti(ks))), by = .(lat, lon, lev, season)] %>% 
-   .[, ks := suppressWarnings(sqrti(ks))] %>% 
-   .[, c(as.list(ggplot2::mean_se(ks)),
-         list(ksm = ksm[1], 
-              n = .N)), 
-     by = .(lat, lon, lev, season, PC, part, tercil)]
+   .[, .(ks = mean(ks),
+         ks_se = sd(ks)/sqrt(.N),
+         hgt = mean(hgt_a),
+         n = .N), 
+     by = .(lat, lon, lev, season, PC, part, tercil)] %>% 
+   mean_ks[., on = .NATURAL]
 ```
 
 ```{r, fig.cap = "Ks medio para 1 tercil (low) y tercer tercil (high) de PC2"}
@@ -226,14 +231,17 @@ ks_join %>%
    .[lev == 200] %>% 
    .[PC == "PC2"] %>% 
    .[lat <= -10] %>% 
-   .[tercil != "medium"] %>% 
+   # .[tercil != "medium"] %>% 
+   .[ks <= 3, ks := NA] %>% 
+   .[, hgt := FilterWave(hgt, -1), by = .(lat, lev, PC, part, tercil, season)] %>% 
    ggplot(aes(lon, lat)) +
-   geom_raster(aes(fill = y)) +
+   geom_raster(aes(fill = ks)) +
+   geom_contour2(aes(z = hgt, linetype = factor(sign(..level..)))) +
    geom_vline(xintercept = 210) +
    geom_map2(lat <= 0) +
    scale_x_longitude() +
    scale_y_latitude() +
-   scale_fill_divergent(limits = pm(0.003), oob = scales::squish) +
+   scale_fill_divergent(limits = pm(5), oob = scales::squish, midpoint = 3) +
    coord_quickmap(ylim = c(-85, -10)) +
    facet_nested(season ~ PC + part + tercil)
 ```
@@ -243,14 +251,14 @@ ks_join %>%
    .[lev == 200] %>% 
    .[PC == "PC2"] %>% 
    .[lat <= -10] %>% 
-   .[tercil != "medium"] %>% 
+   .[tercil != "medium"] %>%
    ggplot(aes(lon, lat)) +
-   geom_raster(aes(fill = y - ksm)) +
+   geom_raster(aes(fill = ks - ksm)) +
    geom_map2(lat <= 0) +
    geom_vline(xintercept = 210) +
    scale_x_longitude() +
    scale_y_latitude() +
-   scale_fill_divergent(limits = pm(0.001), oob = scales::squish) +
+   scale_fill_divergent(limits = pm(2), oob = scales::squish) +
    coord_quickmap(ylim = c(-85, -10)) +
    facet_nested(season ~ PC + part + tercil)
 ```
@@ -262,14 +270,17 @@ ks_join %>%
    .[PC == "PC2"] %>% 
    .[lon %~% 210] %>% 
    .[lat <= -30] %>% 
-   ggplot(aes(lat, y)) +
+   ggplot(aes(lat, ks)) +
    geom_hline(yintercept = 0) +
    geom_line(aes(y = ksm)) +
-   geom_ribbon(aes(ymin = ymin, ymax = ymax, fill = tercil), alpha = 0.2) +
+   geom_ribbon(aes(ymin = ks - ks_se, ymax = ks + ks_se, fill = tercil), alpha = 0.2) +
    geom_line(aes(color = tercil)) +
+   scale_y_continuous(breaks = pm(0:6)) +
    facet_nested(season ~ PC + part) +
    coord_flip()
 ```
+
+
 # Precipitación
 
 ```{r "Regresión con precipitación en sudamérica"}
