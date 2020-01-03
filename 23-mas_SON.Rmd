@@ -33,7 +33,7 @@ source(here("scripts", "facet_nested.R"))
 source(here("scripts", "helperfun.R"))
 source(here("scripts", "data_locations.R"))
 knitr_set_timer()
-knitr_set_cache(cache.extra  = 42)
+knitr_set_cache(cache.extra  = 50)
 ```
 
 ```{r}
@@ -190,7 +190,7 @@ regress(ceofs, datos, vt) %>%
    .[lev %in% c(50, 200, 500)] %>% 
    .[season %in% c("DJF", "MAM")] %>%
    .[PC == this_PC] %>% 
-   plot(bins = 20) +
+   plot(bins = 20, skip = 0) +
    facet_nested(season + term ~ PC + lev)
 ```
 
