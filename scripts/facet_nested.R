@@ -269,8 +269,7 @@ FacetNested <- ggplot2::ggproto(
 combine_nested_vars <- function(data, env = emptyenv(), vars = NULL, drop = TRUE) {
   if (length(vars) == 0)
     return(data.frame())
-  values <- ggplot2:::compact(plyr::llply(data, ggplot2:::eval_facets, facets = vars,
-                                          env = env))
+  values <- ggplot2:::compact(plyr::llply(data, ggplot2:::eval_facets, facets = vars))
   has_all <- unlist(lapply(values, length)) == length(vars)
   if (!any(has_all)) {
     missing <- lapply(values, function(x) setdiff(names(vars), names(x)))

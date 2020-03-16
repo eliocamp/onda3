@@ -33,7 +33,7 @@ BuildMap <- function(res = 1, smooth = 1, pm = 180,
    if (countries) {
       library(rworldxtra)
       data("countriesLow")
-      m <- countriesLow
+      m <- countriesLow   
    } else {
       library(rworldmap)
       data(coastsCoarse)
@@ -72,7 +72,7 @@ BuildMap <- function(res = 1, smooth = 1, pm = 180,
 }
 
 
-map_simple <- function(wrap = c(0, 360), out = "sf", keep = 0.015) {
+map_simple_ <- function(wrap = c(0, 360), out = "sf", keep = 0.015) {
    map <- maps::map("world", fill = TRUE, 
                     col = "transparent", plot = FALSE, wrap = wrap)
    IDs <- vapply(strsplit(map$names, ":"), function(x) x[1], 
@@ -81,9 +81,13 @@ map_simple <- function(wrap = c(0, 360), out = "sf", keep = 0.015) {
    map <- maptools::map2SpatialPolygons(map, IDs = IDs, 
                                         proj4string = proj)
    
-   simple <- rmapshaper::ms_simplify(map, keep = keep)
-   simple
+   if (keep != 1) {
+      map <- rmapshaper::ms_simplify(map, keep = keep)   
+   }
+   map
 }
+
+map_simple <- memoise::memoise(map_simple_)
 
 
 
@@ -266,6 +270,7 @@ AddPreffix <- function(preffix = "") {
 }
 
 lev.lab <- AddSuffix(" hPa")
+LevLab <- AddSuffix(" hPa")
 qs.lab <- AddPreffix("QS ")
 
 
@@ -1692,6 +1697,7 @@ sep_ReIm <- function(dt, col, longer = TRUE) {
    if (isTRUE(longer)) {
       data[, deparse(substitute(col)) := NULL]
       data <- setDT(tidyr::pivot_longer(data, R:I, names_to = "part", values_to = deparse(substitute(col))))
+      data[, part := factor(part, levels = c("R", "I"), labels = c("Real", "Imaginary"))]
    }
    
    return(data[])
@@ -1761,10 +1767,16 @@ rm_intercept <- function(dt) {
    dt[term != "(Intercept)"]
 }
 
-is.sa <- function(data, lons = c(265, 325), lats = c(-65, -10)) {
+is.sa <- function(data, lons = c(265, 325), lats = c(-80, -10)) {
    data[, lon %between% lons & lat %between% lats]
 }
 
-filter_sa <- function(data, lons = c(265, 325), lats = c(-65, -10)) {
+filter_sa <- function(data, lons = c(265, 325), lats = c(-80, -10)) {
    data[is.sa(data, lons = lons, lats = lats)]
 }
+
+
+rm_singleton <- function(dt) {
+   dt[, vapply(dt, uniqueN, 1) != 1, with = FALSE]
+}
+

@@ -1,5 +1,4 @@
 ---
-title: "SON"
 author: "Elio Campitelli"
 output: 
    # pdf_document:
@@ -12,8 +11,14 @@ output:
 urlcolor: blue
 header_includes:
    - \usepackage[utf8]{inputenc}
+params:
+   season: "SON"
+   PC: 2
 ---
 
+---
+title: `r paste0(params$season, params$PC)`
+---
 
 ```{r setup, include=FALSE}
 
@@ -25,6 +30,7 @@ library(ggplot2)
 library(magrittr)
 library(patchwork)
 library(here)
+library(ggh4x)
 
 here <- here::here
 
@@ -33,7 +39,7 @@ source(here("scripts", "facet_nested.R"))
 source(here("scripts", "helperfun.R"))
 source(here("scripts", "data_locations.R"))
 knitr_set_timer()
-knitr_set_cache(cache.extra  = 50)
+knitr_set_cache(cache.extra  = list(params, 50))
 ```
 
 ```{r}
@@ -45,31 +51,40 @@ mean_season <- function(data) {
 
 ```
 
+```{r}
+dates  <- seq(as.Date("1979-01-01"), as.Date("2019-11-01"), by = "1 month")
+dates <- as.list(dates[season(dates) == params$season])
+```
+
 
 ```{r}
 datos <- ReadNetCDF(ERA5(), vars = c(hgt = "z", "u", "v", vort = "vo", air = "t"),
-                    subset = list(level = list(200, 500, 925, 50),
-                                  latitude = c(-90:10))) %>% 
+                    subset = list(lat = c(-90:10))) %>% 
    na.omit() %>% 
    normalise_coords() %>% 
-   # .[season(time) == "SON"] %>% 
-   .[, mean_season(.SD), by = lev]
+   .[, mean_season(.SD), by = lev] %>% 
+   .[season(time) == params$season]
 
 cmap <- ReadNetCDF(CMAP(), vars = c(pp = "precip"), 
                    subset = list(lat = -90:10)) %>% 
    normalise_coords() %>%
-   # .[season(time) == "SON"] %>% 
-   mean_season()
+   mean_season() %>% 
+   .[season(time) == params$season]
 
-olr <- ReadNetCDF(OLR(), vars = "olr", 
-                  subset = list(lat = -90:10)) %>% 
+olr <- ReadNetCDF(OLR(), vars = "olr") %>% 
    normalise_coords() %>%
-   # .[season(time) == "SON"] %>% 
-   mean_season()
+   mean_season() %>% 
+   .[season(time) == params$season]
+
+
+sst <- ReadNetCDF(ERA5("mon", "sl"), vars = "sst") %>% 
+   # na.omit() %>% 
+   normalise_coords() %>%
+   .[, mean_season(.SD)] %>% 
+   .[season(time) == params$season]
 ```
 
 ```{r}
-
 ks <- function(vorticity_gradient, u, lat) {
    vorticity_gradient/u*(metR:::a*cos(lat*pi/180))^2
 }
@@ -83,10 +98,16 @@ datos[, vort.dlat := Derivate(vort ~ lon + lat, cyclical = TRUE, sphere = TRUE)[
       by = .(time, lev)] %>% 
    .[, U := mean(u), by = .(lat, lon, lev, season(time))] %>% 
    .[, ks := sqrti(ks(vort.dlat + f.dy(lat), U, lat))] %>% 
-   .[, vt := Anomaly(v)*Anomaly(air)*abs(f(lat)), by = .(lat, lev, time)] 
+   .[, ":="(v_anom = Anomaly(v),
+            u_anom = Anomaly(u)),
+     by = .(lon, lat, lev, season(time))] %>%
+   .[, ":="(v_star = Anomaly(v), 
+            t_star = Anomaly(air)),
+     by = .(lat, lev, time)] %>% 
+   .[, ":="(vt_star = v_star*t_star,
+            vu = v_anom*u_anom)]
+datos <- datos
 ```
-
-
 
 
 ```{r}
@@ -112,7 +133,7 @@ unnest_eof <- function(dt, col, which) {
 ceofs <- datos %>% 
    .[lev %in% c(200, 50)] %>% 
    .[, season := season(time)] %>% 
-   .[, .(ceof = list(compute_ceof(.SD, temporal = FALSE))), by = .(season)]
+   .[, .(ceof = list(compute_ceof(.SD, temporal = FALSE, n = params$PC))), by = .(season)]
 ```
 
 
@@ -134,25 +155,30 @@ ceofs <- datos %>%
 regress_m <- memoise::memoise(function(ceof, data, variable) {
    regr_by <- c("lon", "lat", "PC", "season")
    pval_by <- c("term", "season", "PC")
-   formula <- season ~ PC + term
+   formula <- season + term ~ PC 
    if ("lev" %in% colnames(data)) {
       regr_by <- c("lev", regr_by)
       pval_by <- c("lev", pval_by)
-      formula <- season + lev ~ PC + term
+      formula <- season + lev + term ~ PC 
    }
    
-   regr <- ceof %>% 
+   data <- ceof %>% 
       unnest_eof(ceof, "left") %>% 
       setnames("hgt", "EOF") %>% 
       sep_ReIm(EOF, FALSE) %>% 
-      .[data, on = .NATURAL, allow.cartesian = TRUE] %>% 
+      data[., on = .NATURAL, allow.cartesian = TRUE]
+   
+   regr <- data %>% 
       .[, FitLm(get(variable), R, I, se = TRUE), by = c(regr_by)] %>% 
       rm_intercept() %>% 
+      .[, term := factor(term, levels = c("R", "I"), labels = c("Real", "Imaginary"))] %>% 
       .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = c(pval_by)] %>% 
       .[]
    
    class(regr) <- c("regression", class(regr))
-   attr(regr, "formula") <- formula
+   
+   setattr(regr, "formula", formula)
+   setattr(regr, "variable", variable)
    regr
 })
 
@@ -161,354 +187,168 @@ regress <- function(ceof, data, variable) {
    regress_m(ceof, data, variable)
 }
 
-plot.regression <- function(x, ..., keep = 0.015, skip = 0) {
+plot.regression <- function(x, ..., keep = 0.015, skip = 2, map.fill = NA) {
    lats <- range(x$lat)
    lons <- range(x$lon)
    
-   ggplot(x, aes(lon, lat)) +
+   ggplot(ggperiodic::periodic(x, lon = c(0, 360)), aes(lon, lat)) +
       geom_contour_fill(aes(z = estimate), ...) +
       # geom_raster(aes(fill = estimate)) +
-      stat_subset(aes(subset = p.val < 0.05 & if (is.na(skip)) TRUE else is.cross(lon, lat, skip = skip)), 
+      geom_contour2(aes(z = p.val), breaks = 0.05, size = 0.4) +
+      stat_subset(aes(subset = p.val < 0.05 & if (is.na(skip)) TRUE else is.cross(lon, lat, skip = skip)),
                   size = 0.1) +
-      geom_map2(keep = keep) +
-      scale_fill_divergent() +
-      scale_x_longitude(limits = lons) +
-      scale_y_latitude(limits = lats) +
-      coord_quickmap() + 
-      facet_nested(attr(x, "formula", TRUE))
+      geom_map2(keep = keep, fill = map.fill) +
+      scale_fill_divergent(attr(x, "variable")) +
+      scale_x_longitude() +
+      scale_y_latitude() +
+      coord_quickmap(xlim = lons, ylim = lats) + 
+      facet_nested(attr(x, "formula", TRUE), labeller = labeller(lev = LevLab))
 }
 ```
 
-## PC1
+```{r}
+this_PC <- paste0("PC", params$PC)
+```
+
+
 
 ```{r}
-this_PC <- "PC1"
+g1 <- regress(ceofs, olr, olr) %>%
+   .[lat <= 10] %>% 
+   plot()
+
+g2 <- regress(ceofs, sst, sst) %>%
+   .[lat <= 10] %>% 
+   plot(na.fill = TRUE, map.fill = "white") 
+
+cowplot::plot_grid(g1, g2)
 ```
 
 ```{r, fig.cap = "Regresión con v*T*"}
-regress(ceofs, datos, vt) %>% 
-   .[lev %in% c(50, 200, 500)] %>% 
-   .[season %in% c("DJF", "MAM")] %>%
-   .[PC == this_PC] %>% 
-   plot(bins = 20, skip = 0) +
-   facet_nested(season + term ~ PC + lev)
+lats <- c(-85, -45)
+g1 <- regress(ceofs, datos[lev %in% c(50, 100)], vt_star) %>% 
+   plot(bins = 20, skip = 2) +
+   geom_hline(yintercept = lats, slinetype = 3, size = 0.5) +
+   facet_nested(season + term ~ PC + lev, labeller = labeller(lev = LevLab))
+
+g2 <- regress(ceofs, datos[lev %in% c(50, 100)], hgt) %>% 
+   plot(bins = 20, skip = 2) +
+   geom_hline(yintercept = lats, slinetype = 3, size = 0.5) +
+   facet_nested(season + term ~ PC + lev, labeller = labeller(lev = LevLab))
+
+cowplot::plot_grid(g2, g1)
+```
+
+```{r, fig.cap = "Regresión con U. U climatológico en contornos negros."}
+u <- datos[, .(u = mean(u)), by = .(lat, lon, lev)]
+# 
+# regress(ceofs, datos[lev %in% c(50, 100, 200)], u) %>% 
+#    u[., on = .NATURAL] %>% 
+#    plot.regression(bins = 20, skip = 2) +
+#    geom_contour2(aes(z = u), bins = 5) +
+#    geom_text_contour(aes(z = u, label = round(..level..)), bins = 5, rotate = FALSE, stroke = 0.2, 
+#                      stroke.color = "white") 
+#    facet_nested(season + term ~ PC + lev, labeller = labeller(lev = LevLab))
 ```
 
 
-```{r, fig.cap = "Regresión con v*T*"}
-regress(ceofs, datos, vt) %>% 
-   .[lev %in% c(50, 200, 500)] %>% 
-   .[!(season %in% c("DJF", "MAM"))] %>% 
-   .[PC == this_PC] %>% 
-   plot(bins = 20) +
-   facet_nested(season + term ~ PC + lev)
+```{r fig.cap = "Regresión con V'U'. U climatológico en contornos."}
+# regress(ceofs, datos[lev %in% c(50, 100, 200)], vu) %>% 
+#    u[., on = .NATURAL] %>%
+#    plot.regression(bins = 20, skip = 2) +
+#    geom_contour2(aes(z = u), bins = 5) +
+#    
+#    
+#    geom_text_contour(aes(z = u, label = round(..level..)), bins = 5, rotate = FALSE, stroke = 0.2,
+#                      stroke.color = "white") +
+#    facet_nested(season + term ~ PC + lev, labeller = labeller(lev = LevLab))
 ```
+
+```{r}
+mean_u <- datos %>% 
+   .[, .(u = mean(u), lon = 0), by = .(lat, lev)] 
+skip <- 1
+datos %>% 
+   .[, .(u = mean(u), lon = 0), by = .(lat, lev, time)] %>% 
+   regress(ceofs, ., u) %>% 
+   ggplot(aes(lat, lev))  +
+   geom_contour_fill(aes(z = estimate)) +
+   geom_contour2(aes(z = p.val), breaks = 0.05, size = 0.4) +
+   stat_subset(aes(subset = p.val < 0.05 & if (is.na(skip)) TRUE else is.cross(lon, lev, skip = skip)),
+               size = 0.1) +
+   geom_contour2(aes(z = u), data = mean_u, color = "gray50", size = 0.6) +
+   scale_x_longitude() +
+   scale_y_level() +
+   scale_fill_divergent("u") +
+   facet_nested(season + term ~ PC)
+```
+
+
+
+```{r}
+flux_regr <- regress(ceofs, datos[lev %in% c(100)], v_star) %>% 
+   .[, v_star := estimate] %>% 
+   .[, t_star := regress(ceofs, datos[lev %in% c(100)], t_star)$estimate] %>% 
+   .[, vt_star := regress(ceofs, datos[lev %in% c(100)], vt_star)$estimate] %>% 
+   .[, vt_mean := t_star*v_star]
+```
+
+```{r}
+flux_regr %>% 
+   # rm_singleton() %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = vt_mean)) +
+   geom_contour2(aes(z = vt_star, linetype = factor(-sign(..level..)))) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   geom_map2(lat <= 2) +
+   scale_fill_divergent() +
+   coord_quickmap() +
+   facet_nested(. ~ lev + term, labeller = labeller(lev = LevLab))
+```
+
+
+```{r}
+means <- datos %>% 
+   .[lat %between% c(-75, -40) & lev == 100] %>% 
+   .[, .(v_star = mean(v_star),
+         t_star = mean(t_star), 
+         vt_star = mean(vt_star), 
+         lat = mean(lat)), by = .(lon, time, lev)]
+
+regress(ceofs, means, v_star) %>% 
+   .[, v_star := estimate] %>% 
+   .[, t_star := regress(ceofs, means, t_star)$estimate] %>% 
+   .[, vt_star := regress(ceofs, means, vt_star)$estimate] %>% 
+   .[, vt_mean := t_star*v_star] %>% 
+   .[, .(lon, term, vt_star, vt_mean)] %>%
+   # .[, dif := vt_star - vt_mean] %>%
+   melt(id.vars = c("lon", "term")) %>% 
+   ggplot(aes(lon, value)) +
+   geom_line(aes(color = variable)) +
+   facet_nested(term~.)
+```
+
 
 
 
 ```{r, fig.cap="Regresión con olr"}
 regress(ceofs, olr, olr) %>%
    na.omit() %>% 
-   .[PC == this_PC] %>% 
    plot(bins = 20)
 ```
 
 ```{r, fig.cap = "Regresión con temperatura del aire"}
 ceofs %>% 
-   regress(datos, air) %>% 
-   .[lev %in% max(lev)] %>% 
-   .[PC == this_PC] %>% 
+   regress(datos[lev == 925], air) %>% 
    plot(bins = 20)
 ```
 
 
 ```{r}
-
-datos[, hgt_a := Anomaly(hgt), by = .(lon, lat, lev, season(time))] 
-
-mean_ks <- datos[, .(ksm = mean(ks)), by = .(lat, lon, lev, season(time))] 
-
-ks_join <- ceofs %>% 
-   unnest_eof(ceof, "left") %>% 
-   setnames("hgt", "EOF") %>% 
-   sep_ReIm(EOF) %>% 
-   .[, EOF := Percentile(EOF), by = .(season, PC, part)] %>% 
-   .[, tercil := cut(EOF, c(0, 1/4, 3/4, 1), labels = c("low", "medium", "high"))] %>% 
-   .[datos, on = .NATURAL, allow.cartesian = TRUE] %>% 
-   .[, .(ks = mean(ks),
-         ks_se = sd(ks)/sqrt(.N),
-         hgt = mean(hgt_a),
-         n = .N), 
-     by = .(lat, lon, lev, season, PC, part, tercil)] %>% 
-   mean_ks[., on = .NATURAL]
-```
-```{r}
-k_limit <- if (this_PC == "PC2") 3 else 0
-```
-
-```{r, fig.cap = paste0("Ks medio para 1 tercil (low) y tercer tercil (high) de PC2. K menor a ", k_limit, " marcado en gris")}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>%
-   .[part == "I"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>% 
-   .[ks <= k_limit, ks := NA] %>%
-   .[, ks := floor(ks)] %>% 
-   .[, hgt := FilterWave(hgt, -1), by = .(lat, lev, PC, part, tercil, season)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_raster(aes(fill = ks)) +
-   geom_contour2(aes(z = hgt, linetype = factor(sign(..level..))), size = 0.3) +
-   geom_vline(xintercept = 210) +
-   geom_map2(lat <= 0) +
-   scale_x_longitude() +
-   scale_y_latitude() +
-   scale_fill_divergent(limits = pm(5), oob = scales::squish, midpoint = 3) +
-   coord_quickmap(ylim = c(-85, -10)) +
-   facet_nested(season ~ PC + part + tercil)
-```
-
-```{r, fig.cap = "Igual que en la figura anterior pero restando el Ks medio climatológico"}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>% 
-   .[part == "I"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>%
-      ggplot(aes(lon, lat)) +
-      geom_raster(aes(fill = ks - ksm)) +
-      geom_map2(lat <= 0) +
-      geom_vline(xintercept = 210) +
-      scale_x_longitude() +
-      scale_y_latitude() +
-      scale_fill_divergent(limits = pm(2), oob = scales::squish) +
-      coord_quickmap(ylim = c(-85, -10)) +
-      facet_nested(season ~ PC + part + tercil)
-```
-
-
-```{r, fig.cap = paste0("Ks medio para 1 tercil (low) y tercer tercil (high) de PC2. K menor a ", k_limit, " marcado en gris")}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>%
-   .[part == "R"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>% 
-   .[ks <= k_limit, ks := NA] %>%
-   .[, ks := floor(ks)] %>% 
-   .[, hgt := FilterWave(hgt, -1), by = .(lat, lev, PC, part, tercil, season)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_raster(aes(fill = ks)) +
-   geom_contour2(aes(z = hgt, linetype = factor(sign(..level..))), size = 0.3) +
-   geom_vline(xintercept = 210) +
-   geom_map2(lat <= 0) +
-   scale_x_longitude() +
-   scale_y_latitude() +
-   scale_fill_divergent(limits = pm(5), oob = scales::squish, midpoint = 3) +
-   coord_quickmap(ylim = c(-85, -10)) +
-   facet_nested(season ~ PC + part + tercil)
-```
-
-```{r, fig.cap = "Igual que en la figura anterior pero restando el Ks medio climatológico"}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>% 
-   .[part == "R"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>%
-      ggplot(aes(lon, lat)) +
-      geom_raster(aes(fill = ks - ksm)) +
-      geom_map2(lat <= 0) +
-      geom_vline(xintercept = 210) +
-      scale_x_longitude() +
-      scale_y_latitude() +
-      scale_fill_divergent(limits = pm(2), oob = scales::squish) +
-      coord_quickmap(ylim = c(-85, -10)) +
-      facet_nested(season ~ PC + part + tercil)
-```
-
-
-```{r, fig.cap = "Igual que en figura anterior pero corte en 120°W"}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>% 
-   .[lon %~% 210] %>% 
-   .[lat <= -30] %>% 
-   ggplot(aes(lat, ks)) +
-   geom_hline(yintercept = 0) +
-   geom_line(aes(y = ksm)) +
-   geom_ribbon(aes(ymin = ks - ks_se, ymax = ks + ks_se, fill = tercil), alpha = 0.2) +
-   geom_line(aes(color = tercil)) +
-   scale_y_continuous(breaks = pm(0:6)) +
-   facet_nested(season ~ PC + part) +
-   coord_flip()
-```
-
-
-## PC2
-
-```{r}
-this_PC <- "PC2"
-```
-
-```{r, fig.cap = "Regresión con v*T*"}
-regress(ceofs, datos, vt) %>% 
-   .[lev %in% c(50, 200, 500)] %>% 
-   .[season %in% c("DJF", "MAM")] %>%
-   .[PC == this_PC] %>% 
-   plot(bins = 20) +
-   facet_nested(season + term ~ PC + lev)
-```
-
-
-```{r, fig.cap = "Regresión con v*T*"}
-regress(ceofs, datos, vt) %>% 
-   .[lev %in% c(50, 200, 500)] %>% 
-   .[!(season %in% c("DJF", "MAM"))] %>% 
-   .[PC == this_PC] %>% 
-   plot(bins = 20) +
-   facet_nested(season + term ~ PC + lev)
-```
-
-
-
-```{r, fig.cap="Regresión con olr"}
-regress(ceofs, olr, olr) %>%
-   na.omit() %>% 
-   .[PC == this_PC] %>% 
-   plot(bins = 20)
-```
-
-```{r, fig.cap = "Regresión con temperatura del aire"}
-ceofs %>% 
-   regress(datos, air) %>% 
-   .[lev %in% max(lev)] %>% 
-   .[PC == this_PC] %>% 
-   plot(bins = 20)
-```
-
-
-```{r}
-
-datos[, hgt_a := Anomaly(hgt), by = .(lon, lat, lev, season(time))] 
-
-mean_ks <- datos[, .(ksm = mean(ks)), by = .(lat, lon, lev, season(time))] 
-
-ks_join <- ceofs %>% 
-   unnest_eof(ceof, "left") %>% 
-   setnames("hgt", "EOF") %>% 
-   sep_ReIm(EOF) %>% 
-   .[, EOF := Percentile(EOF), by = .(season, PC, part)] %>% 
-   .[, tercil := cut(EOF, c(0, 1/4, 3/4, 1), labels = c("low", "medium", "high"))] %>% 
-   .[datos, on = .NATURAL, allow.cartesian = TRUE] %>% 
-   .[, .(ks = mean(ks),
-         ks_se = sd(ks)/sqrt(.N),
-         hgt = mean(hgt_a),
-         n = .N), 
-     by = .(lat, lon, lev, season, PC, part, tercil)] %>% 
-   mean_ks[., on = .NATURAL]
-```
-
-```{r}
-k_limit <- if (this_PC == "PC2") 3 else 0
-```
-
-```{r, fig.cap = paste0("Ks medio para 1 tercil (low) y tercer tercil (high) de PC2. K menor a ", k_limit, " marcado en gris")}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>%
-   .[part == "I"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>% 
-   .[ks <= k_limit, ks := NA] %>%
-   .[, ks := floor(ks)] %>% 
-   .[, hgt := FilterWave(hgt, -1), by = .(lat, lev, PC, part, tercil, season)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_raster(aes(fill = ks)) +
-   geom_contour2(aes(z = hgt, linetype = factor(sign(..level..))), size = 0.3) +
-   geom_vline(xintercept = 210) +
-   geom_map2(lat <= 0) +
-   scale_x_longitude() +
-   scale_y_latitude() +
-   scale_fill_divergent(limits = pm(5), oob = scales::squish, midpoint = 3) +
-   coord_quickmap(ylim = c(-85, -10)) +
-   facet_nested(season ~ PC + part + tercil)
-```
-
-```{r, fig.cap = "Igual que en la figura anterior pero restando el Ks medio climatológico"}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>% 
-   .[part == "I"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>%
-      ggplot(aes(lon, lat)) +
-      geom_raster(aes(fill = ks - ksm)) +
-      geom_map2(lat <= 0) +
-      geom_vline(xintercept = 210) +
-      scale_x_longitude() +
-      scale_y_latitude() +
-      scale_fill_divergent(limits = pm(2), oob = scales::squish) +
-      coord_quickmap(ylim = c(-85, -10)) +
-      facet_nested(season ~ PC + part + tercil)
-```
-
-
-```{r, fig.cap = paste0("Ks medio para 1 tercil (low) y tercer tercil (high) de PC2. K menor a ", k_limit, " marcado en gris")}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>%
-   .[part == "R"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>% 
-   .[ks <= k_limit, ks := NA] %>%
-   .[, ks := floor(ks)] %>% 
-   .[, hgt := FilterWave(hgt, -1), by = .(lat, lev, PC, part, tercil, season)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_raster(aes(fill = ks)) +
-   geom_contour2(aes(z = hgt, linetype = factor(sign(..level..))), size = 0.3) +
-   geom_vline(xintercept = 210) +
-   geom_map2(lat <= 0) +
-   scale_x_longitude() +
-   scale_y_latitude() +
-   scale_fill_divergent(limits = pm(5), oob = scales::squish, midpoint = 3) +
-   coord_quickmap(ylim = c(-85, -10)) +
-   facet_nested(season ~ PC + part + tercil)
-```
-
-```{r, fig.cap = "Igual que en la figura anterior pero restando el Ks medio climatológico"}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>% 
-   .[part == "R"] %>% 
-   .[lat <= -10] %>% 
-   # .[tercil != "medium"] %>%
-      ggplot(aes(lon, lat)) +
-      geom_raster(aes(fill = ks - ksm)) +
-      geom_map2(lat <= 0) +
-      geom_vline(xintercept = 210) +
-      scale_x_longitude() +
-      scale_y_latitude() +
-      scale_fill_divergent(limits = pm(2), oob = scales::squish) +
-      coord_quickmap(ylim = c(-85, -10)) +
-      facet_nested(season ~ PC + part + tercil)
-```
-
-
-```{r, fig.cap = "Igual que en figura anterior pero corte en 120°W"}
-ks_join %>% 
-   .[lev == 200] %>% 
-   .[PC == this_PC] %>% 
-   .[lon %~% 210] %>% 
-   .[lat <= -30] %>% 
-   ggplot(aes(lat, ks)) +
-   geom_hline(yintercept = 0) +
-   geom_line(aes(y = ksm)) +
-   geom_ribbon(aes(ymin = ks - ks_se, ymax = ks + ks_se, fill = tercil), alpha = 0.2) +
-   geom_line(aes(color = tercil)) +
-   scale_y_continuous(breaks = pm(0:6)) +
-   facet_nested(season ~ PC + part) +
-   coord_flip()
+regress(ceofs, sst, sst) %>% 
+   plot(na.fill = TRUE, map.fill = "white") +
+   scale_y_latitude(limits = c(-80, 20))
 ```
 
 
@@ -528,23 +368,32 @@ lons <- ConvertLongitude(c(-63.75, -51.25))
 
 
 regress(ceofs, filter_sa(cmap), pp) %>%
-   .[PC == "PC2"] %>%
    plot(keep = 1, skip = NA) +
    facet_nested(PC + term ~ season) +
    annotate("rect", xmin = min(lons), xmax = max(lons), ymin = min(lats), ymax = max(lats),
             fill = NA, color = "black") +
-   scale_fill_distiller(palette = "BrBG", direction = 1, limits = pm(10))
+   scale_fill_distiller("pp", palette = "BrBG", direction = 1, limits = pm(10), oob = scales::squish) 
 ```
 
-```{r,  fig.cap = "Regresión con precipitación en sudamérica"}
-regress(ceofs, filter_sa(cmap), pp) %>%
-   .[PC == "PC1"] %>%
-   plot(keep = 1, skip = NA) +
-   facet_nested(PC + term ~ season) +
+
+```{r}
+gdata <- regress(ceofs, filter_sa(cmap), pp) %>% 
+   .[term == "Real"] 
+gdata %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = r.squared)) +
+   stat_subset(aes(subset = p.val < 0.05 & if (is.na(skip)) TRUE else is.cross(lon, lat, skip = skip)),
+               size = 0.1) +
    annotate("rect", xmin = min(lons), xmax = max(lons), ymin = min(lats), ymax = max(lats),
             fill = NA, color = "black") +
-   scale_fill_distiller(palette = "BrBG", direction = 1, limits = pm(25))
+   geom_map2(keep = 1) +
+   scale_fill_distiller(palette = "Oranges", limits = c(0, 1), direction = 1) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap(xlim = range(gdata$lon), ylim = range(gdata$lat)) + 
+   facet_nested(PC ~ season) 
 ```
+
 
 
 
@@ -559,23 +408,73 @@ cmap[lat %between% lats & lon %between% lons] %>%
    facet_nested(season ~ PC + part, scales = "free")
 ```
 
+
+
+
 ```{r, fig.cap = "Series temporales de precipitación en LPB observadas (rojo) y modeladas con modelo lineal (azul). El modelo se ajustó con datos anteriores a 2000. Se muestra la correlación entre las series para los datos posteriores a 2000."}
+M <- cmap[lat %between% lats & lon %between% lons] %>% 
+   .[,  mean(pp)] 
 cmap[lat %between% lats & lon %between% lons] %>% 
    .[, .(pp = mean(pp)), by = .(time)] %>% 
-   # .[, pp := scale(pp), by = .(season(time))] %>%
+   # .[, pp := Anomaly(pp), by = .(season(time))] %>% 
    .[unnest_eof(ceofs, ceof, "left"), on = .NATURAL, allow.cartesian = TRUE] %>% 
    sep_ReIm(hgt, longer = FALSE) %>% 
    .[, model := predict(lm(pp ~ R + I, data = .SD[year(time) < 2000]), newdata = .SD), by = .(season, PC)] %>%
    melt(id.vars = c("time", "season", "PC"), measure.vars = c("pp", "model")) %>% 
    ggplot(aes(time, value)) +
-   geom_label(data = function(x) x[year(time) >= 2000] %>% 
-                 .[, widyr::pairwise_cor(.SD, variable, time, value, upper = FALSE), by = .(season, PC)],
-              aes(label = scales::number(correlation, accuracy = 0.01)), 
-              x =  lubridate::make_datetime(year = 2010),
-              y = 5) +
    geom_vline(xintercept = lubridate::make_datetime(year = 2000), color = "gray") +
    geom_line(aes(color = variable)) +
+   geom_label(data = function(x) x[year(time) >= 2000] %>% 
+                 .[, widyr::pairwise_cor(.SD, variable, time, value, upper = FALSE), by = .(season, PC)],
+              aes(label = scales::number(correlation, accuracy = 0.01), y = M), 
+              x =  lubridate::make_datetime(year = 2010)) +
    scale_color_brewer("", palette = "Set1", label = c("Obs", "Modelo")) +
    facet_grid(season ~ PC)
 ```
 
+
+```{r}
+cmap[lat %between% lats & lon %between% lons] %>% 
+   .[, .(pp = mean(pp)), by = .(time)] %>% 
+   .[, pp_next := shift2(pp, 1)] %>% 
+   .[unnest_eof(ceofs, ceof, "left"), on = .NATURAL, allow.cartesian = TRUE]  %>% 
+   sep_ReIm(hgt) %>% 
+   ggplot(aes(pp_next, hgt)) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   facet_nested(season ~ PC + part, scales = "free")
+```
+
+```{r}
+filter_sa(cmap) %>% 
+   .[, pp_next := shift2(pp, 1), by = .(lon, lat)] %>% 
+   regress(ceofs, ., pp_next) %>%
+   plot(keep = 1, skip = NA) +
+   facet_nested(PC + term ~ season) +
+   annotate("rect", xmin = min(lons), xmax = max(lons), ymin = min(lats), ymax = max(lats),
+            fill = NA, color = "black") +
+   scale_fill_distiller(palette = "BrBG", direction = 1, limits = pm(10), oob = scales::squish)
+```
+
+```{r}
+cmap[lat %between% lats & lon %between% lons] %>% 
+   .[, .(pp = mean(pp)), by = .(time)] %>% 
+   .[, pp := shift2(pp, 1)] %>% 
+   na.omit() %>% 
+   # .[, pp := Anomaly(pp), by = .(season(time))] %>% 
+   .[unnest_eof(ceofs, ceof, "left"), on = .NATURAL, allow.cartesian = TRUE] %>% 
+   sep_ReIm(hgt, longer = FALSE) %>% 
+   .[, model := predict(lm(pp ~ R + I, data = .SD[year(time) < 2000]), newdata = .SD), 
+     by = .(season, PC)] %>%
+   melt(id.vars = c("time", "season", "PC"), measure.vars = c("pp", "model")) %>% 
+   na.omit() %>% 
+   ggplot(aes(time, value)) +
+   geom_vline(xintercept = lubridate::make_datetime(year = 2000), color = "gray") +
+   geom_line(aes(color = variable)) +
+   geom_label(data = function(x) x[year(time) >= 2000] %>% 
+                 .[, widyr::pairwise_cor(.SD, variable, time, value, upper = FALSE), by = .(season, PC)],
+              aes(label = scales::number(correlation, accuracy = 0.01), y = M), 
+              x =  lubridate::make_datetime(year = 2010)) +
+   scale_color_brewer("", palette = "Set1", label = c("Obs", "Modelo")) +
+   facet_grid(season ~ PC)
+```
