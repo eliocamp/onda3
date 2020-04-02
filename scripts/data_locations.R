@@ -1,13 +1,26 @@
+print.nc_file <- function(x, ...) {
+   print(metR::GlanceNetCDF(x))
+}
+
+SST <- function() {
+   file <- here::here("DATA", "reanalysis", "ERSST_V5", "sst.ersst.mnmean.nc")
+   checkmate::assert_access(file, access = "r")
+   class(file) <- c("nc_file", class(file))
+   return(file)
+}
+
 ERAI <- function() {
    file <- here::here("DATA", "reanalysis", "ERA-Interim", "erai.mon.mean.nc")
    checkmate::assert_access(file, access = "r")
-   file
+   class(file) <- c("nc_file", class(file))
+   return(file)
 }
 
 ERA20 <- function() {
-   file <- here::here("DATA", "ERA-20C", "era20c.mon.mean.nc")
+   file <- here::here("DATA", "reanalysis", "ERA20C", "era20c.mon.mean.nc")
    checkmate::assert_access(file, access = "r")
-   file
+   class(file) <- c("nc_file", class(file))
+   return(file)
 }
 
 ERA5 <- function(temporal = c("mon", "day"), vertical = c("pl", "sl"), var) {
@@ -26,7 +39,9 @@ ERA5 <- function(temporal = c("mon", "day"), vertical = c("pl", "sl"), var) {
    }
    
    checkmate::assert_access(file, access = "r")
-   file
+   
+   class(file) <- c("nc_file", class(file))
+   return(file)
 }
 
 
@@ -43,17 +58,21 @@ NCEP <- function(temporal = "mon", vertical = c("pl", "flux", "sfc", "sigma")) {
    }
    
    checkmate::assert_access(file, access = "r")
-   file
+   
+   class(file) <- c("nc_file", class(file))
+   return(file)
 }
 
 OLR <- function() {
    file <- here::here("DATA", "reanalysis", "NOAA", "olr.mon.mean.nc")
    checkmate::assert_access(file, access = "r")
-   file
+   class(file) <- c("nc_file", class(file))
+   return(file)
 }
 
 CMAP <- function() {
    file <- here::here("DATA", "reanalysis", "CMAP", "precip.mon.mean.nc")
    checkmate::assert_access(file, access = "r")
-   file
+   class(file) <- c("nc_file", class(file))
+   return(file)
 }

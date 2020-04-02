@@ -1,0 +1,502 @@
+---
+title: "Wang et. al. 2008"
+author: "Elio Campitelli"
+output: 
+   # pdf_document:
+   #    latex_engine: xelatex
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 7.6
+        fig_width: 12.8
+        reference_doc: template.pptx
+        slide_level: 2
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include=FALSE}
+# Notification
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+library(ggh4x)
+library(glue)
+here <- here::here
+
+source(here("scripts", "helperfun.R"))
+source(here("scripts", "data_locations.R"))
+
+hemisphere <- function(lat) {
+   factor(ifelse(lat < 0, "sh", "nh"), levels = c("nh", "sh"),
+          labels = c("Hemisferio norte", 
+                     "Hemisferio sur"), 
+          ordered = TRUE)
+}
+
+
+knitr_set_timer()
+knitr_set_cache(cache.extra = 42)
+```
+
+# The northern annular mode: More zonal symmetric than the southern annular mode
+
+---
+
+Esto es un análisis del paper The northern annular mode: More zonal symmetric than the southern annular mode de Wang et.al. 2008 (https://link.springer.com/article/10.1007/s11434-008-0114-y) que también hace referencia a Zonal asymmetry of the Antarctic Oscillation de Fan 2007 (https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2006GL028045)
+
+
+### Resumen
+
+La idea de ambos papers es medir el grado de asimetría zonal de los modos anulares (SAM y NAM). El método es es: 
+
+1. Define la diferencia de presión del mar de JJAS entre 40S y 60S ("diferencias Marshall") para el hemisferio sur de JFM entre 40N y 65N para el hemisferio norte para cada longitud.
+
+2. Define como Modo Anular en el Gajo Oeste (MAGO) al promedio de diferencias Marshall entre 0 y 180°O y el análogo Modo Anular en el Gajo Este (MAGE) (entre 0 y 180°E).
+
+3. Computa la correlación entre el MAGO y las diferencias Marshall de cada longitud.
+
+
+(Los nombres que les da en el paper son distintos. A los hemisferios este y oeste los llamo "gajos" porque sino se confunde con los hemisferios norte y sur)
+
+---
+
+
+```{r, fig.cap = "Correlación entre modo anular en el gajo occidental y las diferencias Marshall en cada longitud (digitalizadas de Fan 2007 y Wang 2008.", out.width=3}
+sh_fan <- structure(list(lon = c(-180.479360852197, -172.809587217044, -168.49533954727, 
+                                 -163.222370173102, -156.031957390146, -146.444740346205, -137.816245006658, 
+                                 -126.311584553928, -115.765645805593, -108.095872170439, -99.4673768308921, 
+                                 -94.1944074567243, -88.9214380825566, -84.1278295605859, -77.4167776298269, 
+                                 -73.5818908122503, -70.7057256990679, -67.3501997336884, -63.9946737683089, 
+                                 -61.5978695073235, -58.2423435419441, -53.9280958721704, -50.5725699067909, 
+                                 -40.0266311584554, -34.7536617842876, -31.3981358189081, -29.0013315579227, 
+                                 -25.6458055925432, -23.2490013315579, -17.9760319573901, -13.6617842876165, 
+                                 -9.82689747003991, -5.51264980026627, -1.6777629826897, 3.11584553928103, 
+                                 5.99201065246342, 9.82689747004002, 14.6205059920107, 20.3728362183756, 
+                                 25.1664447403462, 30.9187749667111, 34.2743009320906, 37.62982689747, 
+                                 43.3821571238349, 47.6964047936086, 53.4487350199734, 58.7217043941412, 
+                                 61.5978695073236, 71.185086551265, 73.1025299600533, 76.4580559254328, 
+                                 78.8548601864181, 79.8135818908122, 91.318242343542, 99.9467376830893, 
+                                 110.972037283622, 114.806924101199, 121.997336884154, 125.832223701731, 
+                                 128.708388814913, 133.501997336884, 137.336884154461, 139.733688415446, 
+                                 145.486018641811, 153.155792276964, 160.34620505992, 166.577896138482, 
+                                 169.933422103862, 180.479360852197), 
+                         cor = c(0.574253731343284, 
+                                 0.658208955223881, 0.708582089552239, 0.765671641791045, 0.829477611940299, 
+                                 0.869776119402985, 0.896641791044776, 0.886567164179105, 0.883208955223881, 
+                                 0.849626865671642, 0.809328358208956, 0.762313432835821, 0.722014925373134, 
+                                 0.688432835820896, 0.661567164179105, 0.621268656716418, 0.580970149253732, 
+                                 0.500373134328358, 0.446641791044777, 0.40634328358209, 0.372761194029851, 
+                                 0.335820895522388, 0.298880597014926, 0.292164179104478, 0.258582089552239, 
+                                 0.225, 0.201492537313433, 0.214925373134329, 0.184701492537314, 
+                                 0.151119402985075, 0.104104477611941, 0.0839552238805973, 0.157835820895523, 
+                                 0.201492537313433, 0.258582089552239, 0.295522388059702, 0.332462686567164, 
+                                 0.312313432835821, 0.268656716417911, 0.292164179104478, 0.28544776119403, 
+                                 0.322388059701493, 0.372761194029851, 0.402985074626866, 0.402985074626866, 
+                                 0.372761194029851, 0.335820895522388, 0.332462686567164, 0.322388059701493, 
+                                 0.282089552238806, 0.24179104477612, 0.201492537313433, 0.16455223880597, 
+                                 0.144402985074627, 0.0537313432835824, -0.00335820895522354, 
+                                 2.77555756156289e-16, -0.0167910447761191, -0.0436567164179101, 
+                                 -0.0805970149253729, -0.10410447761194, -0.0906716417910445, 
+                                 -0.0638059701492534, -0.0402985074626863, 0.0772388059701496, 
+                                 0.218283582089553, 0.352611940298508, 0.433208955223881, 0.560820895522388
+                         )), class = c("data.table", "data.frame"), row.names = c(NA, -69L))
+
+nh_fan <- structure(list(lon = c(-179.515477792732, -175.639300134589, -169.825033647375, 
+                                 -160.619111709287, -151.413189771198, -145.598923283984, -138.815612382234, 
+                                 -129.609690444145, -125.248990578735, -119.434724091521, -115.558546433378, 
+                                 -110.7133243607, -104.414535666218, -100.053835800807, -94.7240915208613, 
+                                 -90.3633916554508, -86.4872139973081, -81.157469717362, -73.8896366083445, 
+                                 -69.528936742934, -65.1682368775235, -55.4777927321668, -48.6944818304171, 
+                                 -45.7873485868102, -40.9421265141318, -35.1278600269178, -28.829071332436, 
+                                 -22.5302826379542, -17.200538358008, -13.8088829071332, -10.9017496635262, 
+                                 -8.96366083445486, -7.51009421265132, -5.08748317631219, -3.14939434724084, 
+                                 -1.2113055181695, 0.242261103634007, 2.6648721399732, 5.57200538358018, 
+                                 10.4172274562585, 13.3243606998655, 15.2624495289369, 17.685060565276, 
+                                 20.1076716016152, 23.0148048452221, 24.9528936742935, 30.7671601615075, 
+                                 33.6742934051145, 39.0040376850606, 42.8802153432033, 46.2718707940782, 
+                                 50.1480484522208, 57.9004037685062, 68.5598923283985, 72.4360699865412, 
+                                 74.3741588156124, 80.1884253028264, 85.5181695827727, 89.3943472409153, 
+                                 94.7240915208615, 98.6002691790041, 104.414535666218, 109.259757738896, 
+                                 114.104979811575, 119.919246298789, 123.795423956931, 129.609690444145, 
+                                 134.454912516824, 139.300134589502, 144.14535666218, 149.475100942127, 
+                                 153.351278600269, 160.619111709287, 163.526244952894, 169.340511440108, 
+                                 174.185733512786, 178.546433378197), 
+                         cor = c(0.332544378698225, 
+                                 0.320118343195266, 0.336686390532544, 0.398816568047337, 0.489940828402367, 
+                                 0.547928994082841, 0.614201183431953, 0.618343195266272, 0.655621301775148, 
+                                 0.655621301775148, 0.668047337278107, 0.701183431952663, 0.680473372781065, 
+                                 0.63905325443787, 0.539644970414202, 0.568639053254438, 0.655621301775148, 
+                                 0.738461538461539, 0.821301775147929, 0.837869822485207, 0.854437869822485, 
+                                 0.846153846153846, 0.846153846153846, 0.829585798816568, 0.796449704142012, 
+                                 0.755029585798817, 0.746745562130178, 0.763313609467456, 0.750887573964497, 
+                                 0.738461538461539, 0.717751479289941, 0.688757396449704, 0.663905325443787, 
+                                 0.647337278106509, 0.614201183431953, 0.572781065088757, 0.55207100591716, 
+                                 0.518934911242604, 0.489940828402367, 0.489940828402367, 0.506508875739645, 
+                                 0.531360946745562, 0.55207100591716, 0.581065088757396, 0.601775147928994, 
+                                 0.618343195266272, 0.630769230769231, 0.63905325443787, 0.622485207100592, 
+                                 0.572781065088757, 0.506508875739645, 0.452662721893491, 0.419526627218935, 
+                                 0.349112426035503, 0.28698224852071, 0.241420118343195, 0.158579881656805, 
+                                 0.171005917159763, 0.2, 0.187573964497041, 0.220710059171598, 
+                                 0.315976331360946, 0.423668639053254, 0.502366863905326, 0.564497041420119, 
+                                 0.585207100591716, 0.601775147928994, 0.531360946745562, 0.469230769230769, 
+                                 0.448520710059172, 0.402958579881657, 0.365680473372781, 0.332544378698225, 
+                                 0.307692307692307, 0.324260355029586, 0.315976331360946, 0.324260355029586
+                         )), class = "data.frame", row.names = c(NA, -77L))
+
+
+fan <- rbindlist(list("-1" = sh_fan, "1" = nh_fan), idcol = "hemisphere") %>% 
+   .[, approx(lon, cor, xout = seq(-180, 180 - 2.5, by = 2.5)), by = hemisphere] %>% 
+   .[, x := ConvertLongitude(x)] %>% 
+   .[, approx(x, y, xout = seq(0, 360 - 2.5, by = 2.5)), by = hemisphere] %>% 
+   set_colnames(c("hemisphere", "lon", "cor")) %>% 
+   .[, hemisphere := hemisphere(as.numeric(hemisphere))]
+
+ggplot(fan, aes(lon, cor)) +
+   geom_line() +
+   scale_x_longitude() +
+   scale_y_continuous(NULL, limits = c(-0.2, 1)) +
+   facet_grid(~hemisphere)
+```
+
+* La correlación entre el gajo este y el oeste es menor en el hemisferio sur que en el hemisferio norte. 
+
+* Interpretan las bajas correlaciones como evidencia de asimetrías zonales y, más aún, que éstas son mayores en el hemisferio sur que en el hemisferio norte. 
+
+# Replicando!
+
+--- 
+
+```{r, fig.cap = "Igual a la figura anterior. En azul los datos del paper. Los datos de ERA5 son para el período 1979-1998."}
+slp <- rbind(ReadNetCDF(NCEP(vertical = "sfc"), 
+                        subset = list(time = c("1959-01-01", "1998-12-01")),
+                        vars = c(slp = "slp")) %>% 
+                .[, dataset := "NCEP"],
+             ReadNetCDF(ERA5(vertical = "sl"), 
+                        subset = list(time = c("1959-01-01", "1998-12-01")),
+                        vars = c(slp = "msl")) %>% 
+                .[, dataset := "ERA5"])
+
+sh <- slp %>% 
+   .[month(time) %in% c(6:9)] %>% 
+   .[, .(slp = mean(slp)), by = .(lon, lat, time = year(time), dataset)] %>% 
+   .[, slp := Anomaly(slp), by = .(lon, lat, dataset)] %>% 
+   .[, .(sh = slp[lat %~% -40] - slp[lat %~% -60]), by = .(lon, time, dataset)]
+
+nh <- slp %>% 
+   .[month(time) %in% c(1:3)] %>% 
+   .[, .(slp = mean(slp)), by = .(lon, lat, time = year(time), dataset)] %>% 
+   .[, .(nh = slp[lat %~% 40] - slp[lat %~% 65]), by = .(lon, time, dataset)]
+
+nh[sh, on = .NATURAL] %>% 
+   melt(id.vars = c("lon", "time", "dataset"), variable.name = "hemisphere") %>% 
+   .[, mean_value := mean(value[lon %between% c(180, 360)]), by = .(hemisphere, time, dataset)] %>%  
+   .[, .(cor = cor(value, mean_value)), by = .(lon, hemisphere, dataset)] %>% 
+   rm_singleton() %>% 
+   .[, hemisphere := hemisphere((hemisphere == "nh") - 0.5)] %>% 
+   rbind(fan[, dataset := "FAN07"]) %>% 
+   ggplot(aes(lon, cor)) +
+   geom_hline(yintercept = 0.3) +
+   geom_line(aes(color = dataset)) +
+   # geom_line(data = sh_fan) +
+   scale_color_brewer("Hemisferio", palette = "Set1") +
+   scale_y_continuous("", limits = c(-0.2, 1), breaks = MakeBreaks(0.1)) +
+   scale_x_longitude() +
+   facet_grid(~hemisphere)
+```
+
+* Aunque similares en líneas generales, los resulados no son idénticos. Las diferncias entre los resutlados digitalizados de Fan07 y NCEP son comparables a las diferencias entre NCEP y ERA5 a pesar de que Fan07 dice haber usado NCEP. Quizás hubi alguna actualización de los datos en el medio. En cualquier caso, se ve que hay mucha sensibilidad a los datos. 
+
+* Wang 2008 dice que las diferencias marshall medias del gajo occidental y el oriental están más correlacionadas en el hemisferio norte que en hemisferio sur. Esto se puede inferir también de los gráficos. El hemisferio sur tiene correlaciones mucho más bajas (incluso negativas) en las longitudes del hemisferio oriental en el hemisferio sur que en el norte. 
+
+
+```{r, fig.cap = "Correlación entre MAGO y MAGE para cada hemisferio."}
+cor_marshall <- function(data = slp, 
+                         variable = "slp",
+                         months = list(sh = 6:9,
+                                       nh = 1:3),
+                         lats = list(sh = c(-40, -60),
+                                     nh = c(40, 65)),
+                         lons = c(180, 360)) {
+   
+   data <- copy(data)
+   setnames(data, variable, "variable")
+   
+   sh <- data %>% 
+      .[month(time) %in% months$sh] %>% 
+      .[, .(variable = mean(variable)), by = .(lon, lat, time = year(time), dataset)] %>% 
+      .[, variable := Anomaly(variable), by = .(lon, lat, dataset)] %>% 
+      .[, .(sh = variable[lat %~% lats$sh[1]] - variable[lat %~% lats$sh[2]]), by = .(lon, time, dataset)]
+   
+   nh <- data %>% 
+      .[month(time) %in% months$nh] %>% 
+      .[, .(variable = mean(variable)), by = .(lon, lat, time = year(time), dataset)] %>% 
+      .[, .(nh = variable[lat %~%  lats$nh[1]] - variable[lat %~% lats$nh[2]]), by = .(lon, time, dataset)]
+   
+   nh[sh, on = .NATURAL] %>% 
+      melt(id.vars = c("lon", "time", "dataset"), variable.name = "hemisphere") %>% 
+      .[, .(mean_value = mean(value)), by = .(hemisphere, time, dataset, lon = lon %between% lons)] %>% 
+      tidyr::pivot_wider(names_from = lon, values_from = mean_value) %>% 
+      setDT() %>% 
+      .[, .(cor = cor(`TRUE`, `FALSE`)), by = .(hemisphere, dataset) ]
+   
+}
+plot_cor_marshall <- function(cor) {
+   cor %>% 
+      copy() %>% 
+      .[, hemisphere := ifelse(hemisphere == "nh", 1, -1)] %>% 
+      .[, hemisphere := hemisphere(hemisphere)] %>% 
+      ggplot(aes(hemisphere, cor)) +
+      geom_blank() +
+      geom_line(aes(color = dataset, group = dataset)) +
+      scale_x_discrete(NULL) +
+      scale_y_continuous(NULL) +
+      scale_color_brewer(palette = "Set1")
+}
+
+plot_cor_marshall(cor_marshall())
+```
+
+
+* Efectivamente, la correlación entre el modo anular de cada gajo es menor en el hemisferio sur que en el hemisferio norte. 
+
+* Pero esto tiene varios problemas que huelen a p-hacking.  
+
+   - Las diferencias Marshall se toman en latitudes distintas para cada hemisferio (40S - 60S vs. 40N - 65N)
+   - Los valores anuales se toman en distinta cantidad de meses en cada hemisferio (JJAS en el hemisferio sur pero JFM en el norte). 
+   - Definir los gajos orientales y occidentales a partir de la línea de fecha es arbitrario.
+   
+   
+* ¿Qué pasa si, por ejemplo, se usa 40S y 65S en el hemisferio sur pero 40N y 60N en el hemisferio norte?
+
+
+```{r, fig.cap = "Igual que la figura anterior pero definiendo las diferencias Marshall entre 40S y 65S y entre 40N y 60N"}
+plot_cor_marshall(cor_marshall(months = list(sh = 7:9,
+                                             nh = 1:3), 
+                               lats = list(sh = c(-40, -65),
+                                           nh = c(40, 60))))
+```
+
+* El resultado cambia totalmente tanto en valor absoluto como en las diferencias entre los hemisferios y datasets.
+
+* ¿Qué pasa si, ahora volvemos a usar las latitudes como antes pero cambiamos tomamos `r LonLabel(c(180, 360) - 60, west = "°O")` como los límites para definir hemisferioslos gajos?
+
+
+```{r, fig.cap = "Igual que en la figura original pero dividiendo en gajo occidental y oriental usando 120°O como el límite"}
+plot_cor_marshall(cor_marshall(months = list(sh = 7:9,
+                                             nh = 1:3), 
+                               lats = list(sh = c(-40, -60),
+                                           nh = c(40, 65)),
+                               lons = c(180, 360) - 60))
+```
+
+
+* Aún usando las mismas latitudes en las diferencias Marshall pero cambiando la longitud que divide los gajos, tampoco replica. 
+
+### Conclusiones:
+
+* El método de FAN07 y Wang08 no es robusto.
+
+* Depende fuertemente de la base de datos utilizada y de las elecciones específicas de latitudes y longitudes a comparar. 
+
+---
+
+# Mejorando el método
+
+---
+
+A pesar de lo anterior, el análisis de fan y wang es interesante. ¿Cómo podría tener un método similar pero que no dependa de tantas elecciones? 
+
+Mi propuesta es, para cada hemisferio y para todos los meses del año usando el período 1979-2018:
+
+1. Calcular la covarianza de la anomalía temporal de altura geopotencial en 700hPa con el índice de Modo Anular correspondiente a cada hemisferio. Esto genera un patrón espacial. 
+
+2. Calcular la parte simétrica de ese patrón.
+
+3. Calcular la convarianza entre la anomalía temporal de altura geopotencial en 700hPa y la parte simétrica en cada longitud.   
+De esto se obtienen N series temporales (una para cada longitud en los datos) que representan la similaridad de ese "gajito" de longitudes con el patrón medio zonal promedio. Pueden pensarse como un índice de modo anular "local". 
+
+4. Definir al índice anular como el promedio de los índices locales.
+
+4. Calcular la correlación de esas series temporales con el índice anual correspondiente. 
+
+5. ???
+
+6. Profit!
+
+
+```{r, fig.cap = "Patrones medios zonales para cada hemisferio y dataset."}
+aao <- rsoi::download_aao(TRUE, file = "DATA/aao.csv") %>% 
+   as.data.table() %>% 
+   .[, .(time = as.POSIXct(Date), aao = AAO)]
+
+ao <- rsoi::download_ao(TRUE, file = "DATA/ao.csv") %>% 
+   as.data.table() %>% 
+   as.data.table() %>% 
+   .[, .(time = as.POSIXct(Date), ao = AO)]
+
+
+hgt <- rbind(ReadNetCDF(NCEP(), 
+                        subset = list(time = c("1979-01-01", NA),
+                                      lev = 700),
+                        vars = c(hgt = "hgt")) %>% 
+                .[, dataset := "NCEP"],
+             ReadNetCDF(ERA5(), 
+                        subset = list(time = c("1979-01-01", NA),
+                                      lev = 700),
+                        vars = c(hgt = "z")) %>% 
+                .[, hgt := hgt/9.8] %>% 
+                .[, dataset := "ERA5"]) %>% 
+   .[time %between% common_range(time, dataset)]
+
+hgt[, hgt_a := Anomaly(hgt), by = .(lon, lat, month(time), dataset)]
+
+
+mean_hgt <- hgt[, .(hgt = mean(hgt_a)), by = .(lat, time, time, dataset)]
+
+patterns <- ao[aao[mean_hgt, on = "time"], on = "time"] %>% 
+   na.omit() %>% 
+   .[, .(aao = cov(aao, hgt),
+         ao = cov(ao, hgt)), by = .(lat, dataset)] %>% 
+   .[, pattern := ifelse(lat < 0, aao, ao)] %>% 
+   .[abs(lat) >= 20, .(lat, pattern, dataset)] 
+
+
+ggplot(patterns, aes(abs(lat), pattern)) +
+   geom_line(aes(color = dataset)) +
+   # geom_vline(xintercept = c(40, 60)) +
+   scale_color_brewer("Hemisferio", palette = "Set1", labels = c("-1" = "Hemisferio sur",
+                                                                 "1" = "Hemisferio norte")) +
+   scale_y_continuous("Altura geopotencial") +
+   scale_x_latitude()  +
+   facet_grid(~hemisphere(lat))
+```
+
+
+```{r, fig.cap = "Correlación entre el índice anular zonal y el índice anular local para cada longitud."}
+hgt[patterns, on = c("lat", "dataset")] %>% 
+   .[,.(cov = cov(pattern, hgt_a)), by = .(h = hemisphere(lat), lon, dataset, time)] %>% 
+   .[, mean_cor := mean(cov), by = .(h, dataset, time)] %>% 
+   .[, cor(cov, mean_cor), by = .(h, dataset, lon)] %>% 
+   ggplot(aes(lon, V1)) +
+   geom_line(aes(color = dataset)) +
+   scale_y_continuous(NULL, limits = c(-.2, 1)) +
+   scale_x_longitude() +
+   scale_color_brewer(palette = "Set1") + 
+   facet_grid(~h)
+```
+
+* No hay grandes diferencias entre bases de datos. 
+
+* En ambos hemisferios la correlación de los índices locales con el zonal es alta y similar.
+
+* En el hemisferio sur es en general más alta que en el hermisferio norte, excepto cerca de 110°O, donde es relativametne más baja. 
+
+Para comparar mejor la estos datos con los resultados del paper, se puede modificar un poco el método y usar como íncide la covarianza media sólo en el gajo occidental
+
+```{r, fig.cap = "Igual que la figura anterior pero con el índice anular del gajo occidental."}
+hgt[patterns, on = c("lat", "dataset")] %>% 
+   .[,.(cor = cov(pattern, hgt_a)), by = .(h = hemisphere(lat), lon, dataset, time)] %>% 
+   .[, mean_cor := mean(cor[lon %between% c(180, 360)]), by = .(h, dataset, time)] %>% 
+   .[, cor(cor, mean_cor), by = .(h, dataset, lon)] %>% 
+   ggplot(aes(lon, V1)) +
+   geom_line(aes(color = dataset)) +
+   scale_y_continuous(NULL, limits = c(-.2, 1)) +
+   scale_x_longitude() +
+   scale_color_brewer(palette = "Set1") + 
+   facet_grid(~h)
+```
+
+* Como es esperable, las correlaciones son más altas en el gajo occidental.
+
+* Pero --PLOT TWIST!!--, ¡son muchomás asimétricas en el hemisferio norte! `r emo::ji("scream")`. 
+
+Para generalizar y no depende der la definición (arbitraria) de gajo occidental / oriental, se puede generalizar y hacer la correlación cruzada entre los índices anulares locales de cada longitud con el de toda las demás
+
+```{r, fig.cap = "Correlación entre los índices anulares locales en cada longitud."}
+hgt[patterns, on = c("lat", "dataset")] %>% 
+   .[,.(cor = cov(pattern, hgt_a)), by = .(h = hemisphere(lat), lon, dataset, time)] %>% 
+   .[, widyr::pairwise_cor(.SD, lon, time, cor), by = .(h, dataset)] %>% 
+   .[is.na(correlation), correlation := 1] -> cors
+
+cors %>% 
+   .[dataset == "ERA5"] %>% 
+   ggplot(aes(item1, item2)) +
+   geom_contour_fill(aes(z = correlation), na.fill = TRUE) +
+   # geom_contour2(aes(z = correlation)) +
+   scale_fill_divergent(NULL, midpoint = 0.5) +
+   scale_x_longitude() +
+   scale_y_longitude() +
+   facet_grid(dataset ~ h) +
+   coord_equal()
+```
+
+* El hemisferio sur las correlaciones son más altas que en el hemisferio norte entre un grupo mayor de longitudes. 
+
+* En el hemisferio sur hay hay un mínimo de correlación al rededor de los 120°O (que ya había aparecido antes).
+
+### Concusiones
+
+* Usando un método más robusto y que tiene en cuenta más información (toda la estructura meridional en vez de la resta en dos puntos más o menos arbitrarios) se llega a resultados opuestos a los del paper. 
+
+---
+
+### "Asimetrías... seguís usando esa palabra..."
+
+Más allá de los problemas metodológicos, me hace ruido la interpretación del análisis. ¿Qué signfican las áreas con baja correlación entre longitudes? Lo que signifca es únicamente que el patrón zonal medio de geopotencial asociado con el SAM no se da por igual en todas las las longitudes. Es decir, hablan de la coherencia (temporal) zonal del patrón zonal medio del SAM. ¿Qué relación tiene esto con la magnitud de la simetría zonal de cada modo (SAM/NAM)?  
+
+Ya sabemos que el patrón de SAM y NAM no es zonalmente simétrico. Para separar mejor los efectos de las asimetrías en el patrón en sí con las asimetrías de la coherencia temporal entre longitudes se puede modificar el método anterior para incluir los efectos de las asimetrías. En vez de la covarianza de cada longitud con el patrón SAM/NAM medio zonal, hacerla con el patrón SAM/NAM de esa longitud. 
+
+
+```{r, fig.cap = "Patrón espacial de cada modo anular."}
+patterns_2d <- ao[aao[hgt, on = "time"], on = "time"] %>% 
+   na.omit() %>% 
+   .[, .(aao = cov(aao, hgt),
+         ao = cov(ao, hgt)), by = .(lon, lat, dataset)] %>% 
+   .[, pattern := ifelse(lat < 0, aao, ao)] %>% 
+   .[abs(lat) >= 20, .(lat, lon, pattern, dataset)] 
+
+patterns_2d %>% 
+   .[dataset == "ERA5"] %>% 
+   .[, h := hemisphere(lat)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = pattern)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent() +
+   coord_quickmap() + 
+   facet_grid(h~dataset, scales = "free")
+```
+
+
+```{r, fig.cap = "Correlación del índice anular local de cada longitud (covarianza entre las anomalías de altura geopotentcial en 700hPa y el patrón anular correspondiente a cada longitud) con el índice anular promedio."}
+hgt[patterns_2d, on = c("lon", "lat", "dataset")] %>% 
+   .[, cov(pattern, hgt_a), by = .(time, lon, h = hemisphere(lat), dataset)] %>% 
+   .[, mean_cov := mean(V1), by = .(time, h, dataset)] %>%
+   .[, cor(V1, mean_cov), by = .(lon, h, dataset)] %>% 
+   ggplot(aes(lon, V1)) +
+   geom_line(aes(color = dataset)) +
+   scale_y_continuous(NULL, limits = c(0, 1), sec.axis = sec_axis(~.^2)) +
+   scale_x_longitude() +
+   scale_color_brewer(palette = "Set1") +
+   facet_grid(~h)
+```
+
+* El resultado no es cualitativamente distinto. Ambos hemisferios son altamente coherentes aunque el hemisferio norte lo es marginalmente menos que el hemisferio sur. 
+
+* La zona de baja coherencia en ~120°O aparece aún más marcada aplicando este método. 
+
+### ¿Conclusiones?
+
+* No es cierto que el NAM sea más zonalmente simétrico ni coherente que el SAM.
+
+* Resultados usando las diferencias Marshall pueden no ser robustas. No conviene usarlas a menos que sea imprescindible, y en caso de hacerlo, conviene probar la sensibilidad a los parámetros. 
+
+* El SAM como índice hemisférico está bueno y todo, pero este anáilsis muestra que quizás no es del todo ideal para estudiar la variabilidad local en la zona específica de 120°W. 
+
