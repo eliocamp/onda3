@@ -1,0 +1,291 @@
+---
+title: "SAM simétrico y asimétrico"
+author: "Elio Campitelli"
+output: 
+   # pdf_document:
+   #    latex_engine: xelatex
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 7.6
+        fig_width: 12.8
+        reference_doc: template.pptx
+        slide_level: 2
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include=FALSE}
+# Notification
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+library(ggh4x)
+library(glue)
+library(ggperiodic)
+here <- here::here
+
+source(here("scripts", "helperfun.R"))
+source(here("scripts", "data_locations.R"))
+
+hemisphere <- function(lat) {
+   factor(ifelse(lat < 0, "sh", "nh"), levels = c("nh", "sh"),
+          labels = c("Hemisferio norte", 
+                     "Hemisferio sur"), 
+          ordered = TRUE)
+}
+
+
+knitr_set_timer()
+knitr_set_cache(cache.extra = 42)
+```
+
+
+```{r, cache = FALSE}
+hgt <- rbind(ReadNetCDF(NCEP(), 
+                        subset = list(time = c("1979-01-01", NA),
+                                      lat = -90:0),
+                        vars = c(hgt = "hgt")) %>% 
+                .[, dataset := "NCEP"],
+             ReadNetCDF(ERA5(), 
+                        subset = list(time = c("1979-01-01", NA),
+                                      lat = -90:0),
+                        vars = c(hgt = "z")) %>% 
+                .[, hgt := hgt/9.8] %>% 
+                .[, dataset := "ERA5"]) %>% 
+   .[time %between% common_range(time, dataset)]
+hgt[, hgt_a := hgt - mean(hgt), by = .(lon, lat, lev, month(time), dataset)]
+hgt <- hgt[, hgt_m := mean(hgt_a), by = .(lat, lev, time)] %>% 
+   .[, hgt_z := hgt_a - hgt_m]
+```
+
+
+# SAM tradicional
+
+(Primera componente principal de las anomalías temporales de altura geopotencial mensual en 700hPA pesado por la raiz del coseno de la latitud)
+
+---
+
+```{r}
+SAM <- hgt[lat <= -20 & lev == 700] %>% 
+   .[, hgt := hgt_a*sqrt(cos(lat*pi/180))] %>% 
+   .[, .(eof = list(EOF(hgt ~ time | lon + lat, n = 1, data = .SD))), by = .(dataset)]
+```
+
+
+```{r, fig.cap = "Patrón espacial del SAM. ERA5 en sombrado, NCEP en contornos."}
+SAM[, eof[[1]]$right, by = dataset] %>% 
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(data = ~.x[dataset == "ERA5"], aes(z = hgt)) +
+   geom_map2(lat < -20) +
+   geom_contour2(data = ~.x[dataset == "NCEP"], aes(z = hgt)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent() +
+   coord_polar()
+```
+
+```{r, fig.cap = "Covarianza de la anomalía de altura geopotencial y el índice SAM de 700hPa -ERA5. (Comparar con Baldwin y THompson 2009 figura 8, columna izquierda)"}
+levs <- c(700, 300, 30, 3)
+
+SAM[, eof[[1]]$left, by = .(dataset)] %>% 
+   .[dataset == "ERA5"] %>% 
+   setnames("hgt", "SAM") %>% 
+   .[hgt[lev %in% levs & dataset == "ERA5"], on = .NATURAL] %>% 
+   .[, cov(hgt_a, SAM), by = .(lon, lat, lev)] -> proj
+
+proj %>% 
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_map2(lat <= -20) +
+   geom_contour2(aes(z = V1, linetype = factor(-sign(..level..))), global.breaks = FALSE) +
+   geom_text_contour(aes(z = V1), stroke = 0.1, rotate = FALSE, global.breaks = FALSE) +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(-90, -20)) +
+   coord_polar() +
+   facet_wrap(lev~., ncol = 2, labeller = labeller(lev =  lev.lab)) 
+```
+
+
+
+# Parte simétrica 
+
+Método: 
+
+1. Calcular anomalías tamporales de geopotencial del lado polar de 20°.
+
+2. Calcular el promedio zonal de las anomalías temporale de geopotencial en cada nivel. 
+
+3. Hacer EOF de este promedio zonal **de forma independiente para cada nivel** (y pesando por la raiz del coseno de la latitud).
+
+
+Datos: ERA5 y NCEP para el período 1979-2018
+
+--- 
+
+```{r}
+time_series <- hgt[lat <= -20, .(hgt = mean(hgt_a)), by = .(lat, lev, time, dataset)] %>% 
+   .[, hgt := hgt*sqrt(cos(lat*pi/180))] %>% 
+   .[, .(eof = list(EOF(hgt ~ time | lat, n = 1, data = .SD))), by = .(lev, dataset)]
+```
+
+```{r, fig.cap = "Patŕon espacial de altura geopotencial media zonal asociado a cada nivel. ERA5 en sombrado, NCEP en contornos."}
+time_series %>% 
+   .[, eof[[1]]$right, by = .(dataset, lev)] %>% 
+   ggplot(aes(lat, lev)) +
+   geom_contour_fill(data = ~.x[dataset == "ERA5"], aes(z = hgt)) +
+   geom_contour2(data = ~.x[dataset == "NCEP"], aes(z = hgt)) +
+   scale_y_level() + 
+   scale_x_latitude(ticks = 15) +
+   scale_fill_divergent()
+```
+
+
+
+```{r, fig.cap = "Correlación cruzada entre las series temporales de SAM simétrico en cada nivel."}
+time_series %>% 
+   .[dataset == "ERA5"] %>% 
+   .[, eof[[1]]$left, by = .(lev, dataset)] %>% 
+   .[, widyr::pairwise_cor(.SD, lev, time, hgt), by = .(dataset, PC)] %>% 
+   ggplot(aes(item1, item2)) +
+   geom_contour_fill(data = ~.x[dataset == "ERA5"], aes(z = correlation), na.fill = TRUE) +
+   scale_fill_divergent() +
+   scale_x_level() +
+   scale_y_level() +
+   coord_equal()
+```
+
+
+
+
+
+```{r, fig.cap = "Covarianza de la anomalía de altura geopotencial y el índice SAM simétrico en cada nivel -ERA5. (Comparar con Baldwin y THompson 2009 figura 8, columna derecha)"}
+
+cov_2d <- time_series %>% 
+   .[, eof[[1]]$left, by = .(lev, dataset)] %>% 
+   setnames("hgt", "EOF") %>%
+   hgt[., on = .NATURAL] %>% 
+   .[, .(EOF = cov(hgt, EOF)), by = .(lon, lat, lev, dataset)]
+
+cov_2d %>% 
+   .[lev %in% levs] %>% 
+   .[dataset == "ERA5"] %>% 
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_map2(lat <= -20) +
+   geom_contour2(aes(z = EOF, linetype = factor(-sign(..level..))), global.breaks = FALSE) +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(NA, -20)) +
+   coord_polar() +
+   facet_wrap(lev~., ncol = 2, labeller = labeller(lev =  lev.lab)) 
+```
+
+# Separando simétrico y asimétrico
+
+El método de BT09 define el modo anular usando el geopotencial medio, pero no es simple ver cómo usarlo para separar la parte simétrica de la asimétrica. Lo que voy a hacer es otra cosa. 
+
+1. Computar el patrón SAM de forma "tradicional" usando las anomalías temporales de geopotencial en 700hPa.
+
+2. Calcular la parte simétrica y la parte asimétrica de ese patrón. 
+
+3. Para cada campo de anomalía de geopotencial, calcular la regresión múltiple lineal con la parte simétrica y la asimétrica del patrón. Es decir, si SAM_sym y SAM_asym son los patrones simétricos y asimétricos del SAM computados en el paso 2 y HGT es el campo de anomalías de geopotencial en 700hPa de una determinada fecha, hacer la regresión HGT ~ a\*SAM_sym + b\*SAM_asym. (La regresión pesada por el coseno de la latitud).
+
+4. La serie temporal de a y b son los índices de SAM simétrico y asimétrico.
+
+```{r, fig.cap = "Parte simétrica y parte asimétrica del patrón de SAM."}
+sam_sep <- SAM[, eof[[1]]$right, by = .(dataset)] %>% 
+   setnames("hgt", "EOF") %>% 
+   .[, c("sym", "asym") := list(mean(EOF), Anomaly(EOF)), by = .(lat, dataset)]
+
+lab_sam <-  c(asym = "SAM asimétrico",
+              sym = "SAM simétrico")
+
+sam_sep %>% 
+   .[dataset == "ERA5"] %>% 
+   rm_singleton() %>% 
+   melt(id.vars = c("lon", "lat")) %>% 
+   .[variable != "EOF"] %>%
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = value)) +
+   geom_map2() +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(NA, -20)) +
+   scale_fill_divergent() +
+   coord_polar() +
+   facet_grid(~variable, labeller = labeller(variable = lab_sam))
+```
+
+```{r, fig.cap="Series temporales del SAM simétrico y el SAM asimétrico para cada dataset"}
+indexes <- SAM[, eof[[1]]$right, by = .(dataset)] %>% 
+   setnames("hgt", "EOF") %>% 
+   .[, c("sym", "asym") := list(mean(EOF), Anomaly(EOF)), by = .(lat, dataset)] %>% 
+   .[hgt[lev == 700 & lat <= -20], on = .NATURAL] %>% 
+   .[, broom::tidy(lm(hgt_a ~ sym + asym, weights = cos(lat*pi/180))), by = .(dataset, time)] %>% 
+   rm_intercept()
+
+
+indexes %>% 
+   ggplot(aes(time, estimate)) +
+   geom_line(aes(color = term)) +
+   scale_color_brewer(NULL, palette = "Set1", labels = lab_sam) +
+   scale_y_continuous(NULL) +
+   scale_x_datetime(NULL) +
+   facet_grid(dataset~.)
+```
+
+
+```{r, fig.cap = "Relación entre el SAM simétrico y el SAM asimétrico"}
+indexes %>% 
+   dcast(dataset + time ~ term, value.var = "estimate") %>% 
+   ggplot(aes(sym, asym)) +
+   geom_point(size = 1, alpha = 0.5) +
+   geom_label(aes(label = paste0("Cor = ", signif(V1, 3))), 
+              data = ~.x[, cor(asym, sym), by = dataset],
+              x = -3500, y = 4000, size = 6, hjust = 0) +
+   geom_smooth(method = "lm") +
+   scale_x_continuous("SAM simétrico") +
+   scale_y_continuous("SAM asimétrico") +
+   facet_grid(dataset~.)
+```
+
+
+
+```{r, fig.cap = "Un intento de calcular el nivel de asimétria. SAM asimétrico / (SAM asimétrico + SAM simétrico) (todos en valor absoluto)"}
+indexes %>% 
+   dcast(dataset + time ~ term, value.var = "estimate") %>% 
+   .[, asymmetry := abs(asym)/(abs(asym) + abs(sym))] %>% 
+   ggplot(aes(time, asymmetry)) +
+   geom_line() +
+   scale_y_continuous(NULL) +
+   scale_x_datetime(NULL) +
+   facet_grid(dataset~.)
+```
+
+
+```{r, fig.cap = "Covarianza de laa anomalías temporales de geopotencial en 700hPa con cada índice de SAM. ERA5 en sombreado, NCEP en contornos."}
+hgt[lev == 700] %>% 
+   indexes[., on = .NATURAL, allow.cartesian = TRUE] %>% 
+   .[, cov(estimate, hgt_a), by = .(lon, lat, term, dataset)] %>% 
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(data = ~.x[dataset == "ERA5"], aes(z = V1)) +
+   geom_map2(lat <= -20) +
+   geom_contour2(data = ~.x[dataset == "NCEP"], aes(z = V1)) +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(NA, -20)) +
+   scale_fill_divergent() +
+   coord_polar() +
+   facet_grid(~term, labeller = labeller(term = lab_sam))
+```
+
+
+
+
