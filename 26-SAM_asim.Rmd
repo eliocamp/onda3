@@ -199,6 +199,7 @@ El método de BT09 define el modo anular usando el geopotencial medio, pero no e
 
 4. La serie temporal de a y b son los índices de SAM simétrico y asimétrico.
 
+
 ```{r, fig.cap = "Parte simétrica y parte asimétrica del patrón de SAM."}
 sam_sep <- SAM[, eof[[1]]$right, by = .(dataset)] %>% 
    setnames("hgt", "EOF") %>% 
