@@ -1704,7 +1704,7 @@ sep_ReIm <- function(dt, col, longer = TRUE) {
 }
 
 Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
-   p.adjust(2*pt(abs(estimate)/std.error, df, lower.tail = FALSE), method = "fdr")
+   p.adjust(2*pt(abs(estimate)/std.error, df, lower.tail = FALSE), method = adjustement)
 }
 
 

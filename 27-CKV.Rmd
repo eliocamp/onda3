@@ -1,0 +1,175 @@
+---
+title: "¿SAM? Análisis de Cash et. al. x 2"
+author: "Elio Campitelli"
+output: 
+   # pdf_document:
+   #    latex_engine: xelatex
+   powerpoint_presentation:
+    # ioslides_presentation:
+        fig_height: 7.6
+        fig_width: 12.8
+        reference_doc: template.pptx
+        slide_level: 2
+urlcolor: blue
+header_includes:
+   - \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include=FALSE}
+# Notification
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+library(ggh4x)
+library(glue)
+library(ggperiodic)
+here <- here::here
+
+source(here("scripts", "helperfun.R"))
+source(here("scripts", "data_locations.R"))
+
+hemisphere <- function(lat) {
+   factor(ifelse(lat < 0, "sh", "nh"), levels = c("nh", "sh"),
+          labels = c("Hemisferio norte", 
+                     "Hemisferio sur"), 
+          ordered = TRUE)
+}
+
+
+knitr_set_timer()
+knitr_set_cache(cache.extra = 42)
+```
+
+
+```{r, cache = FALSE}
+hgt <- ReadNetCDF(ERA5(), 
+                  subset = list(time = c("1979-01-01", NA),
+                                lev = 700, 
+                                lat = c(-90, 0)),
+                  vars = c(hgt = "z")) %>% 
+   .[, hgt := hgt/9.8] 
+hgt[, hgt_a := hgt - mean(hgt), by = .(lon, lat, lev, month(time))]
+hgt <- hgt[, hgt_m := mean(hgt_a), by = .(lat, lev, time)] %>% 
+   .[, hgt_z := hgt_a - hgt_m]
+```
+
+En "The Structure and Composition of the Annular Modes in an Aquaplanet General Circulation Model" y "Zonal Asymmetries, Teleconnections, and Annular Patterns in a GCM" (Cash et.al. 2002 y 2005, desde ahora CKV), los autores analizan simulaciones aquaplanet (en el primero) y con algunas asimetrías zonales (en el segundo) estudiando la configuración de sus "modos anuales" o, más bien, el primer EOF. 
+
+Del modelo aquaplanet ven que aparece un módulo anular en el primer EOF perfectamente zonalmente simétrico (salvo pequeños desvíos debido a la muestra finita) pero que cuando ven los "eventos" particulares, éstos tienen asimetrías zonales. 
+
+```{r, fig.cap = "Mapa de regresión del primer EOF de la SLP del modelo aquaplanet."}
+knitr::include_graphics("fig/27-CKV/sam_aqua.jpg")
+```
+
+```{r, fig.cap = "SLP de casos seleccionados con eventos positivos (izquierda) y negativos (derecha)"}
+knitr::include_graphics("fig/27-CKV/casos_aqua.jpg")
+```
+
+
+Dada esta "desconexión" entre la estructura del EOF y los casos que representa, buscan una forma alternativa de caracterizar esta variabilidad de baja frecuencia. Lo que hacen es hacer mapas de correlación para buscar teleconexiones usando como punto base distintas latitudes (como la simulación es zonalmente simétrica usan todos los puntos en longitud, rotando). Ven es que las correlaciones negativas se maximizan cuando los puntos están en 65° y en 35°. 
+
+```{r, fig.cap = "Mapas de correlación usando como punto base 35° (izquierda) y 65° (derecha)"}
+knitr::include_graphics("fig/27-CKV/point_correlation.jpg")
+```
+
+Estos mapas son como versiones "localizadas zonalmente" del modo anular. Esto implica, en palabras de CKV:
+
+> La variablidad de baja frecuencia de la presión a nivel del mar del modelo está caracterizada por dipolos meridionales con centros cerca de 35° y 65° de latitud y escala zonal de entre 60° y 90°. Dado que estos eventos están uniformemente distribuidos en la dirección zonal en el modelo aquaplanet, son representados como un único EOF zonalmente uniforme.
+
+
+# Respuesta?
+
+Lo que plantea CKV es interesante... pero, al menos en los datos reales, no es consistente con la coherencia temporal observada entre latitudes en el SAM. Esto ya lo vimos en lo anterior (26-SAM_asim) pero acá lo muestro con un método ligéramente distinto. 
+
+Para cada longitud, tomo un gajo de 90° de ancho centrado en esa longitud y le calculo EOF.
+
+
+```{r, fig.cap = "Valor del EOF1 de la longitud central para el EOF computado para cada gajo de 90° de ancho."}
+lon_width <- 90
+lon_halfwidth <- lon_width/2
+
+hgt2 <- qwrap(hgt, lon = c(0, 360) ~ c(-lon_halfwidth, 360 + lon_halfwidth)) %>% 
+   .[, hgt := hgt_a*sqrt(cos(lat*pi/180))] 
+
+lon_eofs <- lapply(unique(hgt$lon), function(base_lon) {
+   hgt2 %>% 
+      .[lon %between% (base_lon + c(-lon_halfwidth, lon_halfwidth))] %>% 
+      .[, .(eof = list(EOF(hgt ~ time | lon + lat, n = 1:2, data = .)))] %>% 
+      .[, base_lon := base_lon] %>% 
+      .[]
+}) %>% 
+   rbindlist()
+
+
+lon_eofs[, eof[[1]]$right, by = .(base_lon)] %>% 
+   # .[, .(hgt = mean(hgt)), by = .(lon = base_lon, lat, PC)] %>% 
+   .[base_lon == lon] %>%
+   .[PC == "PC2", hgt := hgt*sign(hgt[lat == -20]), by = lon] %>% 
+   .[PC == "PC1"] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = hgt)) +
+   scale_x_longitude(xwrap = c(-180, 360)) +
+   scale_y_latitude(limits = c(-90, -20)) +
+   scale_fill_divergent() +
+   coord_polar() +
+   facet_grid( ~ PC)
+```
+
+El resultado es un modo anular. Esto no es extraño y aún es consistente con el argumento de CKV, pero...
+
+
+<!-- ```{r} -->
+<!-- lon_eofs[, eof[[1]]$sdev, by = base_lon] %>%  -->
+<!--    ggplot(aes(base_lon, r2)) + -->
+<!--    geom_line(aes(color = PC)) + -->
+<!--    scale_y_continuous(limits = c(0, 1)) + -->
+<!--    scale_x_longitude() -->
+<!-- ``` -->
+
+
+
+```{r, fig.cap = "Correlación de el EOF temporal de cada longitud con el promedio de los EOFs temporales."}
+lon_eofs[, eof[[1]]$left, by = base_lon] %>% 
+   .[PC == "PC1"] %>%
+   # .[correction, on = .NATURAL] %>% 
+   # .[, hgt := hgt*V1] %>% 
+   .[, hgt_mean := mean(hgt), by = .(time, PC)] %>% 
+   .[, cor(hgt, hgt_mean), by = .(base_lon, PC)] %>% 
+   ggplot(aes(base_lon, V1)) +
+   geom_line() +
+   scale_y_continuous(limits = c(0, 1)) +
+   scale_x_longitude()
+```
+
+
+
+```{r, fig.cap = "Correlación cruzada del EOF temporal de cada longitud"}
+lon_eofs[, eof[[1]]$left, by = .(lon = base_lon)] %>% 
+   .[PC == "PC1"] %>%
+   .[, widyr::pairwise_cor(.SD, lon, time, hgt), by = PC] %>% 
+   ggplot(aes(item1, item2)) +
+   geom_contour_fill(aes(z = correlation), na.fill = TRUE) +
+   # geom_raster(aes(fill = correlation)) +
+   scale_fill_divergent() +
+   scale_x_longitude() +
+   scale_y_longitude() +
+   coord_equal()
+```
+
+De nuevo se ve que la variabilidad asociaoda al modo anular tiene coherencia temporal entre distintas longitudes. 
+
+### Conclusión:
+
+* El punto de CKV es interesante: ver un modo anular en el EOF no implica necesariamente que éste exista en los datos; puede ser un artefacto estadístico. 
+
+* Los datos observados, sin embargo, parecerían mostrar que el modo anular sí es una característica física coherente de la atmósfera. 
+
+* Casos específicos de "eventos SAM" por supuesto que no van a ser idénticos al patrón general ya que además están afectados por un montón de otros procesos. 
+
+* Estaría bueno hacer este mismo análisis en el aquaplanet. 
