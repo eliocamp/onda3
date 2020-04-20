@@ -156,7 +156,7 @@ lon_eofs[, eof[[1]]$left, by = .(lon = base_lon)] %>%
    ggplot(aes(item1, item2)) +
    geom_contour_fill(aes(z = correlation), na.fill = TRUE) +
    # geom_raster(aes(fill = correlation)) +
-   scale_fill_divergent() +
+   scale_fill_divergent("Correlation", limits = c(-1, 1)) +
    scale_x_longitude() +
    scale_y_longitude() +
    coord_equal()
@@ -209,15 +209,169 @@ Estas regresiones confirman nuevamente que la variabilidad asociada al modo anul
 
 ---
 
+# Cómo se vería la hipótesis nula?
+
+No tengo los datos de CKV, entonces lo que voy a hacer es simular estadísticamente la hipótesis de que los eventos de modo anular son en realidad eventos localizados con una escala de entre 60°-90°. La metodología es:
+
+1. Calcular la parte simétrica del modo anular. 
+
+2. Para cada fecha, decidir aleatoriamente una "longitud central" que va a ser el lugar donde se localizan las anomalías. 
+
+3. Computar el campo de geopotencial explicado por el modo anular totalmente simétrico (es decir, multiplicando el patrón espacial por el valor temporal) y multiplicar ese campo por una estructura gausiana centrada en la longitud central y con desvío estándar de 45° (de manera que 2*SD ~ 90°).
+
+```{r}
+hgt <- ReadNetCDF(ERA5(), 
+                  subset = list(time = c("1979-01-01", NA),
+                                lev = 700, 
+                                lat = c(-90, 0)),
+                  vars = c(hgt = "z")) %>% 
+   .[, hgt := hgt/9.8] 
+
+mean_eof <- hgt %>% 
+   .[, .(hgt = mean(hgt)), by = .(lat, time)] %>% 
+   .[lat >= -85] %>% 
+   .[, annular := Anomaly(hgt)*sqrt(cos(lat*pi/180)), by = .(lat, month(time))] %>% 
+   .[, EOF(annular ~ time | lat, n = 1)]
+
+
+zonal_amplitude <- function(lon, central_lon) {
+   amplitude <- suppressWarnings(circular::dwrappednormal(lon*pi/180, mu = central_lon[1]*pi/180, sd = 45*pi/180))
+   amplitude[amplitude <= 0.05] <- 0
+   amplitude/max(amplitude)
+}
+
+# Grid
+simulation <- CJ(lon = unique(hgt$lon), 
+                 lat = unique(hgt$lat),
+                 time = unique(hgt$time)) %>% 
+   predict(mean_eof)[., on = .NATURAL] %>% 
+   na.omit() %>% 
+   .[, central_lon := runif(1, 0, 360), by = time] %>% 
+   .[, zonal_amplitude := zonal_amplitude(lon, central_lon), by = .(time)] %>% 
+   .[, hgt := zonal_amplitude*annular/sqrt(cos(lat*pi/180))]
+```
+
+
+```{r, fig.cap = "Ejemplo de un evento simulado. El patrón anular correspondiente (arriba) se multiplica por la locailzación (centro) y resulta en el patrón localizado (abajo). "}
+simulation[time == unique(time)[1]] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = annular)) +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(-90, NA)) +
+   scale_fill_divergent(guide = "none") +
+   coord_quickmap() +
+   
+   simulation[time == unique(time)[1]] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = zonal_amplitude)) +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(-90, NA)) +
+   scale_fill_divergent(guide = "none") +
+   coord_quickmap() +
+   
+   
+   
+   simulation[time == unique(time)[1]] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = hgt)) +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(-90, NA)) +
+   scale_fill_divergent(guide = "none") +
+   coord_quickmap() +
+   
+   plot_layout(ncol = 1)
+```
+
+```{r}
+sim_eof <- simulation %>% 
+   .[lat >= -85] %>% 
+   .[, annular := Anomaly(hgt)*sqrt(cos(lat*pi/180)), by = .(lon, lat, month(time))] %>% 
+   .[, EOF(annular ~ time | lon + lat, n = 1)]
+```
+
+```{r, fig.cap = "Patrón espacial del EOF1 de los datos simulados"}
+sim_eof$right %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = annular)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent() +
+   coord_polar()
+```
+
+Haciendo EOF a los datos con patrón anular localizado se consigue un patrón anular entero. Esto confirma el argumento de CKV de que un EOF anular no implica necesariemnte que la variabilidad sea anular. 
+
+```{r, fig.cap = "Correlación de los índices locales con el índice anular para las simulaciones."}
+sim_eof$right %>%
+   copy() %>% 
+   setnames("annular", "eof") %>% 
+   simulation[., on = .NATURAL] %>% 
+   .[, cov(hgt, eof), by = .(lon, time)] %>% 
+   .[, mean_cov := mean(V1), by = .(time)] %>% 
+   .[, cor(V1, mean_cov), by = lon] %>% 
+   ggplot(aes(lon, V1)) +
+   geom_line() + 
+   scale_y_continuous(limits = c(0, 1))
+```
+
+```{r, fig.cap = "Correlación cruzada entre los índice anulares locales para el modelo estadístico (izquierdsa) y para las observaciones (derecha)."}
+
+model <- sim_eof$right %>%
+   copy() %>% 
+   setnames("annular", "eof") %>% 
+   simulation[., on = .NATURAL] %>% 
+   .[, cov(hgt, eof), by = .(lon, time)]  %>% 
+   # rm_intercept() %>% 
+   .[, widyr::pairwise_cor(.SD, lon, time, V1)] %>% 
+   as.data.table() %>% 
+   .[, type := "model"]
+
+obs <- lon_eofs[, eof[[1]]$left, by = .(lon = base_lon)] %>% 
+   .[PC == "PC1"] %>%
+   .[, widyr::pairwise_cor(.SD, lon, time, hgt), by = PC] %>% 
+   rm_singleton() %>% 
+   .[, type := "obs"]
+
+
+rbind(model, obs) %>% 
+   ggplot(aes(item1, item2)) +
+   geom_contour_fill(aes(z = correlation), na.fill = TRUE) +
+   scale_fill_divergent("Correlation", limits = c(-1, 1)) +
+   scale_x_longitude() +
+   scale_y_longitude() +
+   coord_equal() +
+   facet_grid(~type)
+
+```
+
+```{r, fig.cap = "Correlación cruzada de las observaciones menos del modelo."}
+rbind(model, obs) %>% 
+   dcast(item1 + item2 ~ type, value.var = "correlation")  %>% 
+   ggplot(aes(item1, item2)) +
+   geom_contour_fill(aes(z = obs - model), na.fill = TRUE) +
+   geom_contour2(aes(z = obs - model), na.fill = TRUE) +
+   geom_text_contour(aes(z = obs - model), na.fill = TRUE, stroke = 0.2, rotate = FALSE) +
+   scale_fill_divergent("Obs - Modelo") +
+   scale_x_longitude() +
+   scale_y_longitude() +
+   coord_equal() 
+```
+
+Las correlaciones son bastante distintas. Las observaciones tiene una coherencia espacial significativamente mayor que el modelo estadístico. 
+
+---
+
 ### Conclusión:
 
-* El punto de CKV es interesante: ver un modo anular en el EOF no implica necesariamente que éste exista en los datos; puede ser un artefacto estadístico. 
+* El punto de CKV es correcto: ver un modo anular en el EOF no implica necesariamente que éste exista en los datos; puede ser un artefacto estadístico. 
 
 * Usando los datos de reanálisis, el patrón anular aparece coherente usando varias metodologías distintas, por lo que no parece ser un artefacto estadístico sino unaa característica física coherente de la atmósfera. 
 
+* De todas formas, el análisis de la hipótesis nula simulada muestra que aún en un caso de modo anular localizado las correlaciones entre un anular hemissférico y los íncides locales puede ser sorprendentemente alta! Así que OJO con eso. 
+
 * Casos específicos de "eventos SAM" por supuesto que no van a ser idénticos al patrón general ya que además están afectados por un montón de otros procesos. 
 
-* Estaría bueno hacer este mismo análisis en el aquaplanet. 
+
 
 
 
