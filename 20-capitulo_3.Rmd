@@ -14,6 +14,7 @@ header_includes:
    - \usepackage[utf8]{inputenc}
 params:
    season: "DJF"
+   lats.eof: [-80; -20]
    data: "data"
    psi: "psi"
 ---
@@ -48,7 +49,7 @@ knitr_set_cache(cache.extra  = list(params, 50))
 mean_season <- function(data) {
    data %>% 
       .[is.full_season(time)] %>%  
-      .[, lapply(.SD, mean), by = .(lon, lat, time = seasonaly(time))]   
+      .[, lapply(.SD, mean), by = .(lon, lat, time = seasonally(time))]   
 }
 
 
@@ -80,7 +81,13 @@ unnest_eof <- function(dt, col, which) {
    eval(expr)
 }
 
-compute_ceof <- function(dt, temporal = FALSE, lats.eof = c(-80, -20), n = 1:2) {
+compute_ceof <- function(hgt, lon, lat, lev, temporal = FALSE, lats.eof = c(-80, -20), n = 1:2) {
+   if (is.data.frame(hgt)) {
+      dt <- hgt
+   } else {
+      dt <- data.table::data.table(hgt, lon, lat, lev)
+   }
+   
    dt <- dt[lev %in% c(50, 200) & lat %between% lats.eof] %>%
       .[, hgt := Anomaly(hgt),
         by  = .(lat, time, lev)] 
@@ -245,7 +252,8 @@ year_range <- with(hgt, common_range(time, dataset))
 ceof <- hgt %>% 
    .[time %between% year_range] %>%
    .[, season := season(time)]  %>% 
-   .[, list(ceof = list(compute_ceof(.SD, temporal = FALSE, n = 1:2))), by = .(dataset, season)]
+   .[, list(ceof = list(compute_ceof(.SD, temporal = FALSE, n = 1:2, lats.eof = params$lats.eof))),
+     by = .(dataset, season)]
 
 
 # long_ceof <- datos %>% 

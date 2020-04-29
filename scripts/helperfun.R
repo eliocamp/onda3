@@ -140,7 +140,6 @@ names(month.abb) <- as.character(1:12)
 # Función que hace autocorrelograma y su test según Anderson o large lag.
 acf.sig <- function(x, lag.max=0.3*length(x), alpha = 0.05,
                     method=c("anderson","large.lag", "salas"), sided="one") {
-   # browser()
    autocor <- acf(x, lag.max=lag.max, plot = F)$acf
    N <- length(x)
    e <- -1/(N-1)
@@ -1615,7 +1614,7 @@ WaveEnvelope <- function(y, k = "all") {
    if (k[1] == "all") {
       k <- 1:ceiling(N/2)
    }
-   # browser
+
    x_hat[-(k+1)] <- 0
    Mod(fft(x_hat, inverse = T))*2
 }
@@ -1638,8 +1637,14 @@ common_range <- function(x, groups) {
 }
 
 
-compute_ceof <- function(dt, temporal = FALSE, lats.eof = c(-80, -20), n = 1:2) {
-   dt <- dt[lat %between% lats.eof] %>%
+compute_ceof <- function(hgt, lon, lat, lev, time, temporal = FALSE, lats.eof = c(-80, -20), n = 1:2) {
+   if (is.data.frame(hgt)) {
+      dt <- hgt
+   } else {
+      dt <- data.table::data.table(hgt, lon, lat, lev, time)
+   }
+   
+   dt <- dt[lat %between% range(lats.eof)] %>%
       .[, hgt := Anomaly(hgt),
         by  = .(lat, time, lev)] 
    
@@ -1711,21 +1716,21 @@ Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
 
 lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
 
-theme_elio <- theme_minimal(base_size = 20) +
+theme_elio <- theme_minimal(base_size = 16) +
    theme(
       strip.background = element_rect(fill = NA, color = "gray30"),
-         # text = element_text(family = font_rc),
-         legend.position = "bottom", legend.box = "vertical",
-         panel.spacing.y = unit(5, "mm"),
-         panel.spacing.x = unit(5, "mm"),
-         legend.spacing = unit(2, "mm"), 
-         panel.border = element_rect(colour = "black", fill = NA),
-         plot.margin = grid::unit(rep(3, 4), "mm"),
-         # legend.title = element_blank(),
-         legend.box.spacing = unit(3, "mm"),
-         legend.margin = margin(t = -5),
-         panel.grid = element_line(color = "gray10", size = 0.4, linetype = 3),
-         panel.ontop = TRUE)
+      # text = element_text(family = font_rc),
+      legend.position = "bottom", legend.box = "vertical",
+      panel.spacing.y = unit(5, "mm"),
+      panel.spacing.x = unit(5, "mm"),
+      legend.spacing = unit(2, "mm"), 
+      panel.border = element_rect(colour = "black", fill = NA),
+      plot.margin = grid::unit(rep(3, 4), "mm"),
+      # legend.title = element_blank(),
+      legend.box.spacing = unit(3, "mm"),
+      legend.margin = margin(t = -5),
+      panel.grid = element_line(color = "gray10", size = 0.4, linetype = 3),
+      panel.ontop = TRUE)
 theme_set(theme_elio)
 
 
@@ -1780,3 +1785,76 @@ rm_singleton <- function(dt) {
    dt[, vapply(dt, uniqueN, 1) != 1, with = FALSE]
 }
 
+
+#' Partial correlation between x1 and y and x2 and y
+partial_cor <- function(y, x1, x2, weights = rep(1, length(y))) {
+   rho_x1x2 <- cov.wt(cbind(x1, x2), wt = weights, cor = TRUE)$cor[1, 2]
+   rho_x1y <- cov.wt(cbind(x1, y), wt = weights, cor = TRUE)$cor[1, 2]
+   rho_x2y <- cov.wt(cbind(x2, y), wt = weights, cor = TRUE)$cor[1, 2]
+   
+   estimate1 <- (rho_x1y - rho_x2y*rho_x1x2 ) / (sqrt(1 - rho_x2y^2) * sqrt(1 - rho_x1x2^2))
+   estimate2 <- (rho_x2y - rho_x1y*rho_x1x2 ) / (sqrt(1 - rho_x1y^2) * sqrt(1 - rho_x1x2^2))
+   
+   list(term = c(deparse(substitute(x1)),
+                 deparse(substitute(x2))),
+        partial_correlation = c(estimate1, estimate2))
+}
+
+
+#' Weighted vaiance
+var.wt <- function(x, w, na.rm = FALSE) {
+   if (na.rm) {
+      w <- w[i <- !is.na(x)]
+      x <- x[i]
+   }
+   sum.w <- sum(w)
+   (sum(w*x^2) * sum.w - sum(w*x)^2) / (sum.w^2 - sum(w^2))
+}
+
+#' Regression "lite". Computes regression coefficient fast in the case of
+#' simple linear regression.
+lm_lite <- function(y, x, weights = rep(1, length(y)), r2 = FALSE) {
+   cov <- cov.wt(cbind(y, x), wt = weights, cor = r2)
+   estimate <- cov$cov[1, 2]/var.wt(x, w = weights)
+   out <- list(term = deparse(substitute(x)),
+               estimate = estimate)
+   
+   if (r2) {
+      out$r.squared <-  cov$cor[1, 2]^2
+      out$adj.r.squared <- cov$cor[1, 2]^2   # Not real!!
+   }
+   return(out)
+}
+
+
+#' separación en parte zonalmente simétrica y asimétrica de EOFs 
+eof_asym <- function(value, lon, lat, time, n = 1) {
+   data <- data.table(value, lon, lat, time, key = c("lon", "lat", "time"))
+   
+   lab_sam <-  c(full = "Completo", 
+                 asym = "Asimétrico",
+                 sym  = "Simétrico")
+   
+   eof <- data %>% 
+      .[, full := value*sqrt(cos(lat*pi/180))] %>% 
+      EOF(full ~ time | lon + lat, n = n, data = .)
+   eof$right[, c("sym", "asym") := list(mean(full), Anomaly(full)), by = .(lat, PC)]
+   
+   data[, full := NULL]
+   indexes <- eof$right %>% 
+      data[., on = .NATURAL, allow.cartesian = TRUE] 
+   
+   pcor <- indexes[, partial_cor(value, sym, asym, weights = cos(lat*pi/180)), 
+                   keyby = .(time, PC)] 
+   
+   indexes[, rbind(as.data.table(lm_lite(value, full, weights = cos(lat*pi/180), r2 = TRUE)),
+                   as.data.table(FitLm(value, sym, asym, weights = cos(lat*pi/180), r2 = TRUE))),
+           keyby = .(time, PC)] %>% 
+      .[term != "(Intercept)"] %>% 
+      .[, estimate_norm := estimate/sd(estimate[term == "full"]), by = PC] %>% 
+      .[, term := factor(term, levels = names(lab_sam), ordered = TRUE)] %>% 
+      .[term != "full", partial.r.squared := pcor$partial_correlation^2] %>% 
+      .[term == "full", partial.r.squared := r.squared] %>% 
+      .[, adj.r.squared := NULL] %>% 
+      .[]
+}

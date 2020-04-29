@@ -286,6 +286,7 @@ annular <- hgt[abs(lat) >= 20 & year(time) %between% c(1979, 2000)] %>%
 ```
 
 
+
 ```{r, fig.cap = "Parte simétrica y parte asimétrica del patrón de SAM en el hemisferio sur."}
 sam_sep <- annular[, eof[[1]]$right, by = .(dataset, lev, hemisphere)] %>% 
    setnames("hgt", "full") %>% 
@@ -360,18 +361,35 @@ indexes <- annular[, eof[[1]]$right, by = .(dataset, lev, hemisphere)] %>%
    # .[lev %in% unique(c(levs, extremes$lev))] %>% 
    hgt[., on = .NATURAL] 
 
+partial_cor <- function(y, x1, x2, weights) {
+   rho_x1x2 <- cov.wt(cbind(x1, x2), wt = weights, cor = TRUE)$cor[1, 2]
+   rho_x1y <- cov.wt(cbind(x1, y), wt = weights, cor = TRUE)$cor[1, 2]
+   rho_x2y <- cov.wt(cbind(x2, y), wt = weights, cor = TRUE)$cor[1, 2]
+   
+   estimate1 <- (rho_x1y - rho_x2y*rho_x1x2 ) / (sqrt(1 - rho_x2y^2) * sqrt(1 - rho_x1x2^2))
+   estimate2 <- (rho_x2y - rho_x1y*rho_x1x2 ) / (sqrt(1 - rho_x1y^2) * sqrt(1 - rho_x1x2^2))
+   
+   list(term = c(deparse(substitute(x1)),
+                 deparse(substitute(x2))),
+        partial_correlation = c(estimate1, estimate2))
+}
 
-full <- indexes[, FitLm(hgt_a, full = EOF, weights = cos(lat*pi/180)),
+full <- indexes[, FitLm(hgt_a, full = EOF, weights = cos(lat*pi/180), r2 = TRUE),
                 by = .(dataset, lev, time, hemisphere)] %>% 
    rm_intercept()
 
-sep <- indexes[, FitLm(hgt_a, sym, asym, weights = cos(lat*pi/180)), 
+pcor <- indexes[, partial_cor(hgt_a, sym, asym, weights = cos(lat*pi/180)), 
+                by = .(dataset, lev, time, hemisphere)] 
+
+
+sep <- indexes[, FitLm(hgt_a, sym, asym, weights = cos(lat*pi/180), r2 = TRUE), 
                by = .(dataset, lev, time, hemisphere)] %>% 
    rm_intercept()
 
 indexes <- rbind(full, sep) %>% 
    .[, estimate_norm := estimate/sd(estimate[term == "full"]), by = .(hemisphere, lev, dataset)] %>% 
-   .[, term := factor(term, levels = names(lab_sam), ordered = TRUE)] 
+   .[, term := factor(term, levels = names(lab_sam), ordered = TRUE)] %>% 
+   .[pcor, on = .NATURAL]
 
 ```
 
@@ -394,6 +412,18 @@ bt09[, eof[[1]]$left, by = .(lev, dataset)] %>%
 indexes %>% 
    .[lev == 700 & term != "full"] %>% 
    ggplot(aes(time, estimate_norm)) +
+   geom_line(aes(color = term)) +
+   # geom_smooth(method = "lm", aes(color = term)) +
+   scale_color_brewer(NULL, palette = "Set1", labels = lab_sam) +
+   scale_y_continuous(NULL) +
+   scale_x_datetime(NULL) +
+   facet_grid(hemisphere ~ dataset)
+```
+
+```{r}
+indexes %>% 
+   .[lev == 700 & term != "sym"] %>% 
+   ggplot(aes(time, r.squared)) +
    geom_line(aes(color = term)) +
    # geom_smooth(method = "lm", aes(color = term)) +
    scale_color_brewer(NULL, palette = "Set1", labels = lab_sam) +
@@ -605,4 +635,74 @@ OLR() %>%
    facet_grid(term~lev)
 ```
 
+
+```{r}
+pcor %>% 
+   .[lev == 700 & term != "full"] %>% 
+   ggplot(aes(time, estimate^2)) +
+   geom_line(aes(color = term)) +
+   # geom_smooth(method = "lm", aes(color = term)) +
+   scale_color_brewer(NULL, palette = "Set1", labels = lab_sam) +
+   scale_y_continuous(NULL) +
+   scale_x_datetime(NULL) +
+   facet_grid(hemisphere ~ dataset)
+```
+
+
+```{r}
+pcor %>% 
+   .[, mean(estimate^2), by = .(dataset, lev, term, month(time), hemisphere)] %>% 
+   ggplot(aes(lev, month)) +
+   geom_contour_fill(aes(z = V1)) +
+   scale_x_level() +
+   coord_flip() +
+   facet_grid(term ~ hemisphere)
+```
+
+```{r}
+indexes %>%
+   copy() %>% 
+   .[, denom := sum(partial_correlation^2), by = .(dataset, lev, time, hemisphere)] %>% 
+   .[, mean(partial_correlation^2/denom), by = .(dataset, lev, term, hemisphere)] %>%
+   ggplot(aes(lev, V1)) +
+   geom_line(aes(color = term)) +
+   scale_x_level() +
+   scale_y_continuous(limits = c(0, 1)) +
+   scale_color_brewer(palette = "Set1", labels = lab_sam) +
+   coord_flip() +
+   facet_grid(~hemisphere)
+```
+
+```{r}
+indexes %>% 
+   # .[term == "sym"] %>% 
+   .[, mean(partial_correlation^2), by = .(dataset, lev, month(time), term, hemisphere)] %>% 
+   ggplot(aes(month, lev)) +
+   geom_contour_fill(aes(z = V1)) +
+   scale_y_level() +
+   scale_fill_viridis_c() +
+   facet_grid(term ~ hemisphere)
+```
+
+
+```{r}
+indexes %>% 
+   .[term == "sym"] %>% 
+   .[, mean(partial_correlation^2/r.squared), by = .(dataset, lev, month(time), term, hemisphere)] %>% 
+   ggplot(aes(month, lev)) +
+   geom_contour_fill(aes(z = V1)) +
+   scale_y_level() +
+   scale_fill_divergent(midpoint = 0.5) +
+   facet_grid(~ hemisphere)
+```
+
+
+```{r}
+dcast(pcor, dataset + lev + time + hemisphere ~ term, value.var = "estimate") %>% 
+   .[, cor(asym^2, sym^2), by = .(dataset, lev, hemisphere)] %>% 
+   ggplot(aes(lev, V1)) +
+   geom_line(aes(color = hemisphere)) +
+   scale_x_level() +
+   coord_flip()
+```
 

@@ -9,7 +9,7 @@ source("scripts/helperfun.R")
 mean_season <- function(data) {
    data %>% 
       .[is.full_season(time)] %>%  
-      .[, lapply(.SD, mean), by = .(lon, lat, time = seasonaly(time))]   
+      .[, lapply(.SD, mean), by = .(lon, lat, time = seasonally(time))]   
 }
 
 
@@ -97,11 +97,12 @@ psi <- with_cache("psi.Rds", function() {
 }) 
 
 file <- "20-capitulo_3.Rmd"
-seasons <- c("DJF", "MAM", "JJA", "SON")
+seasons <- c("SON", "DJF", "MAM", "JJA")
 # seasons <- "SON"
 
 
 purrr::walk(seasons, ~ rmarkdown::render(file, 
-                                   params = list(season = .x), 
-                                   output_file = paste0("20 - ", .x)
+                                   params = list(season = .x, 
+                                                 lats.eof = c(-90, -20)), 
+                                   output_file = paste0("20b - ", .x)
                                    ))

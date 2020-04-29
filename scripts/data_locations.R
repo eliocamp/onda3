@@ -23,19 +23,29 @@ ERA20 <- function() {
    return(file)
 }
 
+available_era5 <- list.files(here::here("DATA", "reanalysis", "ERA5", "day"))
+vars <- gsub(".day.mean.nc", "", gsub("era5.", "", available_era5))
+
 ERA5 <- function(temporal = c("mon", "day"), vertical = c("pl", "sl"), var) {
    vertical <- vertical[1]
    checkmate::assert_choice(vertical, c("pl", "sl"))
    temporal <- temporal[1]
    checkmate::assert_choice(temporal, c("mon", "day"))
+   
    if (temporal == "mon") {
       if (vertical[1] == "pl") {
          file <- here::here("DATA", "reanalysis", "ERA5", "mon", "era5.mon.mean.nc")
       } else {
          file <- here::here("DATA", "reanalysis", "ERA5", "mon", "era5sl.mon.mean.nc")
       }   
-   } else {
-      stop("not implemented")
+   } else if (temporal == "day") {
+      available_era5 <- list.files(here::here("DATA", "reanalysis", "ERA5", "day"))
+      vars <- gsub(".day.mean.nc", "", gsub("era5.", "", available_era5))
+      var <- var[1]
+      checkmate::assert_choice(var, vars)
+      
+      file <- paste0("era5.", var[1], ".day.mean.nc")
+      file <- here::here("DATA", "reanalysis", "ERA5", "day", file)
    }
    
    checkmate::assert_access(file, access = "r")
@@ -44,6 +54,8 @@ ERA5 <- function(temporal = c("mon", "day"), vertical = c("pl", "sl"), var) {
    return(file)
 }
 
+formals(ERA5)$var <- vars
+remove(vars)
 
 NCEP <- function(temporal = "mon", vertical = c("pl", "flux", "sfc", "sigma")) {
    vertical <- vertical[1]
