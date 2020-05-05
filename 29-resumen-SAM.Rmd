@@ -126,7 +126,7 @@ rbindlist(list(SAM = SAM$left,
   facet_grid(~metodo)
 ```
 
-La regresión de la altura geopotencial con este índice es más simétrica (Figura \@ref(fig:sam-bt09)) pero aún tiene razgos asimétricos. Además, el método no brinda una descripción de la parte asimétrica del SAM, que es lo que me interesa en realidad. 
+La regresión de la altura geopotencial con este índice es más simétrica (Figura \@ref(fig:sam-bt09)) pero aún tiene rasgos asimétricos. Además, el método no brinda una descripción de la parte asimétrica del SAM, que es lo que me interesa en realidad. 
 
 
 # Separando simétrico y asimétrico
