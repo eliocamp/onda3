@@ -1,0 +1,247 @@
+---
+title: "Separando el SAM"
+# subtitle: "Su partes simétricas"
+author: "Elio"
+# date: "`r Sys.Date()`"
+output:
+  bookdown::tufte_html2: 
+    toc: FALSE
+    tufte_features: ["fonts", "background", "italics"]
+    # citation_package: natbib
+    # latex_engine: xelatex
+# link-citations: yes
+bibliography: bib/SAM-Asimétrico.bib
+---
+
+```{r setup, include=FALSE, tidy = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      tidy = FALSE)
+library(tufte)
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(ggperiodic)
+
+source(here::here("scripts", "helperfun.R"))
+source(here::here("scripts", "data_locations.R"))
+
+theme_set(ggthemes::theme_tufte() + 
+            theme( panel.background = element_rect(color = NA,
+                                                 fill = "#FEFFF8"),
+                  plot.background = element_rect(color = NA,
+                                                 fill = "#FEFFF8")))
+ZeroBreaks <- AnchorBreaks(0, NULL, 0)
+knitr_set_timer()
+knitr_set_cache(cache.extra = 42)
+
+ggplot2::update_geom_defaults(GeomContour2, list(size = 0.2))
+ggplot2::update_geom_defaults(GeomPoint, list(size = 0.2))
+```
+
+
+```{r}
+hgt <- ReadNetCDF(ERA5(), 
+                  subset = list(time = c("1979-01-01", NA),
+                                lat = c(-90, 0),
+                                lev = 700),
+                  vars = auto_scale(hgt = "z")) %>% 
+  .[, hgt := hgt/9.8] %>% 
+  .[, hgt_a := hgt - mean(hgt), by = .(lon, lat, lev, month(time))] %>% 
+  .[, hgt_m := mean(hgt_a), by = .(lat, lev, time)] %>% 
+  .[, hgt_z := hgt_a - hgt_m]
+```
+
+
+```{r}
+SAM <- hgt[lat <= -20 & lev == 700] %>% 
+  .[, hgt := hgt_a*sqrt(cos(lat*pi/180))] %>% 
+  EOF(hgt ~ time | lon + lat, n = 1, data = .) 
+
+SAM$left[, hgt := -hgt]
+SAM$right[, hgt := -hgt]
+```
+
+Se suele describir al SAM como un modo anular que en su fase positiva intensifica y corre los oestes. Esencialmente, se lo piensa como un modo zonalmente simétrico y zonalmente coherente (en tiempo). Pero cuando uno ve la estructura del SAM^[Ya sea usando mapas de regresión o la parte espacial del EOF usado para definirlo.] es claro que hay una esctructura zonalmente asimétrica (Figura \@ref(fig:sam-eof)). 
+
+
+```{r sam-eof, fig.cap = "Estructura espacial del primer EOF de la anomalía mensual de altura geopotencial en 700hPA pesada por la raiz cuadrada del coseno de la latitud en sombreado. En contornos, su parte zonalmente asimétrica."}
+SAM$right %>% 
+  .[, asym := Anomaly(hgt), by = lat] %>% 
+  periodic(lon = c(0, 360)) %>% 
+  ggplot(aes(lon, lat)) +
+  geom_contour_fill(aes(z = hgt), breaks = ZeroBreaks) +
+  geom_contour2(aes(z = asym, linetype = factor(-sign(..level..))), 
+                breaks = ZeroBreaks) +
+  geom_map2(lat < -20) +
+  scale_x_longitude() +
+  scale_y_latitude(limits = c(-90, -20)) +
+  scale_fill_divergent(guide = "none") +
+  coord_polar()
+```
+
+La parte asimétrica se parece mucho a un tren de ondas de Rossby tipo PSA que aparece también en el análisis que estoy haciendo en mi tesis. 
+
+
+@baldwin2009 (BT09) proponen un método para calcular un índice anular un poco más simétrico (y con otras ventajas que listan en el paper). El método consuste en hacer el EOF, no sobre el campo 3D de geopotencial (lon x lat x tiempo) sino sobre el campo 2D de geopotencial medio zonal (lat x tiempo). Es decir:
+
+1. Calcular anomalías tamporales de geopotencial del lado polar de 20°.
+
+2. Calcular el promedio zonal de las anomalías temporale de geopotencial en cada nivel. 
+
+3. Hacer EOF de este promedio zonal (y pesando por la raiz del coseno de la latitud).
+
+
+```{r}
+bt09 <- hgt[lat <= -20, .(hgt = mean(hgt_a)), by = .(lat, time)] %>% 
+   .[, hgt := hgt*sqrt(cos(lat*pi/180))] %>% 
+   EOF(hgt ~ time | lat, n = 1, data = .)
+bt09$left[, hgt := -hgt]
+bt09$right[, hgt := -hgt]
+```
+
+
+
+```{r sam-bt09, fig.cap = "Regresión de la anomalías mensual de altura geopotencial con el índice SAM tradicional (SAM) y el computado con el método de BT09 (BT09). Su respectiva parte asimétrica en contornos.", fig.fullwidth = TRUE}
+rbindlist(list(SAM = SAM$left,
+               BT09 = bt09$left),
+          idcol = "metodo") %>% 
+  .[, metodo := factor(metodo, levels = c("SAM", "BT09"), ordered = TRUE)] %>% 
+  setnames("hgt", "EOF") %>% 
+  .[, EOF := scale(EOF), by = metodo] %>% 
+  .[hgt[lev == 700], on = .NATURAL, allow.cartesian = TRUE] %>% 
+  .[, FitLm(hgt_a, EOF), by = .(lon, lat, metodo)] %>% 
+  rm_intercept() %>% 
+  .[, asym := Anomaly(estimate), by = .(lat, metodo)] %>% 
+  periodic(lon = c(0, 360)) %>% 
+  ggplot(aes(lon, lat)) +
+  geom_contour_fill(aes(z = estimate), breaks = ZeroBreaks) +
+  geom_contour2(aes(z = asym, linetype = factor(-sign(..level..))), 
+                breaks = ZeroBreaks) +
+  geom_map2(lat < -20) +
+  scale_x_longitude() +
+  scale_y_latitude(limits = c(-90, -20)) +
+  scale_fill_divergent(guide = "none") +
+  coord_polar() +
+  facet_grid(~metodo)
+```
+
+La regresión de la altura geopotencial con este índice es más simétrica (Figura \@ref(fig:sam-bt09)) pero aún tiene razgos asimétricos. Además, el método no brinda una descripción de la parte asimétrica del SAM, que es lo que me interesa en realidad. 
+
+
+# Separando simétrico y asimétrico
+
+Mi métdo es este: 
+
+1. Computar el patrón SAM de forma "tradicional" usando las anomalías temporales de geopotencial en 700hPa (Figura \@ref(fig:sam-eof)).
+
+2. Calcular la parte simétrica y la parte asimétrica de ese patrón. 
+
+3. Para cada campo de anomalía de geopotencial, calcular la regresión múltiple lineal con la parte simétrica y la asimétrica del patrón. Es decir, si $\mathit{SAM}_{sym}$ y $\mathit{SAM}_asym$ son los patrones simétricos y asimétricos del SAM computados en el paso 2 y $\mathit{Z}$ es el campo de anomalías de geopotencial en 700hPa de una determinada fecha, hacer la regresión $Z \sim \mathit{SAM}_{sym} + \mathit{SAM}_{asym}$^[Esta notación es medio de R, pero implica ajustar el modelo  $Z \sim a\mathit{SAM}_{sym} + b\mathit{SAM}_{asym} + b_0 +  \epsilon$ donde $\epsilon \sim N(0, \sigma_\epsilon)$ es el error.] (La regresión pesada por el coseno de la latitud).
+
+4. La serie temporal de a y b son los índices de SAM simétrico y asimétrico repectivamente. 
+
+5. ???
+
+6. Profit!
+
+
+
+```{r patrones, fig.cap = "Descomposición del patrón SAM completo en su parte asimétrica y simétrica.", fig.width = 11, fig.height = 4, fig.fullwidth = TRUE}
+sam_sep <- SAM$right %>% 
+  copy() %>% 
+   setnames("hgt", "full") %>% 
+   .[, c("sym", "asym") := list(mean(full), Anomaly(full)), by = .(lat)]
+
+lab_sam <-  c(full = "Completo", 
+              asym = "Asimétrico",
+              sym  = "Simétrico")
+sam_sep %>% 
+   rm_singleton() %>%
+   melt(id.vars = c("lon", "lat")) %>% 
+   .[variable == "asym", value := value + rnorm(.N, 0, sd = 1e-6)] %>%
+   .[, variable := factor(variable, levels = names(lab_sam), ordered = TRUE)] %>% 
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = value), global.breaks = FALSE, breaks = ZeroBreaks) +
+   geom_map2() +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(NA, -20)) +
+   scale_fill_divergent(guide = "none") +
+   coord_polar() +
+   facet_grid(~variable, labeller = labeller(variable = lab_sam, lev = lev.lab)) 
+```
+
+La Figura \@ref(fig:patrones) ilustra los patrones de SAM completo, asimétrico y simétrico que luego se usan para hacer la regresión del punto 3. 
+
+```{r}
+sam <-  hgt[lat %between% c(-90, -20), eof_asym(hgt_a, lon, lat, time, n = 1)] %>% 
+  .[, estimate := -estimate] %>% 
+  .[, term := factor(term, levels = c("full", "sym", "asym"), 
+                     labels = c("Completo", "Simétrico", "Asimétrico"), 
+                     ordered = TRUE)]
+```
+
+
+```{r bt09-samsim, fig.cap = "Índices de SAM simétrico y asimétrico calculados usando el método descripto en el texto (eje x) comparado con el índice SAM tradicional (izquierda) y con el índice SAM de BT09 (derecha) (eje y)."}
+rbind(SAM = SAM$left, 
+      BT09 = bt09$left, 
+      idcol = "metodo") %>% 
+  .[, metodo := factor(metodo, levels = c("SAM", "BT09"), ordered = TRUE)] %>% 
+  .[sam[term != "Completo"], on = "time", allow.cartesian = TRUE] %>% 
+  ggplot(aes(estimate, hgt)) + 
+  geom_point(size = 0.2) +
+  geom_label(data = ~.x[, cor(estimate, hgt), by = .(metodo, term)],
+             aes(label = paste0("Cor = ", signif(V1, 3))),
+             x = 20000, y = -0.05) +
+  scale_x_continuous("") +
+  scale_y_continuous("") +
+  facet_grid(term~metodo)
+```
+
+
+El índice de SAM simétrico que devuelve este método es virtualmente idéntico al de BT09 y ambos están altamente correlacionados con el índice SAM tradicional (Figura \@ref(fig:bt09-samsim) panel superior). ¿Cuál es la ventaja de tanto lío entonces? 
+
+Lo que tiene de bueno es que tengo el índice de SAM asimétrico, que es significativamente distinto a BT09 aunque correlacionado (Figura \@ref(fig:bt09-samsim) panel inferior). Con estos dos índices puedo hacer regresiones sobre estos distintos patrones. Algo importante es que para que verdaderamente se aisle el fenómeon simétrico y del asimétrico hay que aplicar los métodos a ambos índices de formam conjunta. Es decir, aún si me interesa la parte asimétrica, tengo que usar la parte simétrica para eliminar su influencia. 
+
+La Figura \@ref(fig:regres) muestra regresiones de la anomalía mensual de geopotencial en 700hPa con los índices de SAM simétricos y asimétricos. Los campos de la columna izquierda son generados haciendo dos regresiones lineales independientes $Z \sim \mathit{SIM}$ y  $Z \sim \mathit{ASIM}$ mientras que los campos de la columna derecha son generados a partir de una única regresión lineal múltiple  $Z \sim \mathit{SIM} + \mathit{ASIM}$.  
+
+```{r regres, fig.cap = "Regresiones de los índices SAM simétrico y asimétrico con la anomalía mensual de geopotencial haciendo dos regresiones simples independientes (izquierda) y de una regresión múltiple (derecha). La parte zonalmente asimétrica en contornos.", fig.fullwidth = TRUE, fig.height = 7}
+regr_mult <- hgt[dcast(sam, time ~ term, value.var = "estimate_norm"), 
+            on = .NATURAL, allow.cartesian = TRUE] %>% 
+  .[lat <= -20] %>% 
+  .[, FitLm(-hgt_a, Simétrico, Asimétrico), by = .(lon, lat)] %>% 
+  rm_intercept() 
+
+regr_simple <- hgt[dcast(sam, time ~ term, value.var = "estimate_norm"), 
+            on = .NATURAL, allow.cartesian = TRUE] %>% 
+  .[lat <= -20] %>% 
+  .[, rbind(as.data.table(FitLm(-hgt_a, Simétrico)),
+        as.data.table(FitLm(-hgt_a, Asimétrico))), by = .(lon, lat)] %>% 
+  rm_intercept() 
+
+
+rbind(multiple = regr_mult, 
+      simple = regr_simple, idcol = "metodo") %>% 
+  .[, metodo := factor(metodo, levels = c("simple", "multiple"), 
+                       labels = c("Regresiones simples", "Regresión múltiple"), 
+                       ordered = TRUE)] %>% 
+  .[, asym := Anomaly(estimate), by = .(term, metodo, lat)] %>% 
+  periodic(lon = c(0, 360)) %>% 
+  ggplot(aes(lon, lat)) +
+  geom_contour_fill(aes(z = estimate), breaks = ZeroBreaks, bins = 13) +
+  geom_contour2(aes(z = asym, linetype = factor(-sign(..level..))),
+                breaks = ZeroBreaks, bins = 13) +
+  geom_map2(lat < -20) +
+  scale_x_longitude() +
+  scale_y_latitude(limits = c(-90, -20)) +
+  scale_fill_divergent(guide = "none") +
+  coord_polar() +
+  facet_grid(term~metodo)
+
+```
+
+Si bien a grandes razgos ambos pares de campos de regresión son muy similares, se puede ver que al hacer la regresión múltiple se separa mejor la estructura anular zonalmente simétrica de la estructura zonalmente asimétrica. Esto se nota principalmente en el campo de regresión de la parte simétrica. El obtenido por regresión simple es idéntico al campo de BT09 (Figura \@ref(fig:sam-bt09))^[Como es de esperarse dada la correlación casi perfecta entre ambos índices] y mantiene asimetrías zonales. El obtenido mediante regresión múltiple, en cambio, es significativamente más simétrico. La regresione del índice asimétrico, por su parte, mantiene partes simétricas indeseadas en el caso de la regresión simple, como atestigua la diferencai entre el campo sombreado y los contornos. Estas diferencias prácticamente desaparecen en el campo creado con regresión múltiple.
+
+
+# Bibliografía
