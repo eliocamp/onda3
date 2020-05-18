@@ -70,7 +70,7 @@ knitr_set_cache(cache.extra = 40)
 
 
 ```{r}
-hgt <- ReadNetCDF(ERA5(), vars = c(hgt = "z"), 
+hgt <- ReadNetCDF(ERA5(), vars = auto_scale(hgt = "z"), 
                   subset = list(lev = list(50, 200))) %>% 
   .[, hgt := hgt/9.8] %>% 
   .[, hgt_a := Anomaly(hgt), by = .(lon, lat, lev, month(time))]
