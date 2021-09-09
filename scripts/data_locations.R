@@ -88,3 +88,10 @@ CMAP <- function() {
    class(file) <- c("nc_file", class(file))
    return(file)
 }
+
+PSA <- function() {
+   file <- here::here("DATA", "psa-pattern.csv")
+   checkmate::assert_access(file, access = "r")
+   return(data.table::fread(file))
+}
+

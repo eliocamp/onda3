@@ -1,0 +1,606 @@
+---
+title: "ZW3 no existís"
+author: "Elio Campitelli"
+date: "15/04/2021"
+output: 
+   bookdown::html_document2:
+         base_format: tufte::tufte_html 
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      cache.extra = 42, 
+                      warning = FALSE, message = FALSE,
+                      # out.extra = "",
+                      cache.path = paste0("cache/", name, "/"),
+                      fig.path = paste0("fig/", name, "/")
+                      # fig.align = "center"
+)
+
+# knitr::opts_chunk$set(fig.width = 13, 
+#                       fig.height = 7)
+source(here::here("scripts", "helperfun.R"))
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+library(tagger)
+
+theme_set(theme_elio())
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+setnames <- function(x, ...) {
+   names <- c(...)
+   # print(names)
+   data.table::setnames(x, unname(names), names(names))
+}
+
+lapply_p <- function(x, FUN, ...) {
+   pb <- progress::progress_bar$new(total = length(x), 
+                                    format = "[:bar] :percent - :eta")
+   
+   FUN_pb <- function(x, ...) {
+      pb$tick()
+      FUN(x, ...)
+   }
+   
+   lapply(x, FUN_pb, ...)
+}
+```
+
+La onda 3 no existe.
+
+# Raphael
+
+```{r read-data}
+hgt <- ReadNetCDF("DATA/NCEP Reanalysis/hgt.mon.mean.nc", var = c(hgt = "hgt"),
+                  subset = list(level = list(500), 
+                                lat = -90:0,
+                                time = c("1978-12-01", NA))) %>% 
+   setnames(lev = "level")  %>% 
+   .[, hgt_a := Anomaly(hgt), by = .(month(time), lon, lat)] %>% 
+   .[, hgt_z := Anomaly(hgt), by = .(time, lat)] %>% 
+   .[, hgt_za := Anomaly(hgt_a), by = .(time, lat)] %>% 
+   .[, hgt_m := mean(hgt), by = .(lon, lat)] %>% 
+   .[, wave3 := FilterWave(hgt, 3), by = .(time, lat)] %>% 
+   .[, wave3_m := mean(wave3), by = .(lon, lat)] %>%  #wave3 climatológica
+   .[, wave3_a := wave3 - wave3_m] %>% 
+   .[, hgt_m := NULL] 
+```
+
+```{r raphael-points}
+# The three grid points chosen to represent ZW3 lie in the approximate
+# location of the ridges of the wave at latitude 49S and
+# longitudes 50E, 166E and 76W. The locations are based
+# on van Loon and Jenne [1972, Figure 2] which shows the
+# annual average location of the ridges of ZW3 in the 500 hPa
+# field.
+#      - Raphael 2003
+
+points_raphael <- data.table(lat = -49, 
+                             lon = ConvertLongitude(c(50, 166, -76)))
+
+filter_raphael <- function(data, points = points_raphael) {
+   data[lat %~% points_raphael$lat][lon %~% points_raphael$lon]
+}
+
+points <- hgt %>%
+   .[lev == 500] %>%
+   copy() %>% 
+   filter_raphael() %>% 
+   .[, hgt_z := frollmean(hgt_z, 3, fill = NA, align = "center"), 
+     by = .(lon, lat, lev)] %>%
+   na.omit() %>% 
+   .[, hgt_z := scale(hgt_z), by = .(lon, lat, month(time), lev)]
+
+
+raphael <- points %>% 
+   .[, .(zw3 = mean(hgt_z)), by = .(time, lev)]
+```
+
+La regresión de altura geopotential en el el índice de rafael da una onda tres.
+Eso es medio obvio; cualquier índice basado en un promedio de cualquier puntos va a tener correlación positiva cerca de los puntos usados para definirlo.
+La pregunta es si esto es un patrón coherente.
+Ya en la figura se ve algo raro.
+La región más correlacionada con el índice de Raphael no es ninguno de los tres puntos sino el pacífico sur central.
+
+```{r}
+hgt %>% 
+   .[lev == 500] %>% 
+   # .[lat > -85] %>% 
+   .[raphael, on = "time"] %>% 
+   .[, FitLm(hgt_z, zw3), by = .(lon, lat)] %>% 
+   shceof::rm_intercept() %>% 
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
+   .[, estimate := Anomaly(estimate), by = .(lat)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate, fill = ..level..)) +
+   geom_contour_tanaka(aes(z = estimate)) +
+   geom_point(data = points_raphael, size = 3) +
+   geom_map2() +
+   scale_y_latitude(limits = c(-90, 0)) +
+   scale_x_longitude() +
+   scale_fill_divergent_discretised(NULL, guide = guide_colorstrip_bottom()) +
+   coord_quickmap(ylim = c(NA, -15)) 
+```
+
+Eso se ve aún más claramente si ploteando $r^2$ en vez de el patrón de regresión.
+
+```{r}
+hgt %>% 
+   .[lev == 500] %>% 
+   .[lat > -85] %>% 
+   .[raphael, on = "time"] %>% 
+   .[, .(estimate = cor(hgt_z, zw3)^2), by = .(lon, lat)] %>% 
+   # shceof::rm_intercept() %>% 
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate, fill = ..level..)) +
+   geom_contour_tanaka(aes(z = estimate)) +
+   geom_point(data = points_raphael, size = 3) +
+   geom_map2() +
+   scale_y_latitude(limits = c(-90, 0)) +
+   scale_x_longitude() +
+   # scale_fill_divergent_discretised(guide = guide_colorsteps(barwidth = 20)) +
+   scale_fill_viridis_c(guide = guide_colorsteps(barwidth = 20), 
+                        super = ScaleDiscretised) +
+   coord_quickmap(ylim = c(NA, -15)) 
+```
+
+Los puntos propuestos por Raphael no son covariantes.
+De hecho, la correlación
+
+```{r}
+concordance <- points %>% 
+   .[lev == 500] %>% 
+   .[, .(concordant = sum(sign(hgt) == sign(hgt[1])) == 3), by = time] 
+
+points %>% 
+   copy() %>% 
+   .[, lon := factor(lon)] %>% 
+   widyr::pairwise_cor(lon, time, hgt_z, diag = TRUE) %>% 
+   dcast(item1 ~ item2) %>% 
+   knitr::kable(digits = 3, caption = "Correlación entre la anomalía zonal de geopotential en los tres puntos considerados por Raphael.")
+```
+
+La tabla muestra que correlación entre los tres puntos es básicamente nula.
+
+Los campos de altura geopotential asociados a cada punto por separado ni se acercan a una onda 3:
+
+```{r}
+hgt %>% 
+   .[lev == 500] %>% 
+   copy() %>% 
+   .[lat >= -90] %>% 
+   melt(id.vars = c("lat", "lon", "time"), measure.vars = c("hgt_a", "hgt_z"), 
+        value.name = "hgt") %>% 
+   .[points[lev == 500, .(lon_point = lon, value = hgt, time)], 
+     on = "time", allow.cartesian = TRUE] %>%
+   .[, .(estimate = cor(hgt, value)), 
+     by = .(lon, lat, variable, lon_point)] %>% 
+   
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate, fill = ..level..), 
+                     breaks = AnchorBreaks(0, 0.1, 0)) +
+   geom_contour_tanaka(aes(z = estimate), breaks = AnchorBreaks(0, 0.1, 0)) +
+   geom_point(data = unique(points[, .(lat, lon)]), size = 0.4) +
+   geom_point(data = unique(points[, .(lat, lon)])[, lon_point := lon], size = 3) +
+   geom_map2() +
+   scale_fill_divergent_discretised(guide = guide_colorsteps(barwidth = 20)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap(ylim = c(NA, 0)) +
+   facet_grid(lon_point~variable, 
+              labeller = labeller(variable = c(hgt_a = "Geopotential completo",
+                                               hgt_z = "Anomalías zonales"),
+                                  lon_point = LonLabel))
+```
+
+Los patrones de los sub-índices compuestos por el promedio de dos puntos tampoco tienen una onda 3.
+
+```{r}
+
+list(izquierdos = points %>% 
+        copy() %>% 
+        .[lev == 500] %>% 
+        .[lon %~% c(50, 165)] %>% 
+        .[, .(value = mean(hgt_z)), by = time],
+     derechos = points %>% 
+        copy() %>% 
+        .[lev == 500] %>% 
+        .[lon %~% c(165, 285)] %>% 
+        .[, .(value = mean(hgt_z)), by = time],
+     extremos = points %>% 
+        copy() %>% 
+        .[lev == 500] %>% 
+        .[lon %~% c(50, 285)] %>% 
+        .[, .(value = mean(hgt_z)), by = time]) %>% 
+   rbindlist(idcol = "index") -> indexes
+
+
+
+hgt %>% 
+   copy() %>% 
+   .[lev == 500] %>% 
+   .[lat > -90] %>% 
+   melt(id.vars = c("lat", "lon", "time"), measure.vars = c("hgt_a", "hgt_z"), 
+        value.name = "hgt") %>% 
+   .[indexes, on = "time", allow.cartesian = TRUE] %>% 
+   .[, cor.test(hgt, value)[c("p.value", "estimate")], 
+     by = .(lon, lat, index, variable)] %>% 
+   .[, p.value := p.adjust(p.value, "fdr"), by = .(index, variable)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate, fill = ..level..), 
+                     breaks = AnchorBreaks(0, 0.1, 0)) +
+   geom_contour_tanaka(aes(z = estimate), 
+                       breaks = AnchorBreaks(0, 0.1, 0)) +
+   geom_point(data = unique(points[, .(lat, lon)])) +
+   geom_map2() +
+   scale_fill_divergent_discretised() +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap(ylim = c(NA, 0)) +
+   facet_grid(index~ variable, 
+              labeller = labeller(variable = c(hgt_a = "Geopotential completo",
+                                               hgt_z = "Anomalías zonales")))
+```
+
+Los patrones asociados a cada punto o combinaciones de punto no son una onda 3
+
+# R2
+
++-----------------+----------------+-----------------+-----------------+
+| Campo           | ZW3            | ZW3'            | QS3             |
++=================+================+=================+=================+
+| Z\*             | ✔️             | ✖️              | ✔️              |
++-----------------+----------------+-----------------+-----------------+
+| Z\*'            | ✖️             | ✔️              | ✖️              |
++-----------------+----------------+-----------------+-----------------+
+
+: Tabla de comparación entre campos. ZW3: Onda 3 del campo total en cada tiempo. ZW3': Onda 3 del campo de anomalías temporales en cada tiempo. QS3: Onda 3 del campo promedio (constante en el tiempo). Z\*: anomalía zonal de altura geopotencial en cada tiempo. Z\*': anomalía temporal de la anomalía zonal de altura geopotencial en cada tiempo.
+
+La tabla muestra las posibles comparaciones y si tienen sentido o no.
+Las ondas 3 computadas en cada tiempo sólo tiene sentido compararlas con los campos usados para generarlas.
+Es decir, anomalías con anomalías (Z\*' con ZW3') y campos totales con campos totales (Z\* con ZW3).
+Pero ojo, que lo que busca diagnosticar el índice de Raphael no es la similitud con la ZW3 o la ZW3' sino con la QS3, la onda 3 climatológica.
+Ésta en principio tiene sentido compararla con las anomalías zonales sin quitar la media climatológica, porque si estamos quitando la media, ¿por qué comparar con la climatología?
+Pero esto es lo que hace Raphael.
+Como su índice usa *anomalías* estandarizadas en los puntos donde están los máximos de la onda 3 climatológica, en realidad lo que está mirando es la correlación entre la anomalía de onda 3 y la onda 3 climatológica.
+Igual no es del todo loco, porque en realidad lo que se obtiene es un índice parecido a la comparación con la onda 3 total pero centrado en cero.
+
+En lo que sigue, voy a tomar "gajos" de longitud de 120º de ancho (es decir, media longitud de onda) y calcular la correlación entre el campo de altura geopotencial y de onda 3 para cada gajo.
+Es decir, correlación y covarianza móvil con una ventana de 120º.
+Lo voy a hacer para las tres combinaciones con `r emo::ji("check")` en la tabla anterior.
+
+La correlación da una idea de similitud entre el campo y la onda 3 y además permite calcular la varianza explicada por la onda 3 hemisférica en cada gajo.
+Está afectada solamente por la diferencia de fase ente la onda 3 hemisférica y la onda 3 local.
+La covarianza es similar a la correlación, pero tiene en cuenta la amplitud de las anomalías de altura geopotencial.
+Como la hago sobre la onda 3 normalizada para tener amplitud 1, lo único que afecta la magnitud de la covarianza es la amplitud de la onda 3 geopotencial local.
+
+
+
+```{r}
+periodic_roll_fun <- function(x, y = NULL, width, fun) {
+   x1 <- rep(x, 3)
+   keep <- (length(x)+1):(2*length(x))
+   
+   half_width <- (width - 1)/2
+   
+   
+   if (!is.null(y)) {
+      y1 <- rep(y, 3)   
+      result <- fun(x1, y1, width = width)
+   } else {
+      result <- fun(x1, width = width)
+   }
+   
+   result <- data.table::shift(result, n = -half_width)
+   
+   result[keep]
+}
+
+periodic_roll_regr <- function(x, y, width) {
+   cors <- periodic_roll_fun(x, y, width, fun = roll::roll_cor)
+   
+   
+   Sx <- sqrt(periodic_roll_fun(x, width = width, fun = roll::roll_var))
+   Sy <- sqrt(periodic_roll_fun(y, width = width, fun = roll::roll_var))
+   
+   m <- periodic_roll_fun(y, width = width, fun = roll::roll_mean)
+   b <- cors*Sy/Sx
+      
+   pred = m + b*x
+
+}
+
+periodic_roll_cov <- function(x, y, width) {
+   periodic_roll_fun(x, y, width, fun = roll::roll_cov)
+}
+
+periodic_roll_cor <- function(x, y, width) {
+   periodic_roll_fun(x, y, width, fun = roll::roll_cor)
+}
+```
+
+```{r}
+lon_width <- 360/3
+lon_halfwidth <- lon_width/2
+
+hgt <- hgt %>% 
+   .[, wave3_m_norm := wave3_m/sd(wave3_m), by = .(lat, time)] %>% 
+   .[, wave3_norm :=  wave3/sd(wave3), by = .(lat, time)] %>% 
+   .[, wave3_a_norm := wave3_a/sd(wave3_a), by = .(lat, time)]
+
+lons <- unique(hgt$lon)
+w <- sum(lons  %between% (180 + c(-lon_halfwidth, lon_halfwidth)))
+variables <- c("m_z" = "QS3 con Z*",
+               "a_a" = "ZW3' con Z*'",
+               "z_z" = "ZW3 con Z*")
+
+
+
+hgt[, `:=`(cor_m_z = periodic_roll_cor(wave3_m, hgt_z, 
+                                        width = w),
+            cov_m_z = periodic_roll_cov(wave3_m_norm, hgt_z, 
+                                        width = w),
+            
+            cor_a_a = periodic_roll_cor(wave3_a, hgt_za, 
+                                        width = w),
+            cov_a_a = periodic_roll_cov(wave3_a_norm, hgt_za,
+                                        width = w),
+            
+            cor_z_z = periodic_roll_cor(wave3, hgt_z, 
+                                        width = w),
+            cov_z_z = periodic_roll_cov(wave3_norm, 
+                                        hgt_z, 
+                                        width = w),
+            hgt_3 = periodic_roll_regr(wave3, 
+                                       hgt_z, width = w)),
+     by = .(lat, time)] 
+
+
+lon_wave3 <- hgt %>% 
+   melt(id.vars = c("time", "lon", "lat"), 
+        measure.vars = patterns(cor = "^cor_", cov = "^cov_")) %>% 
+   .[, variable := variables[variable]] 
+```
+
+Primero, un chequeo importante es ver la proporción de tiempos en los que la correlación entre las anomalías zonales de geopotencial y la onda 3 tienen correlación positiva.
+Para campos donde hay una onda 3 perfecta y nada más, naturalmente la correlación tendría que ser positiva el 100% de las veces en todo el domino.
+Para campos reales, la correlación va a tender a ser positiva cuando se compara ZW3 con Z\* y ZW3' con Z\*', porque la onda 3 en cuestión fue generada usando ese campo en particular.
+Pero si una parte del dominio domina y tiene una onda 3 local con mucha amplitud, podría ser que la onda 3 local de otra parte del dominio esté en otra fase y la correlación sea negativa.
+En el caso de la comparación entre QS3 y Z\*, en principio puede ser negativa, pero en promedio, para cada latitud tiene que ser positiva.
+
+```{r cor-prop, fig.cap = "Proporción de tiempos donde cor > 0."}
+lon_wave3 %>% 
+   .[, mean(cor > 0), by = .(lat, lon, variable)] %>% 
+   ggplot(aes(lon,lat)) +
+   geom_contour_fill(aes(z = V1, fill = ..level..)) + 
+   geom_contour2(aes(z = V1), size = 0.1) +
+   geom_text_contour(aes(z = V1, label = round(..level.., 4)),
+                     stroke = 0.1, stroke.colour = "white") +
+   geom_point(data = unique(points[, .(lat, lon = lon)])) +
+   shceof::geom_qmap(color = "black") +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent_discretised(midpoint = 0.5,
+                                    guide = guide_coloursteps(barwidth = 20)) +
+   coord_quickmap(ylim = c(NA, -20)) +
+   facet_wrap(~ variable, ncol = 2)
+```
+
+En la Figura \@ref(fig:cor-prop) se ve la proporción de meses con correlación positiva.
+En la comparación de QS con Z\* se ve que hay dos "hot-spots" donde la correlación es positiva más del 90% del tiempo, al sur de Australia y al sureste de Sudamérica, mientras que en el resto de las latitudes medias las correlaciones positivas se dan menos frecuentemente.
+En el Pacífico sur, por ejemplo, éstas se dan la mitad del tiempo, lo que equivale al azar.
+Esto indica que estas dos regiones son consistentemente parecidas a la onda zonal 3 climatológica mientras que las otras oscilan tanto en positivo como en negativo.
+
+La comparando ZW3 con Z\*, muestra un patrón similar a la comparación de QS3 con Z\*, sólo que todos los valores son más cercanos a 1, como es de esperarse considerando que el ZW3 se construye a partir de Z\*.
+
+La comparación de ZW3' con Z\*' también tiene valores cercanos a 1, pero se ve claramente que el Pacífico Sur es un área preferencial de mayor correlación positiva.
+
+```{r r2, fig.cap = "R^2 medio cuando la correlación es positiva. "}
+lats <- c(-65, -55, -40, -30)
+lon_wave3 %>%
+   copy() %>% 
+   # .[cor < 0, cor := 0] %>%
+   .[cor > 0] %>%
+   .[, mean(cor^2), by = .(lon, lat, variable)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1, fill = ..level..)) +
+   # geom_hline(yintercept = lats) +
+   shceof::geom_qmap(color = "black") +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap(ylim = c(NA, -20)) +
+   scale_fill_viridis_c(super = ScaleDiscretised, 
+                        labels = scales::percent_format(accuracy = 1),
+                        guide = guide_colorsteps(barwidth = 25))  +
+   facet_wrap(~ variable, ncol = 2)
+```
+
+La Figura \@ref(fig:r2) muestra la varianza explicada promedio cuando la correlación es positiva.
+Los patrones son similares a los de la Figurea \@ref(fig:cor-prop).
+Las dos comparaciones que incluyen el campo medio tienen los hot-spots al sur de Australia y al sudeste de Sudamérica, mientras que las comparaciones entre anomalías tiene su máximo en el Pacífico sur.
+
+```{r cov, fig.cap = "Covarianza media"}
+lon_wave3 %>%
+   copy() %>% 
+   # .[cor > 0] %>%
+   # .[, cov := scales::rescale(cov, to = c(0, 1)), by = .(variable, time)] %>%
+   .[, mean(cov), by = .(lon, lat, variable)] %>%
+   # .[variable != "ZW con Z*", V1 := V1*10] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1, fill = ..level..)) +
+   # geom_hline(yintercept = lats) +
+   geom_map2() +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap(ylim = c(NA, -20)) +
+   scale_fill_divergent(super = ScaleDiscretised, 
+                        guide = guide_colorsteps(barwidth = 25))   +
+   facet_wrap(~variable, ncol = 2)
+```
+
+Finalmente, la Figura \@\ref{fig:cov} muestra que la covarianza media también sigue un patrón similar.
+
+
+
+En resumen, lo que se observa es que la variabilidad de la onda 3 y la onda 3 media tienen comportamientos distintos.
+
+La onda 3 climatológica se explica y está relacionada con lo que pasa en los hot-spots de Australia y Sudamérica, pero la variación de la onda 3 no es importante en esos lugares, sino en el Pacífico Sur.
+
+```{r cross-cor, fig.cap = "Correlación cruzada de "}
+cors <- lon_wave3 %>% 
+   .[, widyr::pairwise_cor(.SD, lon, time, cov), 
+     by = .(variable, lat)] 
+
+cors %>% 
+   .[lat %in% -55] %>% 
+   ggplot(aes(item1, item2)) +
+   geom_contour_fill(aes(z = correlation^2, fill = ..level..), na.fill = 1)  +
+   geom_contour2(aes(z = correlation^2), na.fill = 1) +
+   geom_text_contour(aes(z = correlation^2), color = "white", 
+                     stroke.color = "black", 
+                     stroke = 0.15) +
+   scale_fill_viridis_c(super = ScaleDiscretised, 
+                        guide = guide_colorsteps(barwidth = 20)) +
+   coord_equal() +
+   facet_wrap(variable ~ lat)
+```
+
+Además, la proyección de el campo explicado por la onda 3 y el campo de geopotential total computado en cada gajo co-varía muy poco entre longitudes.
+
+# Reconstrucción onda 3
+
+Siguiendo el espíritu anterior, puedo 
+
+
+```{r}
+
+timemax <- hgt %>% 
+   .[lat == -50, FitWave(hgt_z, 3), by = time] %>% 
+   .[order(-amplitude)] %>% 
+   .[1:10, time]
+
+
+```
+
+
+```{r}
+hgt %>% 
+   .[time %in% timemax[1:6]] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = hgt_3)) +
+   scale_fill_divergent() +
+   facet_wrap(~factor(time))
+```
+
+```{r}
+waves <- hgt %>% 
+   .[lat == -55, FitWave(hgt_za, 3), by = time]
+
+hgt %>% 
+   copy() %>% 
+   .[, env := WaveEnvelope(hgt_za), by = .(lat, time)] %>% 
+   # .[, amplitude := FitWave(wave3_a_norm, 3)$amplitude, by = .(lat, time)] %>% 
+   .[lat > -85] %>% 
+   .[, FitLm(env, wave3_a_norm), by = .(lon, lat)] %>% 
+   rm_intercept() %>% 
+   .[, estimate := Anomaly(estimate), by = .(lat)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   scale_fill_divergent() +
+   shceof::geom_qmap(color = "black") 
+```
+
+
+
+# Wavelets
+
+Amplitud de onda 3 usando wavelets no es constante sino que es máxima justamente en la región del Pacífico. 
+
+
+
+
+```{r}
+wv <- hgt %>%
+   .[, .(lat, lon, time, hgt, hgt_a)] %>% 
+   melt(measure.vars = c("hgt", "hgt_a")) %>% 
+   .[, wv := PeriodicWavelet(value, 3),
+     by = .(lat, time, variable)] %>% 
+   .[, mean(wv), by = .(lon, lat, variable)] 
+
+
+wv %>% 
+   .[, V1_z := Anomaly(V1), by = .(lat, variable)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1_z)) +
+   geom_contour2(aes(z = V1)) +
+   geom_map2() +
+   scale_fill_divergent() +
+   coord_quickmap(ylim = c(NA, 0)) +
+   facet_wrap(~variable, ncol = 1)
+```
+
+
+Cabe aclarar algunas deficiencias con este método. 
+Primero, que la ventana efectiva de la Wavelet de Morlet me parece que es bastante grande, ciertamente más que los `r lon_width`º que uso en el análisis anterior. 
+Eso hace que las diferencias locales se "borroneen", es decir, que su localización sea menos precisa. 
+
+
+```{r}
+hgt %>% 
+   .[, .(lat, lon, time, hgt = hgt_a)] %>% 
+   .[time == time[1]] %>% 
+   .[, wave3 := FilterWave(hgt, 3), by = lat] %>% 
+   .[, hgt := wave3, by = lat] %>% 
+   .[!(lon %between% c(180-30, 180+30)), hgt := 0] %>%
+   .[, cov := periodic_roll_cov(hgt, wave3, width = w), by = lat] %>% 
+   .[, wv := PeriodicWavelet(hgt, 3), by = .(lat)] %>% 
+   .[, .(lat, lon, cov, wv)] %>% 
+   melt(id.vars = c("lat", "lon")) %>% 
+   .[, value := value/max(value, na.rm = TRUE), by = .(variable)] %>%
+   .[, valuez := Anomaly(value), by = .(variable, lat)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = valuez))  +
+   geom_contour2(aes(z = value)) +
+   geom_vline(xintercept = c(180-30, 180+30)) +
+   scale_fill_divergent() +
+   facet_wrap(~variable)
+```
+
+Esto se ve en la figura, que muestra cómo se comporta waveletes cuando hay una onda 3 pura únicamente entre `r knitr::combine_words(LonLabel(c(180-30, 180+30)), and = " y ")` (líneas negras). 
+Las líneas de contorno negras muestran la amplitud de wavelets, y puede verse que aún muy lejos de la localización de las anomalías, la amplitud de wavelets sigue siendo nada trivial. 
+El método de la "covarianza por gajos", en cambio, es mucho más sensible, dando valores importantes sólo cerca de las anomalías. 
+
+Otro problema de wavelets es que computa la amplitud de la onda local para cualquier fase, por lo cual no permite fijar la fase a la fase global. 
+
+Por esto, creo que es mejor usar la covarianza por gajos. 
+
+
+

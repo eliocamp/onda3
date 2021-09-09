@@ -93,9 +93,9 @@ map_simple <- memoise::memoise(map_simple_)
 
 geom_map2 <- function(subset = NULL, color = "black", size = 0.2, fill = NA, wrap = c(0, 360), keep = 0.015, ...) {
    data <- fortify(map_simple(wrap = wrap, keep  = keep)) %>% 
-      as.data.table() %>% 
+      data.table::as.data.table() %>% 
       .[, c("long", "lat", "group")] %>% 
-      setnames("long", "lon")
+      data.table::setnames("long", "lon")
    subset <- eval(substitute(subset), envir = data)
    if (is.null(subset)) subset <- TRUE
    
@@ -1716,22 +1716,26 @@ Pvaluate <- function(estimate, std.error, df, adjustement = "none") {
 
 lev.breaks <- c(1000, 500, 300, 200, 100, 50, 10)
 
-theme_elio <- theme_minimal(base_size = 16) +
-   theme(
-      strip.background = element_rect(fill = NA, color = "gray30"),
-      # text = element_text(family = font_rc),
-      legend.position = "bottom", legend.box = "vertical",
-      panel.spacing.y = unit(5, "mm"),
-      panel.spacing.x = unit(5, "mm"),
-      legend.spacing = unit(2, "mm"), 
-      panel.border = element_rect(colour = "black", fill = NA),
-      plot.margin = grid::unit(rep(3, 4), "mm"),
-      # legend.title = element_blank(),
-      legend.box.spacing = unit(3, "mm"),
-      legend.margin = margin(t = -5),
-      panel.grid = element_line(color = "gray10", size = 0.4, linetype = 3),
-      panel.ontop = TRUE)
-theme_set(theme_elio)
+
+theme_elio <- function(base_size = 16) {
+   ggplot2::theme_minimal(base_size = base_size) +
+      ggplot2::theme(
+         # strip.background = ggplot2::element_rect(fill = NA, color = "gray30"),
+         # text = element_text(family = font_rc),
+         legend.position = "bottom", legend.box = "vertical",
+         tagger.panel.tag.background = ggplot2::element_rect(color = NA),
+         strip.text = ggplot2::element_text(size =  ggplot2::rel(11/16)),
+         # panel.spacing.y = grid::unit(5, "mm"),
+         # panel.spacing.x = grid::unit(5, "mm"),
+         # legend.spacing = grid::unit(2, "mm"),
+         # panel.border = ggplot2::element_rect(colour = "black", fill = NA),
+         # plot.margin = grid::unit(rep(3, 4), "mm"),
+         # # legend.title = element_blank(),
+         # legend.box.spacing = grid::unit(3, "mm"),
+         # legend.margin = ggplot2::margin(t = -5),
+         panel.grid = ggplot2::element_line(color = scales::alpha("gray60", 0.5), size = 0.1),
+         panel.ontop = TRUE)
+}
 
 
 setnames2 <- function(x, ...) {
