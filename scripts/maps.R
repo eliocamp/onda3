@@ -39,7 +39,7 @@ geom_qmap <- function(subset = identity,
 
 }
 
-map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
+map_simple <- memoise::memoise(function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
   map <- maps::map("world", fill = TRUE,
                    col = "transparent", plot = FALSE, wrap = wrap)
   map <- sf::st_as_sf(map)
@@ -47,17 +47,16 @@ map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
     map <- rmapshaper::ms_simplify(map, keep = keep, weighting = weighting)
   }
 
-
   map
-}
+})
 
-fortify <- ggplot2::fortify
+# fortify <- ggplot2::fortify
 
 # zzz.R
-.onLoad <- function(lib, pkg) {
-  map_simple <<- memoise::memoise(map_simple)
-  fortify <<- memoise::memoise(fortify)
-}
+# .onLoad <- function(lib, pkg) {
+#   map_simple <<- memoise::memoise(map_simple)
+#   fortify <<- memoise::memoise(fortify)
+# }
 
 
 

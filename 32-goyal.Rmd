@@ -4,6 +4,8 @@ author: "Elio Campitelli"
 output: 
    bookdown::html_document2:
          base_format: tufte::tufte_html 
+link-citations: yes 
+bibliography: goyal.bib
 ---
 
 ```{r setup, include=FALSE}
@@ -30,8 +32,9 @@ knitr::opts_chunk$set(
 	fig.path = paste0("fig/", name, "/"),
 	message = FALSE,
 	warning = FALSE,
-	cache = TRUE,
-	cache.extra = 42,
+	cache = TRUE, 
+	cache.lazy = FALSE,
+	cache.extra = 41,
 	cache.path = paste0("cache/", name, "/")
 )
 # knitr::opts_chunk$set(fig.width = 13, 
@@ -46,6 +49,7 @@ library(magrittr)
 library(patchwork)
 library(here)
 library(tagger)
+library(kableExtra)
 
 theme_set(theme_elio())
 guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
@@ -150,9 +154,17 @@ scale_color_exp <- function(aesthetics = c("colour"), ...){
                       ...)
    
 }
+
+keep_lat <- function(data, lat = -55) {
+   which_lat <- lat
+   data[, .SD[lat %~% which_lat], by = exp] 
+}
+
+
+sink <- capture.output(old <- sf::sf_use_s2(FALSE))
 ```
 
-Exploración de los datos de Goyal [@goyal2021a] <https://www.nature.com/articles/s41561-021-00811-3>.
+Exploración de los datos de @goyal2021a.
 
 En el paper hacen simulaciones globales con distintos continentes y ven qué le pasa a la onda 3.
 En el repositorio con los datos están disponibles las simulaciones:
@@ -166,8 +178,9 @@ En el repositorio con los datos están disponibles las simulaciones:
 
 Faltan la simulación control, la que tiene sólo la parte subtropical de Sudamétrica, la que tiene la parte subtropical de todos los continente, y una que tiene sólo la Antártida.
 
+## Ondas zonales
 
-```{r read-experiments, cache = FALSE}
+```{r read-experiments}
 files <- list.files("~/Downloads/goyal_wave3/Geopotential_height", full.names = TRUE)
 
 files_data <- strsplit(basename(files), "_") 
@@ -179,14 +192,14 @@ datagoyal <- transpose(files_data) %>%
    .[, file := files] %>% 
    .[lev != "850hPa.nc"] %>% 
    .[, ReadNetCDF(file, vars = c(hgt = "Z3"), 
-                  subset = list(lat = c(-90, -20))), by = exp] %>%
+                  subset = list(lat = c(-90, 20))), by = exp] %>%
    normalise_coords() 
 ```
 
-```{r read-obs, cache = FALSE}
+```{r read-obs}
 era5 <- ReadNetCDF("~/DATOS/reanalisys/ERA5/era5.mon.mean.nc", vars = c(hgt = "z_0001"), 
                    subset = list(level = 300, 
-                                 latitude = c(-90, -20))) %>% 
+                                 latitude = c(-90, 20))) %>% 
    normalise_coords() %>% 
    .[, hgt := hgt/9.8] %>% 
    na.omit() %>% 
@@ -207,15 +220,10 @@ datagoyal[, exp := factor(exp,
 
 ```
 
-La Figura \@ref(fig:repr-fig2) reproduce la Figura 2 del @goyal2021a. Muestra las ondas 3 anuales medias para los 100 años de cada simulación junto con la onda 3 media total en rojo.
+La Figura \@ref(fig:repr-fig2) reproduce la Figura 2 del @goyal2021a.
+Muestra las ondas 3 anuales medias para los 100 años de cada simulación junto con la onda 3 media total en rojo.
 
 ```{r repr-fig2, fig.cap="Onda 3 anual media de cada simulación y para ERA5."}
-
-keep_lat <- function(data, lat = -55) {
-   which_lat <- lat
-   data[, .SD[lat %~% which_lat], by = exp] 
-}
-
 datagoyal %>% 
    keep_lat() %>% 
    .[, hgt3 := FilterWave(hgt, 3), by = .(exp, time)] %>% 
@@ -261,6 +269,7 @@ amplitude_mean <- datagoyal %>%
    .[, FitWave(V1, 1:4), by = .(lat, exp)]
 
 mean_amplituide %>%  
+   .[lat <= -20] %>% 
    ggplot(aes(lat, V1)) +
    geom_line(aes(color = exp)) +
    facet_wrap(~k) +
@@ -276,7 +285,9 @@ La Figura \@ref(fig:estacionariedad) cuantifica la estacionariedad de la onda 3 
 ```{r estacionariedad, fig.cap = "Estacionariedad de la onda 3 para cada experimento y ERA5 (línea negra)."}
 amplitude_mean[mean_amplituide, on = c("lat", "exp", "k")] %>% 
    .[, stationarity := amplitude/V1] %>% 
-   .[k == 3] %>%
+   .[k == 3] %>% 
+   .[is.finite(stationarity)] %>% 
+   .[lat <= -20] %>% 
    ggplot(aes(lat, stationarity)) +
    geom_line(aes(color = exp)) +
    coord_flip() +
@@ -290,46 +301,68 @@ De hecho, esta segundaa simulación tiene aún menos estacionariedad en latitude
 Luego, el resto de las simulaciones con algún continente tienen una estacionariedad más alta.
 Aunque todas las simulaciones tienen menos estacionariedad que la observada en ERA5.
 
-La Figura \@ref(fig:resumen) resume todo esto, mostrando la amplitud media de las ondas 3 en el eje horizontal y la amplitud de la onda 3 media en el eje vertical.
-Las líneas negras marcan los valores de estacionariedad correspondientes.
+La Figura \@ref(fig:resumen) resume todo esto, mostrando la amplitud media de las ondas zonales en el eje horizontal y la estacionariedad en el eje vertical.
+Las líneas negras marcan los valores de amplitud de las onda media correspondiente.
 
-```{r resumen, fig.cap ="Amplitud media de las ondas 3 y estacionariedad de cada experimento y de ERA5 (punto negro). Línes de contorno marcan la estacionariedad."}
-N <- 80
-stationarity_grid <- CJ(V1 = seq(1, 65, length.out = N),
-                        amplitude = seq(0, 35, length.out = N)) 
-
-amplitude_mean[mean_amplituide, on = c("lat", "exp", "k")] %>% 
+```{r resumen, fig.cap ="Amplitud media de las ondas y estacionariedad de cada experimento y de ERA5 (punto negro) para los números de onda 1 a 4. Línes de contorno marcan la amplitud de la onda media", fig.with = 6, fig.height= 7}
+stat <- amplitude_mean[mean_amplituide, on = c("lat", "exp", "k")] %>% 
    keep_lat() %>% 
-   .[k == 3] %>% 
-   .[, stationarity := amplitude/V1] %>% 
-   # .[, stationarity := amplitude/V1] %>% 
-   ggplot(aes(V1, amplitude)) +
+   # .[k == 3] %>% 
+   .[, stationarity := amplitude/V1] 
+
+N <- 80
+stationarity_grid <- stat %>% 
+   .[, .(V1 = max(V1)*1.1, 
+         amplitude = max(amplitude)*1.1), by = .(k)] %>% 
+   .[, CJ(V1 = seq(1, V1, length.out = N),
+          amplitude = seq(1, amplitude, length.out = N)), by = k]
+
+
+stationarity_grid <- stat %>% 
+   .[, .(V1 = max(V1)*1.1, 
+         amplitude = max(amplitude)*1.1), by = .(k)] %>% 
+   .[, CJ(V1 = seq(1, V1, length.out = N),
+          stationarity = seq(0, 1, length.out = N)),
+     by = k] 
+
+stat %>% 
+   ggplot(aes(V1, stationarity)) +
    geom_contour2(data = stationarity_grid,  family = hrbrthemes::font_rc,
-                 aes(z = amplitude/V1, label = ..level..), 
-                 breaks = MakeBreaks()(c(0, 1)), 
-                 label.placer = label_placer_vertical(0.3)) +
+                 aes(z = stationarity*V1, label = ..level..), global.breaks = FALSE,
+                 label.placer = label_placer_fraction(0.8)) +
    ggrepel::geom_text_repel(aes(label = exp, color = exp), bg.colour = "white") +
-   geom_point(aes(color = exp)) +
+   geom_point(aes(fill = exp), colour = "white", shape = 21, size = 4) +
    guides(color = "none") +
-   scale_x_continuous("Amplitud media de las onda 3") +
-   scale_y_continuous("Amplitud de la onda 3 media") +
-   scale_color_exp() +
-   facet_wrap(~k, scales = "free")
+   scale_x_continuous("Amplitud media de las ondas zonales") +
+   scale_y_continuous("Estacionariedad") +
+   scale_color_exp(aesthetics = c("colour", "fill")) +
+   facet_wrap(~k, scales = "free") 
 ```
+
+En esta figura se resume también el comportamiento de las distintas ondas zonales.
+Para la onda 1, los distintos experimentos varían tanto en amplitud media de las ondas como en la amplitud de la onda media. 
+Y aunque ninguno de los experimentos se acercan a las amplitudes observadas, la estacionariedad de la simulación con trópicos realistas (~0.7) es bastante alta y cercana a la observada. 
+
+En la onda 2 la cosa es distinta. 
+Muchas de las simulaciones consiguen una amplitud media y una estacionariedad más o menos realista o incluso mayor a la observada. 
+
+Finalmente, para la onda 4 todas las simulaciones tienen una onda 4 con amplitud media y estacionariedad comparable a aquaplanet. 
+La excepción es la de trópicos realista, que tiene mucha más estacionariead. 
+
 
 Esto es consistente con lo que vi en la tesis de licenciatura.
 Las condiciones de superficie tienen el rol principalmente de cambiar la estacionariedad de la onda, no tanto la amplitud.
 Las ondas se excitan aún en ausencia de continentes.
-Poner un poquito de continente (Australia tropical) exita aún más, pero no es suficiente para bloquear la fase significativamente.
+Poner un poquito de continente (Australia tropical) excita aún más, pero no es suficiente para bloquear la fase significativamente.
 
 ## ¿Sirve fourier?
 
 Una pregunta es qué tan bien funciona el paradigma de Fourier en estas simulaciones.
 
-
 ```{r envelope-medio, fig.cap = "Envolvente media de las ondas zonales de cada experimento", fig.height=7, fig.width=6}
 envolvente_media <- datagoyal %>% 
    .[, env := WaveEnvelope(hgt, k = 1:10), by = .(exp, time, lat)] %>% 
+   .[lat <= -20] %>% 
    .[, mean(env), by = .(lon, lat, exp)] 
 
 envolvente_media %>% 
@@ -352,13 +385,11 @@ La Figura \@ref(fig:envelope-medio) de abajo muestra la envolvente media de las 
 En todos los experimentos, y en las observaciones, hay un anillo con amplitud de las ondas máxima.
 En Aquaplanet, este anillo está en latitudes más bajas que en el resto de los experimentos y en las observaciones y es perfectamente zonalmente simétrico.
 
-
 ```{r envelope-medio-1, fig.cap = "Envolvente media de las ondas zonaels de cada experimento. En etiqueta, el desvío estándar sobre el valor medio en 55ºS.", fig.height=7, fig.width=6}
 envolvente_media <- datagoyal %>% 
-   .[, env := WaveEnvelope(hgt, k = 2:10), by = .(exp, time, lat)] %>% 
+   .[, env := WaveEnvelope(hgt, k = 2:3), by = .(exp, time, lat)] %>% 
+   .[lat <= -20] %>% 
    .[, mean(env), by = .(lon, lat, exp)] 
-
-
 
 sd <- envolvente_media %>% 
    keep_lat() %>% 
@@ -399,7 +430,8 @@ Incluso la simulación de Aquaplanet alcanza valores similares, aunque desplazad
 
 ```{r envolvente-sd, fig.cap = "Desvío estándard promedio de la envolvente de las ondas zonales con número de onda mayor a 1."}
 datagoyal %>% 
-   .[, .(envsd = sd(WaveEnvelope(hgt, k = 2:10))), by = .(exp, time, lat)] %>% 
+   .[lat <= -20] %>% 
+   .[, .(envsd = sd(WaveEnvelope(hgt, k = 2:3))), by = .(exp, time, lat)] %>% 
    .[, mean(envsd), by = .(lat, exp)] %>% 
    periodic_lon() %>% 
    ggplot(aes(lat, V1)) +
@@ -414,10 +446,8 @@ En el caso de las observaciones, al sur de Australia y del Atlántico, en el cas
 Este análisis es sobre la amplitud de las ondas en general.
 ¿Pero qué pasa con la onda 3 en particular?
 
-```{r cors, cache=FALSE}
+```{r cors}
 periodic_roll_fun <- function(x, y = NULL, width, fun) {
-   
-   # browser()
    x1 <- rep(x, 3)
    keep <- (length(x)+1):(2*length(x))
    
@@ -446,40 +476,98 @@ datagoyal <- datagoyal %>%
    # .[lat %~% -55] %>%
    # .[lat %between% c(-75, -45)] %>%
    # copy() %>% 
-   .[, hgt := hgt - mean(hgt), by = .(exp, time, lat)] %>% 
-   .[, zw3 := FilterWave(hgt, 3), by = .(exp, time, lat)] %>% 
-   .[, zw3_std := zw3/sd(zw3), by = .(exp, time, lat)] %>% 
+   .[, ":="(hgt_z = hgt - mean(hgt),
+            hgt_sd = sd(hgt)), keyby = .(exp, time, lat)] %>% 
+   
+   .[, hgt_z := hgt_z/mean(hgt_sd), by = .(lat, exp)] %>% 
+   .[, zw3 := FilterWave(hgt, 3), keyby = .(exp, time, lat)] %>% 
+   .[, zw3_std := zw3/sd(zw3), keyby = .(exp, time, lat)] %>% 
    .[, qs3 := mean(zw3), by = .(exp, lon, lat, month(time))] %>%
    .[, qs3_std := qs3/sd(qs3), by = .(exp, time, lat, month(time))] %>%
-   .[, ":="(cov_zw = periodic_roll_fun(hgt*zw3_std, width = w, fun = roll::roll_sum), 
-            cov_qs = periodic_roll_fun(hgt*qs3_std, width = w, fun = roll::roll_sum)),
-     by = .(exp, time, lat)]
+   .[, ":="(cov_zw = periodic_roll_fun(hgt_z*zw3_std, width = w, fun = roll::roll_sum), 
+            cov_qs = periodic_roll_fun(hgt_z*qs3_std, width = w, fun = roll::roll_sum)),
+     keyby = .(exp, time, lat)]
+
 ```
 
-Se puede calcular la proyección de las anomalías zonales de altura geopotencial sobre la onda 3 asociada ese campo en gajos de 60º de longitud de ancho.
-Esto da una idea de qué regiones "aportan" más a la construcción de la onda 3.
+Se puede calcular la proyección de las anomalías zonales de altura geopotencial estandarizadas sobre la onda 3 asociada ese campo en gajos de 60º de longitud de ancho.
+Esto da una idea de qué regiones están alineadas y "aportan" más con la onda 3.
 
-La Figura \@ref(fig:cov-zw-media) muestra la proyección media y, similar a la figura de antes, da una idea del sesgo en la localización de regiones que aportan más a la onda zonal 3 de cada mes.
-Aquaplanet tiene una estructura casi totalmente simétrica, mientras que las simulaciones con continentes tienen algunos máximos.
-En particular, en las que tienen Sudamérica y África, las regiones a sotavento de los continentes parecen aprotar ligeramente más a la onda 3 hemisférica.
 
-Sin embargo, ninguna simulación se acerca a la estructura observada por ERA5 que es bastante asimétrica y con máximos al sur de Nueva Zelanda y al sur de Sudamérica.
+```{r, include = FALSE}
+datagoyal %>% 
+   .[exp == "ERA5"] %>% 
+   .[time == unique(time)[2]] %>% 
+   keep_lat() %>% 
+   ggplot(aes(lon, hgt_z)) +
+   geom_line(aes(color = "Z*")) +
+   geom_line(aes(y = zw3_std, color = "Onda 3")) +
+   geom_line(aes(y = cov_zw/max(cov_zw), colour = "Proyección")) +
+   scale_x_longitude() +
+   scale_y_continuous(NULL)
+```
 
-```{r cov-zw-media, fig.cap = "Proyección media de altura geopotential en la dirección de la onda 3 tomando gajos de 60º de ancho. Las etiquetas son en centenas de metros." , fig.height=7, fig.width=6}
+```{r, include = FALSE}
+datagoyal %>% 
+   .[exp == "ERA5"] %>% 
+   .[time == unique(time)[3]] %>% 
+   .[lat <= -20] %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   # geom_contour_fill(aes(z = cov_zw)) +
+   geom_contour2(aes(z = zw3, linetype = factor(-sign(..level..))), color = "gray50") +
+   geom_contour2(aes(z = hgt_z, linetype = factor(-sign(..level..)), 
+                     label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(45)) +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar() +
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none")  
+```
+
+
+La Figura \@ref(fig:cov-zw-media) muestra la proyección media. 
+Aquaplanet tiene un campo casi constante, indicando que no hay ninguna región preferencial donde la altura geopotential covaríe con la onda 3. 
+El hecho de que no haya una banda más o menos homogénea de latitudes con valores altos indica que la onda 3 en esta simulación está bastante localizada; es decir que no es una onda hemisférica. 
+
+Las otras simulaciones tienen una banda de valores altos entre 40ºS y 60ºS que también tiene máximos locales, indicando menor localización. 
+Lo que es interesante es que en las regiones tropicales hay valores altos sobre las áreas con continentes en cada simulación, lo cual es consistente con que ésta son las fuente de las ondas. 
+
+La estructura de esta variable en ERA5 es bastante distinta. 
+Si bien hay valores relativamente altos en latitudes medias, éstos no se distribuyen homogéneamente en una latitud sino que cambian de magnitud según la longitud. 
+En particular, en la región del Índico el máximo se encuentra más al norte que en la región del Pacífico y existe un mínimo local importante al norte del Mar de Amundsen. 
+En los trópicos hay máximos bien marcados sobre el Pacífico ecuatorial. 
+
+```{r cov-zw-media, fig.cap = "Proyección media de altura geopotential en la dirección de la onda 3 tomando gajos de 60º de ancho.", fig.height=5.5, fig.width=10, fig.fullwidth = TRUE}
 m <- datagoyal %>%
    .[, mean(cov_zw), by = .(exp, lat, lon)]
 m %>% 
    periodic_lon() %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = V1)) +
-   geom_contour2(aes(z = V1, label = ..level../100), family = hrbrthemes::font_rc,
-                 label.placer = label_placer_flattest(45)) +
+   geom_contour2(aes(z = V1, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest()) +
    geom_qmap() +
-   geom_coords() +
-   coord_polar() +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+             # crs = "+proj=longlat +pm=180 +over",
+             default_crs = "+proj=longlat +lon_wrap=180 +over") + 
    labs(x = NULL, y = NULL) +
    scale_fill_divergent(guide = "none") +
    facet_wrap(~exp, ncol = 3)
+```
+
+```{r, include = FALSE}
+datagoyal %>%
+   .[, sd(cov_zw), by = .(exp, lat, time)] %>% 
+   .[, mean(V1), by = .(exp, lat)] %>% 
+   ggplot(aes(lat, V1)) +
+   geom_line(aes(color = exp)) +
+   scale_color_exp() +
+   coord_flip()
+   
 ```
 
 Lo siguiente es evaluar la misma proyección que antes pero sobre la onda 3 climatológica.
@@ -487,27 +575,191 @@ La Figura \@ref(fig:cov-qs-media) muestra la proyección media de la altura geop
 
 (ref:cov-qs-media-cap) Igual que Figura \@ref(fig:cov-zw-media) pero en la dirección de la onda 3 climatológica.
 
-```{r cov-qs-media, fig.cap = "(ref:cov-qs-media-cap)",fig.height=7, fig.width=6}
+```{r cov-qs-media, fig.cap = "(ref:cov-qs-media-cap)",  fig.height=5.5, fig.width=10, fig.fullwidth = TRUE}
 datagoyal %>% 
    .[, mean(cov_qs), by = .(exp, lat, lon)] %>% 
    periodic_lon() %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = V1), breaks = AnchorBreaks(0, exclude = 0)) +
-      geom_contour2(aes(z = V1, label = ..level../100), family = hrbrthemes::font_rc,
-                 label.placer = label_placer_flattest(45), 
+      geom_contour2(aes(z = V1, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
                  breaks = AnchorBreaks(0, exclude = 0)) +
    geom_qmap() +
-   geom_coords() +
-   coord_polar() +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+    coord_sf(ylim = c(-90, 20), expand = FALSE,
+             # crs = "+proj=longlat +pm=180 +over",
+             default_crs = "+proj=longlat +lon_wrap=180 +over") + 
    labs(x = NULL, y = NULL) +
    scale_fill_divergent(guide = "none") +
    facet_wrap(~exp)
 ```
 
-Las simulaciones de Aquaplanet y Austrlaia tropical, que tienen casi nula estacionariedad tienen valores casi nulos, lo cual es esperable.
+La simulación de Aquaplanet que tiene casi nula estacionariedad, tiene valores casi nulos, lo cual es esperable.
 Como las ondas zonales 3 no tienen una región preferencial, en promedio, la proyección de la altura geopotential en la dirección de la onda climatológica es cero.
+
 Las otras simulaciones tienen regiones con valores positivos.
-En las simulaciones con Sudamérica, la única región que en promedio se proyecta positivamente en la dirección de la onda 3 climatológica es el Atlántico sur.
-En la simulación con África, la región positiva está al sur del Índico.
-En la simulación con trópicos realistas, hay dos regiones con vlaores positivos.
-Finalmente, ninguna simulación se asemeja a las observaciones ni en estructura ni en intensidad.
+En las simulaciones con Sudamérica, hay un máximo sobre Sudamérica tropical y a sotavento en latitudes medias. 
+La forma de estos máximos es consistente con el trayecto esperado de la onda 3. 
+En la simulación con África hay valores positivos sobre África que parecen extenderse a latitudes más bajas, pero dicha extensión es mucho menor que en las simulaciones con América. 
+En la simulación con Australia, nuevamente hay valores altos sobre la fuente, pero en este caso no hay ninguna propagación fuera de la región. 
+En la simulación con trópicos realistas, hay dos regiones tropicales con valores positivos: Pacífico central y áfrica. 
+
+
+## cEOFs
+
+Como lo que interesan son las onda zonales, voy a calcular los EOFs complejos.
+Para ayudar en la interpretación de lo que ya sé, voy a usar sólo Septiembre-Octubre-Noviembre.
+
+```{r ceofs}
+season_weights <- function(time, groups = seasonally(time)) {
+  w <- as.numeric(on_unique(time, lubridate::days_in_month))
+  setDT(list(w = w, groups = groups))[, w := w/mean(w), by = groups]$w
+}
+
+
+mean_goyal <- datagoyal %>%
+   .[season(time) == "SON"] %>% 
+   .[, .(hgt = mean(hgt)), by = .(time = seasonally(time), lon, lat, exp)]
+
+n = 1:3
+ceofs <- mean_goyal %>% 
+   copy() %>% 
+   .[, hgt := hgt - mean(hgt), by = .(time, lat, exp)] %>% 
+   .[, hgt := hgt*sqrt(cos(lat*pi/180))] %>%
+   .[, hgt.cpx := spectral::analyticFunction(hgt),
+     by = .(lat, time, exp)] %>%
+   .[, hgt := hgt.cpx] %>% 
+   .[, .(eof = list(EOF(hgt ~ time | lon + lat, n = n, suffix = "cEOF", data = .SD))), by = exp]
+```
+
+```{r ceofs-plot, fig.cap = "Parte real de los primeros 3 EOFs complejos de los experimentos."}
+ceofs[, eof[[1]]$right, by = exp] %>% 
+   # .[exp != "Aquaplanet"] %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = Re(hgt))) +
+   # geom_contour2(data = ceofsr2, 
+   #               aes(z = r.squared, 
+   #                   label = ..level..)) +
+   shadowtext::geom_shadowtext(data = ceofs[, eof[[1]]$sdev, by = exp] %>%
+                                  # .[exp != "Aquaplanet"] %>%
+                                  .[, cumr2 := cumsum(r2), by = exp],
+                               family = "Roboto Condensed",
+                            aes(0, -90, label = paste0(scales::percent(r2, 0.1), "\n(",
+                                                       scales::percent(cumr2, .1), ")")),
+                            bg.colour = "white", colour = "black") +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar() +
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_grid(cEOF~exp)
+```
+
+La Figura \@ref(fig:ceofs-plot) muestra la parte real de los primeros 4 cEOFs de las simulaciones.
+El primer cEOF es una onda 1 en todas las simulaciones, la cual estaría uniendo los primeros 2 EOFs (Fig. \@ref(fig:eofs-plot)).
+Los siguientes cEOF varían más en estructura entre los distintos experimentos.
+
+Salvo aquaplanet y "Tropical South America", en el resto de las simulaciones los cEOFs 2 y 3 parecerían tener su amplitud localizada en hemisferios opuestos. 
+
+
+Salvo la simulación de Sudamérica tropical, todos estos cEOF tienen un grado de localización comparable con ERA5. 
+
+  
+
+Tratar de hacer paralelismos entre cEOFs no es fácil porque la tienen diferencias en cuanto a las regiones donde están más activos por construcción de las simulaciones. 
+Para tener una mejor idea de la estructura de ondas zonales independientemente de la fase, la Figura \@ref(fig:coefs-amplitudes) muestra la amplitud de las ondas zonales 1 a 3 de los cEOFs 2 y 3 de cada experimento (salvo aquaplanet).
+
+```{r ceofs-amplitudes, fig.cap = "Amplitud de las ondas zonales en cada latitud para los EOFs complejos."}
+ceofs[, eof[[1]]$right, by = exp] %>% 
+   .[exp != "Aquaplanet"] %>% 
+   # .[cEOF != "cEOF1"] %>% 
+   .[, FitWave(Re(hgt), 1:3), by = .(lat, exp, cEOF)] %>% 
+   ggplot(aes(lat, amplitude)) +
+   geom_line(aes(color = factor(k))) +
+   coord_flip() +
+   facet_grid(cEOF~exp) 
+```
+
+
+Es importante ver la distribución de amplitudes en el cEOF2 de ERA5, ya que sería el "benchmark" de lo que debe ser el PSA. 
+Por ejemplo, el cEOF2 de la simulación con "trópicos realistas" tiene una distribución casi idéntica que el benchmark salvo por la onda 1.
+Cabe notar también que el cEOF3 de esta simulación también es muy parecido salvo la onda 1; de hecho, la varianza explicada de cada uno es casi idéntica (~8%), por lo que claramente estos modos están muy mezclados. 
+Es posible que se trate de dos modos que tratan de refleja una estructura similar pero localizada; el cEOF2 explicaría la parte del Atlántico-Índico mientras que el cEOF3 explicaría la parte del Pacífico. 
+
+Algo similar parecería ocurrir en la simulación de Complete South America.
+En ésta los cEOFs no están mezclados en cuando a varianza expicada, pero ambos son similares, con una mezcla similar de onda 2 y 3. 
+La diferencia principal es que el cEOF2 tiene más amplitud an el hemisferio occidental mientras que el cEOF3 tiene más amplitud en el oriental. 
+
+La simulación de Tropical South America es muy distinta a las demás. 
+El cEOF2 es una onda 3 casi pura y el cEOF3 es una onda 2 casi pura. 
+
+Una última herramienta para tratar de entender estos modos es calcular las regresiones entre ellos y la altura geopotential completa. 
+Esto brinda una idea más realista de los campos asosicados a cada modo y cada parte. 
+En particular quiero mirar dos cosas: 
+
+1. Si la parte real e imaginaria forman realmente una estructura de ondas. 
+
+2. Si hay estas ondas forman parte de un tren de ondas tipo PSA. 
+
+
+```{r ceof-regre, fig.cap = "Regresiones de altura geopotential y los cEOFs. Las primeras dos filas son las regresiones con la parte Imaginaria y Real del cEOF2 y las últimas dos, las del cEOF3."}
+ceofs[, eof[[1]]$left, by = exp] %>% 
+    .[exp != "Aquaplanet"] %>% 
+   # .[cEOF != "cEOF1"] %>% 
+   .[cEOF == "cEOF3"] %>% 
+   sep_ReIm(hgt, longer = FALSE) %>% 
+   .[, hgt := NULL] %>% 
+   mean_goyal[., on = c("time", "exp"), allow.cartesian = TRUE] %>% 
+   .[, FitLm(hgt, R, I, r2 = TRUE), by = .(exp, cEOF, lon, lat)] %>% 
+   rm_intercept() %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar() +
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   ggh4x::facet_nested(cEOF + term ~exp)
+   
+```
+
+
+La Figura \@ref(fig:ceof-regre) muestra estas regresiones.
+
+Para Complete SOuth America, el cEOF2 es rarísimo y no veo que tenga una estructura clara de onda. 
+El cEOF3, en cambio, tiene un poco más de pinta.
+Aunque la region que afecta está lejos de sudamérica. 
+
+Para Tropical South America, ambos cEOFs tiene una estructura de onda zonal, pero en ambos casos son ondas zonales bastante puras. 
+Hay una sugerencia de un tren de ondas en la regresión con la parte imaginaria. 
+
+En Tropical Africa, el cEOF2 es bastante raro. 
+El cEOF3 sí tiene más pinta de tren de ondas. 
+
+En Tropical Australia, el cEOF3 tiene un patrón de tren den ondas bastante bien definido. 
+
+El Realistic Tropics tiene un patrón de tren de ondas en cEOF2, aunque con superposición de una especie de SAM con la parte Real. 
+
+
+```{r tabla-psa}
+wave3 <- tibble::tribble(
+   ~ exp,                    ~cEOF, 
+   "Complete South America", "cEOF3",
+   "Tropical South America", "cEOF2", 
+   "Tropical Africa",        "cEOF3",
+   "Tropical Australia",     "cEOF3",
+   "Realistic Tropics",      "cEOF2", 
+   "ERA5",                   "cEOF2"
+) %>% 
+   as.data.table()
+
+wave3 %>% 
+   kable(caption = "Identificación de cEOFs con tren de onda tipo PSA")
+```
+
+Las decisiones de qué cEOFs son los relevantes en cada simulación están en la Tabla \@ref(tab:tabla-psa). 
+
+
