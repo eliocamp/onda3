@@ -194,9 +194,7 @@ Los campos de altura geopotential asociados a cada punto por separado ni se acer
 
 ```{r}
 hgt %>% 
-   .[lev == 500] %>% 
-   copy() %>% 
-   .[lat >= -90] %>% 
+   .[lev == 500 & lat >= -90] %>% 
    melt(id.vars = c("lat", "lon", "time"), measure.vars = c("hgt_a", "hgt_z"), 
         value.name = "hgt") %>% 
    .[points[lev == 500, .(lon_point = lon, value = hgt, time)], 
@@ -293,36 +291,31 @@ Pero esto es lo que hace Raphael.
 Como su índice usa *anomalías* estandarizadas en los puntos donde están los máximos de la onda 3 climatológica, en realidad lo que está mirando es la correlación entre la anomalía de onda 3 y la onda 3 climatológica.
 Igual no es del todo loco, porque en realidad lo que se obtiene es un índice parecido a la comparación con la onda 3 total pero centrado en cero.
 
-En lo que sigue, voy a tomar "gajos" de longitud de 120º de ancho (es decir, media longitud de onda) y calcular la correlación entre el campo de altura geopotencial y de onda 3 para cada gajo.
-Es decir, correlación y covarianza móvil con una ventana de 120º.
+En lo que sigue, voy a tomar "gajos" de longitud de 120º de ancho (es decir, media longitud de onda) y calcular la proyección de altura geopotencial y de onda 3 para cada gajo.
 Lo voy a hacer para las tres combinaciones con `r emo::ji("check")` en la tabla anterior.
 
-La correlación da una idea de similitud entre el campo y la onda 3 y además permite calcular la varianza explicada por la onda 3 hemisférica en cada gajo.
-Está afectada solamente por la diferencia de fase ente la onda 3 hemisférica y la onda 3 local.
-La covarianza es similar a la correlación, pero tiene en cuenta la amplitud de las anomalías de altura geopotencial.
-Como la hago sobre la onda 3 normalizada para tener amplitud 1, lo único que afecta la magnitud de la covarianza es la amplitud de la onda 3 geopotencial local.
-
-
-
 ```{r}
-periodic_roll_fun <- function(x, y = NULL, width, fun) {
-   x1 <- rep(x, 3)
-   keep <- (length(x)+1):(2*length(x))
+pad <- function(x, half_width) {
+   N <- length(x)
+   right <- seq_len(half_width)
+   left <- right + N - half_width
    
+   c(x[left], x, x[right])
+}
+
+periodic_roll_fun <- function(x, y = NULL, width, fun, ...) {
    half_width <- (width - 1)/2
-   
-   
+   x1 <- pad(x, half_width)
    if (!is.null(y)) {
-      y1 <- rep(y, 3)   
-      result <- fun(x1, y1, width = width)
+      y1 <- pad(y, half_width)
+      result <- fun(x1, y1, width = width, ...)
    } else {
-      result <- fun(x1, width = width)
+      result <- fun(x1, width = width, ...)
    }
    
-   result <- data.table::shift(result, n = -half_width)
-   
-   result[keep]
+   result[-seq_len(width-1L)]
 }
+
 
 periodic_roll_regr <- function(x, y, width) {
    cors <- periodic_roll_fun(x, y, width, fun = roll::roll_cor)
@@ -348,47 +341,64 @@ periodic_roll_cor <- function(x, y, width) {
 ```
 
 ```{r}
-lon_width <- 360/3
-lon_halfwidth <- lon_width/2
+roll_fourier <- function(value, lon, time, lon_width, k) {
+   lon_halfwidth <- lon_width/2
+   lons <- unique(lon)
+   w <- sum(lons  %between% (180 + c(-lon_halfwidth, lon_halfwidth)))
+   
+   
+   data <- list(time = time,
+                lon = lon,  
+                value = value)
+   setDT(data)
+   setkey(data, time)
+   
+   
+   # Anomalías zonales
+   data[, ":="(fourier = metR::FilterWave(value, k),
+               value = value - mean(value),
+               value_sd = sd(value)), by = time]
+   set(data, NULL, "value", data$value/mean(data$value_sd))
+   set(data, NULL, "value_sd", NULL)
+   
+   # Ondas zonales y medias
+   data[, ":="(fourier_mean = mean(fourier),
+               value_a      = value - mean(value)), 
+        by = .(lon, month(time))]
+   
+   
+   data[, ":="(fourier = fourier/max(fourier),
+               fourier_mean = fourier_mean/max(fourier_mean)), 
+        by = time]
+   
+   
+   data[, ":="(cov_zw = periodic_roll_fun(value*fourier, width = w,
+                                          fun = roll::roll_sum), 
+               cov_qs = periodic_roll_fun(value*fourier_mean, width = w, 
+                                          fun = roll::roll_sum),
+               cov_a = periodic_roll_fun(value_a*(fourier - fourier_mean), width = w,
+                                          fun = roll::roll_sum)
+               ),
+        by = .(time)]
+   
+   list(
+      proj = data$cov_zw,
+      proj_mean = data$cov_qs,
+      proj_a = data$cov_a
+   )
+}
+```
 
-hgt <- hgt %>% 
-   .[, wave3_m_norm := wave3_m/sd(wave3_m), by = .(lat, time)] %>% 
-   .[, wave3_norm :=  wave3/sd(wave3), by = .(lat, time)] %>% 
-   .[, wave3_a_norm := wave3_a/sd(wave3_a), by = .(lat, time)]
+```{r}
+hgt[, c("cov_zw", "cov_qs", "cov_a") := roll_fourier(hgt, lon, time, 360/3, 3), by = .(lat)]
+```
 
-lons <- unique(hgt$lon)
-w <- sum(lons  %between% (180 + c(-lon_halfwidth, lon_halfwidth)))
-variables <- c("m_z" = "QS3 con Z*",
-               "a_a" = "ZW3' con Z*'",
-               "z_z" = "ZW3 con Z*")
-
-
-
-hgt[, `:=`(cor_m_z = periodic_roll_cor(wave3_m, hgt_z, 
-                                        width = w),
-            cov_m_z = periodic_roll_cov(wave3_m_norm, hgt_z, 
-                                        width = w),
-            
-            cor_a_a = periodic_roll_cor(wave3_a, hgt_za, 
-                                        width = w),
-            cov_a_a = periodic_roll_cov(wave3_a_norm, hgt_za,
-                                        width = w),
-            
-            cor_z_z = periodic_roll_cor(wave3, hgt_z, 
-                                        width = w),
-            cov_z_z = periodic_roll_cov(wave3_norm, 
-                                        hgt_z, 
-                                        width = w),
-            hgt_3 = periodic_roll_regr(wave3, 
-                                       hgt_z, width = w)),
-     by = .(lat, time)] 
-
-
+```{r}
 lon_wave3 <- hgt %>% 
    melt(id.vars = c("time", "lon", "lat"), 
-        measure.vars = patterns(cor = "^cor_", cov = "^cov_")) %>% 
-   .[, variable := variables[variable]] 
+        measure.vars = patterns(cor = "^cov"))
 ```
+
 
 Primero, un chequeo importante es ver la proporción de tiempos en los que la correlación entre las anomalías zonales de geopotencial y la onda 3 tienen correlación positiva.
 Para campos donde hay una onda 3 perfecta y nada más, naturalmente la correlación tendría que ser positiva el 100% de las veces en todo el domino.
@@ -398,12 +408,12 @@ En el caso de la comparación entre QS3 y Z\*, en principio puede ser negativa, 
 
 ```{r cor-prop, fig.cap = "Proporción de tiempos donde cor > 0."}
 lon_wave3 %>% 
-   .[, mean(cor > 0), by = .(lat, lon, variable)] %>% 
+   .[, mean(value > 0), by = .(lat, lon, variable)] %>% 
    ggplot(aes(lon,lat)) +
    geom_contour_fill(aes(z = V1, fill = ..level..)) + 
-   geom_contour2(aes(z = V1), size = 0.1) +
-   geom_text_contour(aes(z = V1, label = round(..level.., 4)),
-                     stroke = 0.1, stroke.colour = "white") +
+   geom_contour2(aes(z = V1, label = ..level..), size = 0.1) +
+   # geom_text_contour(aes(z = V1, label = round(..level.., 4)),
+   #                   stroke = 0.1, stroke.colour = "white") +
    geom_point(data = unique(points[, .(lat, lon = lon)])) +
    shceof::geom_qmap(color = "black") +
    scale_x_longitude() +
@@ -424,23 +434,23 @@ La comparando ZW3 con Z\*, muestra un patrón similar a la comparación de QS3 c
 La comparación de ZW3' con Z\*' también tiene valores cercanos a 1, pero se ve claramente que el Pacífico Sur es un área preferencial de mayor correlación positiva.
 
 ```{r r2, fig.cap = "R^2 medio cuando la correlación es positiva. "}
-lats <- c(-65, -55, -40, -30)
-lon_wave3 %>%
-   copy() %>% 
-   # .[cor < 0, cor := 0] %>%
-   .[cor > 0] %>%
-   .[, mean(cor^2), by = .(lon, lat, variable)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = V1, fill = ..level..)) +
-   # geom_hline(yintercept = lats) +
-   shceof::geom_qmap(color = "black") +
-   scale_x_longitude() +
-   scale_y_latitude() +
-   coord_quickmap(ylim = c(NA, -20)) +
-   scale_fill_viridis_c(super = ScaleDiscretised, 
-                        labels = scales::percent_format(accuracy = 1),
-                        guide = guide_colorsteps(barwidth = 25))  +
-   facet_wrap(~ variable, ncol = 2)
+# lats <- c(-65, -55, -40, -30)
+# lon_wave3 %>%
+#    copy() %>% 
+#    # .[cor < 0, cor := 0] %>%
+#    .[cor > 0] %>%
+#    .[, mean(cor^2), by = .(lon, lat, variable)] %>% 
+#    ggplot(aes(lon, lat)) +
+#    geom_contour_fill(aes(z = V1, fill = ..level..)) +
+#    # geom_hline(yintercept = lats) +
+#    shceof::geom_qmap(color = "black") +
+#    scale_x_longitude() +
+#    scale_y_latitude() +
+#    coord_quickmap(ylim = c(NA, -20)) +
+#    scale_fill_viridis_c(super = ScaleDiscretised, 
+#                         labels = scales::percent_format(accuracy = 1),
+#                         guide = guide_colorsteps(barwidth = 25))  +
+#    facet_wrap(~ variable, ncol = 2)
 ```
 
 La Figura \@ref(fig:r2) muestra la varianza explicada promedio cuando la correlación es positiva.
@@ -452,7 +462,7 @@ lon_wave3 %>%
    copy() %>% 
    # .[cor > 0] %>%
    # .[, cov := scales::rescale(cov, to = c(0, 1)), by = .(variable, time)] %>%
-   .[, mean(cov), by = .(lon, lat, variable)] %>%
+   .[, mean(value), by = .(lon, lat, variable)] %>%
    # .[variable != "ZW con Z*", V1 := V1*10] %>%
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = V1, fill = ..level..)) +
@@ -466,6 +476,27 @@ lon_wave3 %>%
    facet_wrap(~variable, ncol = 2)
 ```
 
+
+```{r}
+lon_wave3 %>%
+   copy() %>% 
+   .[, mean := mean(value), by = .(time, lat)] %>% 
+   .[, cor(mean, value)^2 , by = .(lon, lat, variable)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1, fill = ..level..)) +
+   geom_contour2(aes(z = V1, label = ..level..)) +
+   # geom_hline(yintercept = lats) +
+   geom_map2() +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   coord_quickmap(ylim = c(NA, -20)) +
+   scale_fill_divergent(super = ScaleDiscretised, 
+                        guide = guide_colorsteps(barwidth = 25))   +
+   facet_wrap(~variable, ncol = 2)
+   
+```
+
+
 Finalmente, la Figura \@\ref{fig:cov} muestra que la covarianza media también sigue un patrón similar.
 
 
@@ -476,17 +507,17 @@ La onda 3 climatológica se explica y está relacionada con lo que pasa en los h
 
 ```{r cross-cor, fig.cap = "Correlación cruzada de "}
 cors <- lon_wave3 %>% 
-   .[, widyr::pairwise_cor(.SD, lon, time, cov), 
+   .[, widyr::pairwise_cor(.SD, lon, time, value), 
      by = .(variable, lat)] 
 
 cors %>% 
    .[lat %in% -55] %>% 
    ggplot(aes(item1, item2)) +
    geom_contour_fill(aes(z = correlation^2, fill = ..level..), na.fill = 1)  +
-   geom_contour2(aes(z = correlation^2), na.fill = 1) +
-   geom_text_contour(aes(z = correlation^2), color = "white", 
-                     stroke.color = "black", 
-                     stroke = 0.15) +
+   geom_contour2(aes(z = correlation^2, label = ..level..), na.fill = 1) +
+   # geom_text_contour(aes(z = correlation^2), color = "white", 
+   #                   stroke.color = "black", 
+   #                   stroke = 0.15) +
    scale_fill_viridis_c(super = ScaleDiscretised, 
                         guide = guide_colorsteps(barwidth = 20)) +
    coord_equal() +

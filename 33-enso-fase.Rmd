@@ -1,0 +1,515 @@
+---
+title: "33-ENSO Complejo"
+author: "Elio Campitelli"
+output: 
+   bookdown::html_document2:
+         base_format: tufte::tufte_html 
+link-citations: yes 
+bibliography: goyal.bib
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+options(htmltools.dir.version = FALSE)
+knitr::knit_hooks$set(document = function(x) {
+   took <- unclass(Sys.time()) - start.time
+   if (unclass(Sys.time()) - start.time >= min.time) {
+      notify("Done knitting!", 
+             paste0("Took ", round(took), " seconds"),
+             time = 5)
+   }  
+   knit_doc(x)
+})
+
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(
+   echo = FALSE,
+   fig.path = paste0("fig/", name, "/"),
+   message = FALSE,
+   warning = FALSE,
+   cache = TRUE, 
+   cache.lazy = FALSE,
+   cache.extra = 41,
+   cache.path = paste0("cache/", name, "/")
+)
+# knitr::opts_chunk$set(fig.width = 13, 
+#                       fig.height = 7)
+source(here::here("scripts", "helperfun.R"))
+source(here::here("scripts", "maps.R"))
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(patchwork)
+library(here)
+library(tagger)
+library(kableExtra)
+
+theme_set(theme_elio())
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                    barheight = height,
+                    barwidth = width, ...)
+}
+setnames <- function(x, ...) {
+   names <- c(...)
+   # print(names)
+   data.table::setnames(x, unname(names), names(names))
+}
+
+lapply_p <- function(x, FUN, ...) {
+   pb <- progress::progress_bar$new(total = length(x), 
+                                    format = "[:bar] :percent - :eta")
+   
+   FUN_pb <- function(x, ...) {
+      pb$tick()
+      FUN(x, ...)
+   }
+   
+   lapply(x, FUN_pb, ...)
+}
+
+
+geom_coords <- function() {
+   list(
+      no_grid,
+      annotate("segment",
+               y = seq(-90, 0, by = 15),
+               yend = seq(-90, 0, by = 15),
+               x = 0,
+               xend = 360,
+               size = 0.1, alpha = 0.5),
+      
+      annotate("segment",
+               x = seq(0, 360 - 30, by = 30),
+               xend =  seq(0, 360 - 30, by = 30),
+               y = -90 + 15,
+               yend = Inf,
+               size = 0.1, alpha = 0.5),
+      shadowtext::geom_shadowtext(data = data.frame(x = 0, y = seq(-90 + 15, 0, 
+                                                                   by = 15)),
+                                  aes(x, y, label = LatLabel(y)), size = 1.5, 
+                                  alpha = 0.7,
+                                  colour = "black",
+                                  bg.colour = "white")
+      
+   )
+}
+no_grid <- theme(panel.grid = element_blank())
+coord_polar <- function(ymax = -20, ...) {
+   
+   x <- c(seq(0, 360, length.out = 40), 
+          seq(360, 0, length.out = 40), 
+          0)
+   y <- c(rep(ymax, length.out = 40), 
+          rep(60, length.out = 40), 
+          ymax)
+   
+   cbind(x, y) %>% 
+      list() %>% 
+      sf::st_polygon() %>% 
+      sf::st_sfc(crs = "+proj=latlong") -> white
+   
+   list(
+      geom_sf(data = white, inherit.aes = FALSE, 
+              fill = "white", 
+              colour = "white", size = 2),
+      coord_sf(ylim = c(-90, ymax), 
+               lims_method = "box",
+               crs = "+proj=laea +lat_0=-90",
+               default_crs = "+proj=longlat",
+               label_axes =  "----", ...)
+   )
+}
+
+periodic_lon <- function(x){
+   ggperiodic::periodic(x, lon = c(0, 360))
+}
+
+label_placer_vertical <- function(x_ref, rot_adjuster = isoband::angle_halfcircle_bottom()) {
+   force(x_ref)
+   
+   metR:::as_placer(
+      function(x, y) {
+         which(x %~% x_ref)
+      }, 
+      rot_adjuster = rot_adjuster
+   )
+}
+scale_color_exp <- function(aesthetics = c("colour"), ...){
+   labels <- c("Aquaplanet", "Complete South America", "Tropical South America", 
+               "Tropical Africa", "Tropical Australia",
+               "Realistic Tropics", "ERA5")
+   
+   
+   scale_color_manual("Experimentos",
+                      values = setNames(c(RColorBrewer::brewer.pal(6, "Dark2"), "black"),
+                                        labels), aesthetics = aesthetics,
+                      ...)
+   
+}
+
+keep_lat <- function(data, lat = -55) {
+   which_lat <- lat
+   data[, .SD[lat %~% which_lat], by = exp] 
+}
+
+
+sink <- capture.output(old <- sf::sf_use_s2(FALSE))
+
+D <- `[`
+```
+
+En el trabajo de PSA vi que los mapas de regresión de SST asociados a distintas fases del PSA muestran un ENSO con distintas localizaciones.
+
+```{r, fig.cap = "Mapas de regresión de PSA en sus distintas fase con sst (izquierda) y funcíon corriente en 200hPa (derecha)."}
+knitr::include_graphics("images/sst-psi-2-1.png")
+```
+
+La pregunta ahora es si puedo ver la misma relación en reversa.
+Es decir, empezando con el ENSO en sus distintas localizaciones, ¿puedo ver un PSA con cambio de fase en los campos de regresión de la altura geopotencial?
+
+Para eso voy a necesitar una forma de definir las localizaciones del ENSO.
+En la literatura están los índices de las "cajas" del ENSO (ENSO1+2, ENSO3, ENSO4, ENSO3.4) y también está el índice de El Niño Modoki.
+Algunos papers usan una definición de ENSO Central Pacific y Eastern Pacific a partir de las primeras dos componentes principales.
+
+Yo voy a hacer algo parecido a esto último, pero dado que lo que estoy buscando es esencialmente una onda que cambia de fase, voy a usar EOF complejos nuevamente.
+
+```{r download_ersst}
+download_ersst <- function(file) {
+   base_url <- "https://www.ncei.noaa.gov/pub/data/cmb/ersst/v5/netcdf/ersst.v5."
+   
+   years <- 1979:2020
+   months <- formatC(1:12, width = 2, flag = "0")
+   dates <- data.table::CJ(years, months)[, paste0(years, months)]
+   
+   urls <- paste0(base_url, dates, ".nc")
+   
+   files <- vapply(urls, function(url) {
+      file <- tempfile(fileext = ".nc")
+      download.file(url, file)
+      file
+   }, character(1))
+   
+   data <- lapply(files, function(file) metR::ReadNetCDF(file, vars = c(t = "sst")))
+   data <- data.table::rbindlist(data)
+   
+   saveRDS(data, file)
+   file
+}
+```
+
+```{r download-data}
+file <- here::here("DATA", "ersst.mon.Rds")
+
+if (!file.exists(file)) {
+   download_ersst(file)
+}
+```
+
+```{r sst}
+sst <- readRDS(file)
+```
+
+```{r enso}
+enso <- rsoi::download_oni(use_cache = TRUE) %>% 
+   as.data.table() %>% 
+   .[, .(enso34 = dSST3.4, time = lubridate::as_datetime(Date))] %>% 
+   .[time %in% unique(sst$time)]
+
+```
+
+Lo que voy a hacer es calcular el EOF complejo de la SST promediada entre 5ºS y 5ºN.
+Un problema es que no tengo valores sobre los continentes así que voy a rellenar con una interpolación constante.
+Los valores imputados son un sinsentido, pero no debería importar demasiado porque son siempre iguales.
+
+Otra cosa que voy a hacer es rotar el EOF de manera que la parte real tenga la máxima correlación parcial con el índice ENSO 3.4.
+
+```{r ensos}
+ensos <- sst %>% 
+   .[lat %between% c(-5, 5)] %>% 
+   .[, mean(t), by = .(time, lon)] %>% 
+   .[, V1 := approx(lon, V1, xout = lon, rule = 2)$y, by = .(time)] %>% 
+   .[, V1 := V1 - mean(V1), by = .(month(time), lon)] %>% 
+   .[, eof := spectral::analyticFunction(V1), by = time] %>% 
+   EOF(eof ~ time | lon, data = ., n = 1)
+```
+
+```{r}
+rotate <- function(z, angle = 0) {
+   complex(real = cos(angle), imaginary = sin(angle)) * z
+}
+
+rotate_ReIm <- function(R, I, angle) {
+   complex(real = cos(angle), imaginary = sin(angle)) * complex(real = R, imaginary = I)
+}
+
+angles <- seq(-pi, pi, by = .5*pi/180)
+temp <- ensos$left %>% 
+   D(enso, on = "time") 
+
+
+
+
+rotations <- lapply(angles, function(a) {
+   temp |> 
+      copy() |> 
+      D(, eof := rotate(eof, a)) |> 
+      na.omit() |> 
+      D(, ":="(R = Re(eof), I = Im(eof))) |> 
+      D(, partial_cor(enso34, R, I)) |> 
+      D(, rotation := a)
+}) %>% 
+   rbindlist()
+
+
+best_rotation <- rotations[term == "R"][which.max(partial_correlation)]
+best_rotation <- rotations[rotation == best_rotation$rotation]
+
+ensos <- within(ensos, {
+   left$eof <- rotate(left$eof, best_rotation$rotation)
+   right$eof <- rotate(right$eof, best_rotation$rotation)
+})
+```
+
+```{r plot-eof, fig.cap = "Primer EOF complejo de SST promediada entre 5ºS y 5ºN."}
+null_lons <- sst |>  
+   D(lat %between% c(-5, 5)) |> 
+   D(is.na(t)) |> 
+   D(, unique(lon))
+
+ensos$right |> 
+   sep_ReIm(eof) |> 
+   D(lon %in% null_lons, eof := NA) |> 
+   ggplot(aes(lon, eof)) +
+   geom_line(aes(color = part)) +
+   scale_x_longitude()
+```
+
+La Figura \@ref(fig:plot-eof) muestra el patrón espacial del EOF complejo.
+La parte real tiene el máximo en \~120ºO, que coincide con el cero de la parte imaginaria, lo cual cual está bien, porque indica que es una onda que cambia de fase.
+Una imagen más intuitiva de este patrón es la Figura \@ref(enso-sst).
+Muestra un patrón típico de ENSO asociado a la parte real.
+La parte imaginaria tiene vlaores positivos en el pacífico central/occidental y negativos en el pacífico oriental.
+Esto indica que cuando ésta parte es positiva, desplaza las anomalías hacia el oeste y viceversa.
+
+```{r enso-sst}
+#| fig.cap = "Regresión de SSTs con el EOF complejo."
+
+ensos$left |> 
+   D(sst, on = "time") |> 
+   sep_ReIm(eof, longer = FALSE) |> 
+   D(, t := t - mean(t), by = .(lon, lat, month(time))) |> 
+   D(, FitLm(t, R, I), by = .(lon, lat)) |> 
+   rm_intercept() |> 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   geom_qmap() +
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_wrap(term~., ncol = 1)
+```
+
+```{r with-enso}
+#| fig.cap: > 
+#|    Valores del eof complejo en el eje horizontal vs. ENSO3.4 en el eje vertical. 
+#|    Muestra la alta correlación entre la parte real y el índice ENSO3.4"
+
+ensos$left %>% 
+   sep_ReIm(eof) |> 
+   D(enso, on = "time") %>% 
+   ggplot(aes(eof, enso34)) +
+   geom_point() +
+   geom_text(data = ~.x[, cor(eof, enso34), by = part], 
+             aes(label = scales::number(V1)), x = .1, y = -1) +
+   scale_y_continuous() +
+   facet_wrap(~part) 
+
+```
+
+La Figura \@ref(fig:with-enso) muestra la relación entre el índice ENSO3.4 y las dos partes del EOF complejo.
+Hay una alta correlación entre el índice y la parte real, mientras que la correlación con la parte imaginaria es nula.
+Sin embargo, existe una clara relación no lineal entre la parte imaginaria y el ENSO34.
+Tanto valores altos como bajos (negativos) del índice están asociados a valores negativos de la parte imaginaria.
+
+
+
+```{r hist}
+#| fig.cap: > 
+#|    Relación entre la fase del eof (eje horizontal) y la magnitud (eje vertical derecho, puntos) 
+#|    e histograma que muestra la frecuencia observada de cada fase (barras, eje vertical izquierdo).
+#|    En colores, la clasificación de eventos ENSO según el índice ENSO34 (+- 0.5).
+
+is_enso_oni <- function(enso34) {
+   cut(enso34, c(-Inf, -0.5, 0.5, Inf), labels = c("Niña", "Neutro", "Niño"))
+}
+scale_color_enso <- function() {
+   scale_color_manual(name = "ENSO",
+                      values = c("Niña" = "#3689e6",
+                                 "Neutro" = "#abacae",
+                                 "Niño" = "#de3e80"))
+}
+ensos$left %>% 
+   D(enso, on = "time") %>% 
+   ggplot(aes(Arg(eof))) +
+   geom_histogram(aes(Arg(eof)), boundary = 0, binwidth = 10*pi/180,
+                  inherit.aes = FALSE) +
+   geom_point(aes(y = Mod(eof)*200, color = is_enso_oni(enso34))) +
+   # geom_point(aes(y = abs(enso34)*10, color = is_enso_oni(enso34))) +
+   scale_x_continuous("Phase", 
+                      breaks = seq(-pi - 1/4*pi, pi - 1/4*pi, by = 45*pi/180),
+                      labels = function(x) paste0(round(x*180/pi, 5), "º")) +
+   scale_y_continuous("Cuenta (barras)",
+                      sec.axis = sec_axis(~.x/200, name = "Mod(eof) (puntos)")) +
+   scale_color_enso()
+```
+
+La Figura \@ref(fig:hist) muestra un histograma de la fase del EOF, mostrando que las fases más comunes son las cercanas a 0 (Real positivo, Niño) y 180 (Real negativo, Niña). Esto significa que la principal oscilación de ENSO es en el "eje" del ENSO canónico. El ENSO casi nunca se encuentra en la fase -90º (Imaginario negativo, indicando anomalías de SST corridas hacia el este) pero sí hay un poco más cerca de 90º (imaginario positivo, indicando anomalías de SST corridas hacia el oeste).
+
+La Figura \@ref(fig:hist) también muestra, en puntos, la magnitud y fase observadas en cada mes, junto con el tipo de evento ENSO categorizado como $\pm0.5$ ENSO3.4. Esto muestra que no sólo las fases cercanas al ENSO canónico son las más comunes, sino que también son las asociadas con magnitudes más altas. 
+
+En resumen, 
+
+* el ENSO suele alinearse en el eje del ENSO canónio con mayor frecuencia,
+* el ENSO es más intenso (tanto positivo como negativo) cuando se alínea con el ENSO canónico,
+* los desvíos significativos se dan únicamente en la dirección del centro de anomalías positivas corrido hacia el oeste.
+
+
+```{r regr}
+regr <- ensos$left |> 
+   D(sst, on = "time") |> 
+   sep_ReIm(eof, longer = FALSE) |> 
+   D(, t := t - mean(t), by = .(lon, lat, month(time))) |> 
+   D(, FitLm(t, R, I), by = .(lon, lat, season(time))) |> 
+   rm_intercept() |> 
+   dcast(lon + lat + season ~ term, value.var = "estimate") |> 
+   D(, variable := "sst")
+
+hgt <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = c(hgt = "z"), 
+                  subset = list(level = 200)) |> 
+   normalise_coords() |> 
+   D(, hgt := hgt/9.8) |> 
+   D(, hgt := hgt - mean(hgt), by = .(lon, lat, month(time))) |> 
+   D(ensos$left, on = "time") |> 
+   na.omit() |> 
+   sep_ReIm(eof, longer = FALSE) |> 
+   D(, FitLm(hgt, R, I), by = .(lon, lat, season(time))) |> 
+   rm_intercept() |> 
+   dcast(lon + lat + season ~ term, value.var = "estimate") |> 
+   D(, variable := "hgt")
+
+regr <- rbind(regr, hgt, use.names = TRUE)
+
+```
+
+
+```{r make-slider-images}
+# a <- 45*pi/180
+sf::sf_use_s2(FALSE)
+
+angles <- seq(-180, 180, by = 10)
+dir.create("ensos")
+
+
+ranges <- regr |> 
+   melt(id.vars = c("lon", "lat", "variable"), variable.name = "part", measure.vars = c("R", "I")) |> 
+   D(, range(value, na.rm = TRUE), by = variable)
+
+breaks_sst <- AnchorBreaks(exclude = 0, bins = 20)(ranges[variable == "sst"]$V1*sqrt(2))
+breaks_hgt <- AnchorBreaks(exclude = 0, bins = 20)(ranges[variable == "hgt"]$V1*sqrt(2))
+
+h <- ensos$left |> 
+   copy() |> 
+   D(season(time) == "SON") |> 
+   # D(, eof := rotate(eof, angles[a]*pi/180)) |> 
+   D(, a := ConvertLongitude(abs(Arg(eof))*180/pi, from = 180)) |> 
+   D(, hist(a, plot = FALSE, breaks = seq(0, 360, by = 10)))
+
+
+h <- data.table(lon_min = h$breaks, 
+                lon_max = h$breaks + 10,
+                count = h$counts)
+
+h[, prop := count/sum(count)]
+
+
+w <- 900
+sink <- lapply(seq_along(angles), function(a) {
+   file <- paste0("ensos/", formatC(a, digits = 2, flag = "0"), "_", 
+                  formatC(angles[a], digits = 3, flag = "0") , ".png")
+   if (file.exists(file)) {
+      return(NULL)
+   }
+   
+   file <- paste0("ensos/", angles[a], ".png")
+   if (file.exists(file)) {
+      return(NULL)
+   }
+   
+   png(file, width = w, height = w/2)
+   prop <- ensos$left |> 
+      copy() |> 
+      D(season(time) == "SON") |> 
+      D(, eof := rotate(eof, angles[a]*pi/180)) |> 
+      D(, mean(acos(cos(Arg(eof))) < 5*pi/180))
+   
+   plot <- regr |> 
+      copy() |> 
+      D(, R := Re(rotate_ReIm(R, I, angles[a]*pi/180))) |> 
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(data = ~.x[variable == "sst"], aes(z = R), breaks = breaks_sst) +
+      geom_contour2(data = ~.x[variable == "hgt"], breaks = breaks_hgt,
+                    aes(z = R, label = ..level../100, linetype = factor(-sign(..level..))), 
+                    family = hrbrthemes::font_rc,
+                    label.placer = label_placer_flattest(45)) +
+      geom_rect(data = h, 
+                alpha = 0.5,
+                aes(xmin = lon_min, xmax = lon_max, ymin = -90, 
+                    ymax = scales::rescale(count, to = c(-90, -50))), inherit.aes = FALSE) +
+      
+      annotate("segment", x = ConvertLongitude(abs(angles[a]+5)), y = -90, 
+               xend = ConvertLongitude(abs(angles[a]+5)), yend = -50, 
+               color = "#c6262e") +
+      annotate("text", x = ConvertLongitude(abs(angles[a]+5)), y = -90, color = "#c6262e", 
+               family = hrbrthemes::font_rc_light,
+               label = scales::percent(h[lon_min == ConvertLongitude(abs(angles[a]))]$prop)) +
+      
+      geom_qmap() +
+      labs(x = NULL, y = NULL) +
+      scale_fill_divergent(guide = "none") +
+      scale_y_continuous(limits = c(-90, 90)) +
+      scale_x_continuous(limits = c(0, 360)) +
+      facet_wrap(~season, ncol = 2)
+   
+   print(plot)
+   dev.off()
+}) 
+
+```
+
+(ref:cap-slide) Regresión trimestral de SST (sombreado) y altura geopotencial en 200 hPa (contornos). 
+
+```{r slider, fig.cap="(ref:cap-slide)", fig.width = 10, out.width = "100%", out.extra="id='img'", fig.fullwidth = TRUE}
+knitr::include_graphics("ensos/0.png")
+```
+
+<div style="text-align:center">
+<input style="width: 50%;" id="valR" type="range" min="-180" max="180" value="0" step="10" oninput="showVal(this.value)" onchange="showVal(this.value)" /> <br/>
+<p align = "center" id="range">0º</p>
+<div>
+
+```{=html}
+<script>
+function showVal(newVal){
+document.getElementById("range").innerHTML=newVal + "º";
+document.getElementById("img").src = "ensos/" + newVal+ ".png";
+}
+</script>
+```
+

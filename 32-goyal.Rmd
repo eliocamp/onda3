@@ -28,14 +28,14 @@ knitr::knit_hooks$set(document = function(x) {
 
 name <- tools::file_path_sans_ext(knitr::current_input())
 knitr::opts_chunk$set(
-	echo = FALSE,
-	fig.path = paste0("fig/", name, "/"),
-	message = FALSE,
-	warning = FALSE,
-	cache = TRUE, 
-	cache.lazy = FALSE,
-	cache.extra = 41,
-	cache.path = paste0("cache/", name, "/")
+   echo = FALSE,
+   fig.path = paste0("fig/", name, "/"),
+   message = FALSE,
+   warning = FALSE,
+   cache = TRUE, 
+   cache.lazy = FALSE,
+   cache.extra = 41,
+   cache.path = paste0("cache/", name, "/")
 )
 # knitr::opts_chunk$set(fig.width = 13, 
 #                       fig.height = 7)
@@ -466,66 +466,67 @@ periodic_roll_fun <- function(x, y = NULL, width, fun) {
    result[keep]
 }
 
-lon_width <- 360/3/2
-lon_halfwidth <- lon_width/2
-lons <- unique(datagoyal$lon)
-w <- sum(lons  %between% (180 + c(-lon_halfwidth, lon_halfwidth)))
 
-datagoyal <- datagoyal %>%
-   # rbind(era5[, exp := "era5"], use.names = TRUE) %>% 
-   # .[lat %~% -55] %>%
-   # .[lat %between% c(-75, -45)] %>%
-   # copy() %>% 
-   .[, ":="(hgt_z = hgt - mean(hgt),
-            hgt_sd = sd(hgt)), keyby = .(exp, time, lat)] %>% 
+roll_fourier <- function(value, lon, time, lon_width, k) {
+   lon_halfwidth <- lon_width/2
+   lons <- unique(lon)
+   w <- sum(lons  %between% (180 + c(-lon_halfwidth, lon_halfwidth)))
    
-   .[, hgt_z := hgt_z/mean(hgt_sd), by = .(lat, exp)] %>% 
-   .[, zw3 := FilterWave(hgt, 3), keyby = .(exp, time, lat)] %>% 
-   .[, zw3_std := zw3/sd(zw3), keyby = .(exp, time, lat)] %>% 
-   .[, qs3 := mean(zw3), by = .(exp, lon, lat, month(time))] %>%
-   .[, qs3_std := qs3/sd(qs3), by = .(exp, time, lat, month(time))] %>%
-   .[, ":="(cov_zw = periodic_roll_fun(hgt_z*zw3_std, width = w, fun = roll::roll_sum), 
-            cov_qs = periodic_roll_fun(hgt_z*qs3_std, width = w, fun = roll::roll_sum)),
-     keyby = .(exp, time, lat)]
+   
+   data <- list(time = time,
+                lon = lon,  
+                value = value)
+   setDT(data)
+   setkey(data, time)
+   
+   
+   # Anomalías zonales
+   data[, ":="(fourier = metR::FilterWave(value, k),
+               value = value - mean(value),
+               value_sd = sd(value)), by = time]
+   # data[, value := value/mean(value_sd), by = .(month(time))]
+   set(data, NULL, "value", data$value/mean(data$value_sd))
+   set(data, NULL, "value_sd", NULL)
+   
+   # Ondas zonales y medias
+   data[, ":="(fourier_mean = mean(fourier),
+               value_a      = value - mean(value)), 
+        by = .(lon, month(time))]
+   
+   
+   data[, ":="(fourier = fourier/max(fourier),
+               fourier_mean = fourier_mean/max(fourier_mean),
+               fourier_a = (fourier - fourier_mean)/max(fourier - fourier_mean)), 
+        by = time]
+   
+   
+   data[, ":="(cov_zw = periodic_roll_fun(value*fourier, width = w,
+                                          fun = roll::roll_sum), 
+               cov_qs = periodic_roll_fun(value*fourier_mean, width = w, 
+                                          fun = roll::roll_sum),
+               cov_a = periodic_roll_fun(value_a*fourier_a, width = w,
+                                         fun = roll::roll_sum)
+   ),
+   by = .(time)]
+   
+   list(
+      proj = data$cov_zw,
+      proj_mean = data$cov_qs,
+      proj_a = data$cov_a
+   )
+}
 
+```
+
+
+
+```{r}
+datagoyal[, c("cov_zw", "cov_qs", "cov_a") := roll_fourier(hgt, lon, time, 360/3, 3), 
+          by = .(exp, lat)]
 ```
 
 Se puede calcular la proyección de las anomalías zonales de altura geopotencial estandarizadas sobre la onda 3 asociada ese campo en gajos de 60º de longitud de ancho.
 Esto da una idea de qué regiones están alineadas y "aportan" más con la onda 3.
-
-
-```{r, include = FALSE}
-datagoyal %>% 
-   .[exp == "ERA5"] %>% 
-   .[time == unique(time)[2]] %>% 
-   keep_lat() %>% 
-   ggplot(aes(lon, hgt_z)) +
-   geom_line(aes(color = "Z*")) +
-   geom_line(aes(y = zw3_std, color = "Onda 3")) +
-   geom_line(aes(y = cov_zw/max(cov_zw), colour = "Proyección")) +
-   scale_x_longitude() +
-   scale_y_continuous(NULL)
-```
-
-```{r, include = FALSE}
-datagoyal %>% 
-   .[exp == "ERA5"] %>% 
-   .[time == unique(time)[3]] %>% 
-   .[lat <= -20] %>% 
-   periodic_lon() %>% 
-   ggplot(aes(lon, lat)) +
-   # geom_contour_fill(aes(z = cov_zw)) +
-   geom_contour2(aes(z = zw3, linetype = factor(-sign(..level..))), color = "gray50") +
-   geom_contour2(aes(z = hgt_z, linetype = factor(-sign(..level..)), 
-                     label = ..level..), family = hrbrthemes::font_rc,
-                 label.placer = label_placer_flattest(45)) +
-   geom_qmap() +
-   geom_coords() +
-   coord_polar() +
-   labs(x = NULL, y = NULL) +
-   scale_fill_divergent(guide = "none")  
-```
-
 
 La Figura \@ref(fig:cov-zw-media) muestra la proyección media. 
 Aquaplanet tiene un campo casi constante, indicando que no hay ninguna región preferencial donde la altura geopotential covaríe con la onda 3. 
@@ -552,8 +553,8 @@ m %>%
    # geom_coords() +
    # coord_polar(ymax = 20) +
    coord_sf(ylim = c(-90, 20), expand = FALSE,
-             # crs = "+proj=longlat +pm=180 +over",
-             default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
    labs(x = NULL, y = NULL) +
    scale_fill_divergent(guide = "none") +
    facet_wrap(~exp, ncol = 3)
@@ -567,7 +568,7 @@ datagoyal %>%
    geom_line(aes(color = exp)) +
    scale_color_exp() +
    coord_flip()
-   
+
 ```
 
 Lo siguiente es evaluar la misma proyección que antes pero sobre la onda 3 climatológica.
@@ -581,19 +582,41 @@ datagoyal %>%
    periodic_lon() %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = V1), breaks = AnchorBreaks(0, exclude = 0)) +
-      geom_contour2(aes(z = V1, label = ..level..), family = hrbrthemes::font_rc,
+   geom_contour2(aes(z = V1, label = ..level..), family = hrbrthemes::font_rc,
                  label.placer = label_placer_flattest(), 
                  breaks = AnchorBreaks(0, exclude = 0)) +
    geom_qmap() +
    # geom_coords() +
    # coord_polar(ymax = 20) +
-    coord_sf(ylim = c(-90, 20), expand = FALSE,
-             # crs = "+proj=longlat +pm=180 +over",
-             default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
    labs(x = NULL, y = NULL) +
    scale_fill_divergent(guide = "none") +
    facet_wrap(~exp)
 ```
+
+```{r}
+datagoyal %>% 
+   .[, mean(cov_a), by = .(exp, lat, lon)] %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = V1, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_wrap(~exp)
+```
+
+
 
 La simulación de Aquaplanet que tiene casi nula estacionariedad, tiene valores casi nulos, lo cual es esperable.
 Como las ondas zonales 3 no tienen una región preferencial, en promedio, la proyección de la altura geopotential en la dirección de la onda climatológica es cero.
@@ -606,6 +629,247 @@ En la simulación con Australia, nuevamente hay valores altos sobre la fuente, p
 En la simulación con trópicos realistas, hay dos regiones tropicales con valores positivos: Pacífico central y áfrica. 
 
 
+```{r}
+
+cors <- lapply(unique(datagoyal$exp), \(e) 
+               datagoyal %>%
+                  .[exp == e] %>% 
+                  melt(id.vars = c("lon", "lat", "time", "exp"), measure.vars = patterns(cov = "^cov")) %>%
+                  .[, m := mean(value), by = .(time, lat, exp, variable)] %>%
+                  .[, cor(value, m), by = .(variable, exp, lat, lon)]
+) %>% 
+   rbindlist()
+
+```
+
+```{r}
+datagoyal %>% 
+   .[, .SD[time %in% sample(unique(time), 1)], by = .(exp)] %>% 
+   .[, hgt := hgt - mean(hgt), by = .(lat, time, exp)] %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = cov_zw), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = hgt, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_wrap(~exp)
+```
+
+
+```{r}
+cors %>% 
+   .[variable == "cov_zw"] %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1^2), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = V1^2, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_wrap(~exp)
+```
+
+```{r}
+cors %>% 
+   .[variable == "cov_qs"] %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1^2), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = V1^2, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_wrap(~exp)
+```
+
+```{r}
+cors %>% 
+   keep_lat() %>% 
+   .[variable != "cov_a"] %>% 
+   ggplot(aes(lon, V1^2)) +
+   geom_line(aes(color = variable)) +
+   facet_wrap(~exp)
+```
+
+```{r}
+datagoyal %>% 
+   .[exp == "ERA5"] %>% 
+   .[, mean(cov_qs), by = .(exp, lat, lon)] %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = V1, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_wrap(~exp)
+```
+
+
+```{r}
+samax <- datagoyal %>% 
+   .[exp == "Tropical South America"] %>% 
+   # .[time == time[1]] %>% 
+   .[, mean(cov_qs), by = .(exp, lat, lon)] %>% {
+      d <- .
+      rbind(
+         d[which.max(V1)], 
+         d %>% keep_lat() %>% .[which.max(V1)]       
+      ) 
+   } %>% 
+   .[, .(lon, lat, exp)] 
+
+samax <- samax %>% 
+   rbind(data.table(lon = 135, lat = samax$lat[2], exp = "Tropical South America"))
+
+waves <- lapply(seq_len(nrow(samax)), \(i) {
+   maxlat <- samax[i, lat]
+   maxlon <- samax[i, lon]
+   
+   datagoyal %>% 
+      .[exp == "Tropical South America"] %>% 
+      .[, base := cov_qs[lat == maxlat & lon == maxlon], by = .(time)] %>% 
+      .[, hgt := hgt - mean(hgt), by = .(time, lat)] %>% 
+      .[, .(base_lon = maxlon,
+            base_lat = maxlat, 
+            cor = cor(hgt, base)), by = .(lon, lat)]
+}) %>% 
+   rbindlist()
+
+waves %>% 
+   # .[base_lat == min(base_lat)] %>% 
+   periodic_lon() %>% 
+
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = cor), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = cor, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   geom_point(data = ~unique(.x[, .(base_lon, base_lat)]), 
+              aes(base_lon, base_lat), size = 4) +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_wrap(~as.numeric(interaction(base_lat, base_lon)))
+```
+
+```{r}
+
+lons <- seq(0, 300, by = 60)
+lats <- datagoyal[exp == "Tropical South America"] %>%
+   .[which.min(abs(lat + 55)), lat]
+waves <- lapply(lons, \(l) {
+   datagoyal %>% 
+      .[exp == "Tropical South America"] %>% 
+      .[, hgt := hgt - mean(hgt), by = .(time, lat)] %>% 
+      melt(id.vars = c("lon", "lat", "time", "exp", "hgt"), 
+           measure.vars = c("cov_qs", "cov_zw")) %>%
+      .[, base := value[lat == lats & lon == l], by = .(variable, time)] %>% 
+      
+      .[, .(base_lon = l,
+            base_lat = lats, 
+            cor = cor(hgt, base)), by = .(variable, lon, lat)]
+}) %>% 
+   rbindlist()
+
+waves %>% 
+   # .[base_lat == min(base_lat)] %>% 
+   periodic_lon() %>% 
+
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = cor), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = cor, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   geom_point(data = ~unique(.x[, .(base_lon, base_lat)]), 
+              aes(base_lon, base_lat), size = 4) +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_grid(base_lon  ~ variable)
+```
+
+```{r}
+
+lons <- seq(0, 300, by = 60)
+lats <- datagoyal[exp == "ERA5"] %>%
+   .[which.min(abs(lat + 55)), lat]
+waves <- lapply(lons, \(l) {
+   datagoyal %>% 
+      .[exp == "ERA5"] %>% 
+      .[, hgt := hgt - mean(hgt), by = .(time, lat)] %>% 
+      melt(id.vars = c("lon", "lat", "time", "exp", "hgt"), 
+           measure.vars = c("cov_qs", "cov_zw")) %>%
+      .[, base := value[lat == lats & lon == l], by = .(variable, time)] %>% 
+      
+      .[, .(base_lon = l,
+            base_lat = lats, 
+            cor = cor(hgt, base)), by = .(variable, lon, lat)]
+}) %>% 
+   rbindlist()
+
+waves %>% 
+   # .[base_lat == min(base_lat)] %>% 
+   periodic_lon() %>% 
+
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = cor), breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_contour2(aes(z = cor, label = ..level..), family = hrbrthemes::font_rc,
+                 label.placer = label_placer_flattest(), 
+                 breaks = AnchorBreaks(0, exclude = 0)) +
+   geom_qmap() +
+   geom_point(data = ~unique(.x[, .(base_lon, base_lat)]), 
+              aes(base_lon, base_lat), size = 4) +
+   # geom_coords() +
+   # coord_polar(ymax = 20) +
+   coord_sf(ylim = c(-90, 20), expand = FALSE,
+            # crs = "+proj=longlat +pm=180 +over",
+            default_crs = "+proj=longlat +lon_wrap=180 +over") + 
+   labs(x = NULL, y = NULL) +
+   scale_fill_divergent(guide = "none") +
+   facet_grid(base_lon  ~ variable)
+```
+
+
 ## cEOFs
 
 Como lo que interesan son las onda zonales, voy a calcular los EOFs complejos.
@@ -613,8 +877,8 @@ Para ayudar en la interpretación de lo que ya sé, voy a usar sólo Septiembre-
 
 ```{r ceofs}
 season_weights <- function(time, groups = seasonally(time)) {
-  w <- as.numeric(on_unique(time, lubridate::days_in_month))
-  setDT(list(w = w, groups = groups))[, w := w/mean(w), by = groups]$w
+   w <- as.numeric(on_unique(time, lubridate::days_in_month))
+   setDT(list(w = w, groups = groups))[, w := w/mean(w), by = groups]$w
 }
 
 
@@ -646,9 +910,9 @@ ceofs[, eof[[1]]$right, by = exp] %>%
                                   # .[exp != "Aquaplanet"] %>%
                                   .[, cumr2 := cumsum(r2), by = exp],
                                family = "Roboto Condensed",
-                            aes(0, -90, label = paste0(scales::percent(r2, 0.1), "\n(",
-                                                       scales::percent(cumr2, .1), ")")),
-                            bg.colour = "white", colour = "black") +
+                               aes(0, -90, label = paste0(scales::percent(r2, 0.1), "\n(",
+                                                          scales::percent(cumr2, .1), ")")),
+                               bg.colour = "white", colour = "black") +
    geom_qmap() +
    geom_coords() +
    coord_polar() +
@@ -666,7 +930,7 @@ Salvo aquaplanet y "Tropical South America", en el resto de las simulaciones los
 
 Salvo la simulación de Sudamérica tropical, todos estos cEOF tienen un grado de localización comparable con ERA5. 
 
-  
+
 
 Tratar de hacer paralelismos entre cEOFs no es fácil porque la tienen diferencias en cuanto a las regiones donde están más activos por construcción de las simulaciones. 
 Para tener una mejor idea de la estructura de ondas zonales independientemente de la fase, la Figura \@ref(fig:coefs-amplitudes) muestra la amplitud de las ondas zonales 1 a 3 de los cEOFs 2 y 3 de cada experimento (salvo aquaplanet).
@@ -706,7 +970,7 @@ En particular quiero mirar dos cosas:
 
 ```{r ceof-regre, fig.cap = "Regresiones de altura geopotential y los cEOFs. Las primeras dos filas son las regresiones con la parte Imaginaria y Real del cEOF2 y las últimas dos, las del cEOF3."}
 ceofs[, eof[[1]]$left, by = exp] %>% 
-    .[exp != "Aquaplanet"] %>% 
+   .[exp != "Aquaplanet"] %>% 
    # .[cEOF != "cEOF1"] %>% 
    .[cEOF == "cEOF3"] %>% 
    sep_ReIm(hgt, longer = FALSE) %>% 
@@ -723,7 +987,7 @@ ceofs[, eof[[1]]$left, by = exp] %>%
    labs(x = NULL, y = NULL) +
    scale_fill_divergent(guide = "none") +
    ggh4x::facet_nested(cEOF + term ~exp)
-   
+
 ```
 
 
