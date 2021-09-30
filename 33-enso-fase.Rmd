@@ -34,7 +34,7 @@ knitr::opts_chunk$set(
    warning = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 41,
+   cache.extra = 42,
    cache.path = paste0("cache/", name, "/")
 )
 # knitr::opts_chunk$set(fig.width = 13, 
@@ -45,7 +45,7 @@ source(here::here("scripts", "maps.R"))
 library(metR)
 library(data.table)
 library(ggplot2)
-library(magrittr)
+# library(magrittr)
 library(patchwork)
 library(here)
 library(tagger)
@@ -111,9 +111,9 @@ coord_polar <- function(ymax = -20, ...) {
           rep(60, length.out = 40), 
           ymax)
    
-   cbind(x, y) %>% 
-      list() %>% 
-      sf::st_polygon() %>% 
+   cbind(x, y) |> 
+      list() |> 
+      sf::st_polygon() |> 
       sf::st_sfc(crs = "+proj=latlong") -> white
    
    list(
@@ -168,7 +168,7 @@ D <- `[`
 
 En el trabajo de PSA vi que los mapas de regresión de SST asociados a distintas fases del PSA muestran un ENSO con distintas localizaciones.
 
-```{r, fig.cap = "Mapas de regresión de PSA en sus distintas fase con sst (izquierda) y funcíon corriente en 200hPa (derecha)."}
+```{r figura-ceof, fig.cap = "Mapas de regresión de PSA en sus distintas fase con sst (izquierda) y funcíon corriente en 200hPa (derecha)."}
 knitr::include_graphics("images/sst-psi-2-1.png")
 ```
 
@@ -218,30 +218,35 @@ sst <- readRDS(file)
 ```
 
 ```{r enso}
-enso <- rsoi::download_oni(use_cache = TRUE) %>% 
-   as.data.table() %>% 
-   .[, .(enso34 = dSST3.4, time = lubridate::as_datetime(Date))] %>% 
-   .[time %in% unique(sst$time)]
-
+enso <- sst |> 
+   D(lon %between% ConvertLongitude(c(-170, -120)) & lat %between% c(-5, 5)) |> 
+   D(, .(enso34 = weighted.mean(t, cos(lat*pi/180))), by = .(time)) |> 
+   D(, enso34 := enso34 - mean(enso34), by  = month(time)) |>
+   D(, enso34 := scale(enso34))
 ```
 
-Lo que voy a hacer es calcular el EOF complejo de la SST promediada entre 5ºS y 5ºN.
+Lo que voy a hacer es calcular el EOF complejo de la SST[^sst-fuente] promediada entre 5ºS y 5ºN.
 Un problema es que no tengo valores sobre los continentes así que voy a rellenar con una interpolación constante.
 Los valores imputados son un sinsentido, pero no debería importar demasiado porque son siempre iguales.
 
-Otra cosa que voy a hacer es rotar el EOF de manera que la parte real tenga la máxima correlación parcial con el índice ENSO 3.4.
+[^sst-fuente]: [Extended Reconstructed Sea Surface Temperature](https://psl.noaa.gov/data/gridded/data.noaa.ersst.v5.html) entre 1979 y 2020. 
+
+Otra cosa que voy a hacer es rotar el EOF de manera que la parte real tenga la máxima correlación parcial con el índice ENSO 3.4[^enso34].
+
+[^enso34]: Computado usando los mismos datos de SST: El promedio de las anomalías mensuales de SST entre 5ºS y 5ºN, y 127ºO y 170ºO y luego estandarizado.
 
 ```{r ensos}
-ensos <- sst %>% 
-   .[lat %between% c(-5, 5)] %>% 
-   .[, mean(t), by = .(time, lon)] %>% 
-   .[, V1 := approx(lon, V1, xout = lon, rule = 2)$y, by = .(time)] %>% 
-   .[, V1 := V1 - mean(V1), by = .(month(time), lon)] %>% 
-   .[, eof := spectral::analyticFunction(V1), by = time] %>% 
-   EOF(eof ~ time | lon, data = ., n = 1)
+set.seed(42)
+ensos <- sst |> 
+   D(lat %between% c(-5, 5)) |> 
+   D(, mean(t), by = .(time, lon)) |> 
+   D(, V1 := approx(lon, V1, xout = lon, rule = 2)$y, by = .(time)) |> 
+   D(, V1 := V1 - mean(V1), by = .(month(time), lon)) |> 
+   D(, eof := spectral::analyticFunction(V1), by = time) |> 
+   D(, EOF(eof ~ time | lon, n = 1))
 ```
 
-```{r}
+```{r rotate}
 rotate <- function(z, angle = 0) {
    complex(real = cos(angle), imaginary = sin(angle)) * z
 }
@@ -251,7 +256,7 @@ rotate_ReIm <- function(R, I, angle) {
 }
 
 angles <- seq(-pi, pi, by = .5*pi/180)
-temp <- ensos$left %>% 
+temp <- ensos$left |> 
    D(enso, on = "time") 
 
 
@@ -265,7 +270,7 @@ rotations <- lapply(angles, function(a) {
       D(, ":="(R = Re(eof), I = Im(eof))) |> 
       D(, partial_cor(enso34, R, I)) |> 
       D(, rotation := a)
-}) %>% 
+}) |> 
    rbindlist()
 
 
@@ -294,7 +299,7 @@ ensos$right |>
 
 La Figura \@ref(fig:plot-eof) muestra el patrón espacial del EOF complejo.
 La parte real tiene el máximo en \~120ºO, que coincide con el cero de la parte imaginaria, lo cual cual está bien, porque indica que es una onda que cambia de fase.
-Una imagen más intuitiva de este patrón es la Figura \@ref(enso-sst).
+Una imagen más intuitiva de este patrón es la Figura \@ref(fig:enso-sst).
 Muestra un patrón típico de ENSO asociado a la parte real.
 La parte imaginaria tiene vlaores positivos en el pacífico central/occidental y negativos en el pacífico oriental.
 Esto indica que cuando ésta parte es positiva, desplaza las anomalías hacia el oeste y viceversa.
@@ -321,9 +326,9 @@ ensos$left |>
 #|    Valores del eof complejo en el eje horizontal vs. ENSO3.4 en el eje vertical. 
 #|    Muestra la alta correlación entre la parte real y el índice ENSO3.4"
 
-ensos$left %>% 
+ensos$left |> 
    sep_ReIm(eof) |> 
-   D(enso, on = "time") %>% 
+   D(enso, on = "time") |> 
    ggplot(aes(eof, enso34)) +
    geom_point() +
    geom_text(data = ~.x[, cor(eof, enso34), by = part], 
@@ -355,8 +360,8 @@ scale_color_enso <- function() {
                                  "Neutro" = "#abacae",
                                  "Niño" = "#de3e80"))
 }
-ensos$left %>% 
-   D(enso, on = "time") %>% 
+ensos$left |> 
+   D(enso, on = "time") |> 
    ggplot(aes(Arg(eof))) +
    geom_histogram(aes(Arg(eof)), boundary = 0, binwidth = 10*pi/180,
                   inherit.aes = FALSE) +
@@ -378,22 +383,21 @@ En resumen,
 
 * el ENSO suele alinearse en el eje del ENSO canónio con mayor frecuencia,
 * el ENSO es más intenso (tanto positivo como negativo) cuando se alínea con el ENSO canónico,
-* los desvíos significativos se dan únicamente en la dirección del centro de anomalías positivas corrido hacia el oeste.
+* los desvíos significativos con respecto al ENSO canónico se dan únicamente en la dirección del centro de anomalías positivas corrido hacia el oeste.
 
 Bien, ¿y qué hay de los efectos en el PSA? La Figura \@ref(fig:slider) muestra mapas de regresión de SST en sombreado y función corriente en 200hPa en contornos para los distintos trimestres y distintas fases del ENSO complejo. 
 
 
-```{r}
+```{r psi}
 psi <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = "vo", 
-                    subset = list(level = 200)) |> 
+                  subset = list(level = 200)) |> 
    normalise_coords() |> 
    # .[season(time) == "SON"] %>%
    # .[, w := season_weights(time)] %>% 
    # .[, .(vo = mean(vo*w)), by = .(lon, lat, lev, time = seasonally(time))] %>%
    D(, shceof::solve_poisson(vo, lon, lat), by = .(lev, time)) %>%
-   data.table::setnames("value", "psi") %>% 
-   # .[, psi := psi*scaling[2] + scaling[1]] %>%
-   D(, psi.z := Anomaly(psi), by = .(time, lev, lat))
+   data.table::setnames("value", "psi") 
+   # .[, psi := psi*scaling[2] + scaling[1]]
 ```
 
 
@@ -411,7 +415,7 @@ regr <-
       
       
       psi |> 
-         D(, psi_a := psi.z - mean(psi.z), by = .(lon, lat, month(time))) |> 
+         D(, psi_a := psi - mean(psi), by = .(lon, lat, month(time))) |> 
          D(ensos$left, on = "time") |> 
          na.omit() |> 
          sep_ReIm(eof, longer = FALSE) |> 
@@ -422,10 +426,11 @@ regr <-
       
       use.names = TRUE
    )
+
 ```
 
 
-```{r make-slider-images}
+```{r make-slider-images, cache = FALSE}
 # a <- 45*pi/180
 sf::sf_use_s2(FALSE)
 
@@ -445,7 +450,8 @@ h <- ensos$left |>
    # D(season(time) == "SON") |> 
    # D(, eof := rotate(eof, angles[a]*pi/180)) |> 
    D(, a := Arg(eof)*180/pi) |> 
-   D(, hist(a, plot = FALSE, breaks = seq(-180, 180, by = 10))[c("mids", "counts")], by = season(time)) |> 
+   D(, hist(a, plot = FALSE, breaks = seq(-180, 180, by = 10))[c("mids", "counts")],
+     by = season(time)) |> 
    D(, prop := counts/sum(counts), by = .(season)) |> 
    D(, mids := mids + 180)
 
@@ -464,16 +470,22 @@ sink <- lapply(seq_along(angles), function(a) {
    }
    
    png(file, width = w, height = w/2)
-   
    plot <- regr |> 
       copy() |> 
-      D(, R := Re(rotate_ReIm(R, I, angles[a]*pi/180))) |> 
+      D(, R := Re(rotate_ReIm(R, I, -angles[a]*pi/180))) |> 
+      D(, psi.z := Anomaly(R), by = .(season, lat)) |> 
+      D(variable == "psi", c("fx", "fy") := shceof::WaveFlux(.SD, p = 200), 
+        by = .(season)) |> 
       ggplot(aes(lon, lat)) +
       geom_contour_fill(data = ~.x[variable == "sst"], aes(z = R), breaks = breaks_sst) +
       geom_contour2(data = ~.x[variable == "psi"], breaks = breaks_psi,
                     aes(z = R, label = ..level..*1e7, linetype = factor(-sign(..level..))), 
                     family = hrbrthemes::font_rc,
                     label.placer = label_placer_flattest(45)) +
+      
+      # geom_vector(data = ~.x[variable == "psi"], 
+      #             aes(dx = fx, dy = fy)) +
+      scale_mag() +
       geom_rect(data = h, 
                 alpha = 0.5,
                 aes(xmin = mids - 5 , xmax = mids + 5, ymin = -90, 
@@ -497,6 +509,12 @@ sink <- lapply(seq_along(angles), function(a) {
 
 ```
 
+Mirando al trimestre de SON, la anomalía negativa sobre el mar de Amundsen se desplaza considerablemente entre las fases <a href="javascript:showValExternal(-20)">-20º</a> y <a href="javascript:showValExternal(30)">30º</a> --las fases del ENSO complejo positivo más comunes. 
+Las anomalías en la cercanía de Sudamérica también cambian considerablemente. 
+Pero la forma del tren de ondas es bastante distinto. 
+En la fase de <a href="javascript:showValExternal(30)">30º</a>, el tren de ondas está bien desarrollado y viene desde el Pacífico, con anomalías fuertes al Sur de las anomlaías de SST.
+En la fase de <a href="javascript:showValExternal(-20)">-20º</a>, por ejemplo, el tren de ondas es mucho más hemisférico y parece emanar más desde el Índico más que desde el Pacífico. 
+
 (ref:cap-slide) Regresión trimestral de SST (sombreado) y función corriente en 200 hPa (contornos, valores $\times 1·10^7$). Las barras grises indican el histograma en función de la fase (similar a la Figura \@ref(fig:hist)) y el texto rojo indica la proporción de meses con determinada fase. 
 
 ```{r slider, fig.cap="(ref:cap-slide)", fig.width = 10, out.width = "100%", out.extra="id='img'", fig.fullwidth = TRUE}
@@ -506,7 +524,7 @@ knitr::include_graphics("ensos/0.png")
 <div style="text-align:center">
 <input style="width: 50%;" id="valR" type="range" min="-180" max="170" value="0" step="10" oninput="showVal(this.value)" onchange="showVal(this.value)" /> <br/>
 <p align = "center" id="range">0º</p>
-<div>
+</div>
 
 ```{=html}
 <script>
@@ -514,6 +532,28 @@ function showVal(newVal){
 document.getElementById("range").innerHTML=newVal + "º";
 document.getElementById("img").src = "ensos/" + newVal+ ".png";
 }
+
+function showValExternal(newVal){
+document.getElementById("range").innerHTML=newVal + "º";
+document.getElementById("img").src = "ensos/" + newVal+ ".png";
+document.getElementById("valR").value = newVal;
+}
 </script>
+
+
 ```
+
+
+
+En MAM también hay indicación de un poco de dependencia, aunque menor que en SON. 
+Por ejemplo, el tren de onda sólo cambia ligerametne entre <a href="javascript:showValExternal(0)">0º</a> y <a href="javascript:showValExternal(80)">80º</a>.
+
+En JJA, parecería que la localización de las anomalías de función corriente no cambian con la localización de las anomalías de SST. 
+Las anomalías no ambian entre <a href="javascript:showValExternal(100)">100º</a> y 
+<a href="javascript:showValExternal(0)">0º</a>.
+Lo que cambia es principalmente la intensidad (aunque eso no estoy seguro si está muy bien porque hay que recordar que la amplitud del ENSO medio también cambia en cada fase).
+
+Estas dependencias de la localización de las anomalías también puede observarse en el impacto sobre la SST extratropical. 
+
+
 
