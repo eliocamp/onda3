@@ -226,10 +226,12 @@ enso <- sst |>
 ```
 
 Lo que voy a hacer es calcular el EOF complejo de la SST[^sst-fuente] promediada entre 5ºS y 5ºN.
-Un problema es que no tengo valores sobre los continentes así que voy a rellenar con una interpolación constante.
+Un problema es que no tengo valores sobre los continentes así que voy a rellenar con una interpolación constante.[^periodico]
 Los valores imputados son un sinsentido, pero no debería importar demasiado porque son siempre iguales.
 
 [^sst-fuente]: [Extended Reconstructed Sea Surface Temperature](https://psl.noaa.gov/data/gridded/data.noaa.ersst.v5.html) entre 1979 y 2020. 
+
+[^periodico]: Como estoy haciendo la transformada de Hilbert, está bueno que el domino sea periódico, por eso es que prefiero rellenar los continentes en vez de hacer el EOF sólo usando los datos del Pacífico.
 
 Otra cosa que voy a hacer es rotar el EOF de manera que la parte real tenga la máxima correlación parcial con el índice ENSO 3.4[^enso34].
 
