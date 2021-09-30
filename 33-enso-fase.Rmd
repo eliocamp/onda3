@@ -380,32 +380,48 @@ En resumen,
 * el ENSO es más intenso (tanto positivo como negativo) cuando se alínea con el ENSO canónico,
 * los desvíos significativos se dan únicamente en la dirección del centro de anomalías positivas corrido hacia el oeste.
 
+Bien, ¿y qué hay de los efectos en el PSA? La Figura \@ref(fig:slider) muestra mapas de regresión de SST en sombreado y función corriente en 200hPa en contornos para los distintos trimestres y distintas fases del ENSO complejo. 
+
+
+```{r}
+psi <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = "vo", 
+                    subset = list(level = 200)) |> 
+   normalise_coords() |> 
+   # .[season(time) == "SON"] %>%
+   # .[, w := season_weights(time)] %>% 
+   # .[, .(vo = mean(vo*w)), by = .(lon, lat, lev, time = seasonally(time))] %>%
+   D(, shceof::solve_poisson(vo, lon, lat), by = .(lev, time)) %>%
+   data.table::setnames("value", "psi") %>% 
+   # .[, psi := psi*scaling[2] + scaling[1]] %>%
+   D(, psi.z := Anomaly(psi), by = .(time, lev, lat))
+```
+
 
 ```{r regr}
-regr <- ensos$left |> 
-   D(sst, on = "time") |> 
-   sep_ReIm(eof, longer = FALSE) |> 
-   D(, t := t - mean(t), by = .(lon, lat, month(time))) |> 
-   D(, FitLm(t, R, I), by = .(lon, lat, season(time))) |> 
-   rm_intercept() |> 
-   dcast(lon + lat + season ~ term, value.var = "estimate") |> 
-   D(, variable := "sst")
-
-hgt <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = c(hgt = "z"), 
-                  subset = list(level = 200)) |> 
-   normalise_coords() |> 
-   D(, hgt := hgt/9.8) |> 
-   D(, hgt := hgt - mean(hgt), by = .(lon, lat, month(time))) |> 
-   D(ensos$left, on = "time") |> 
-   na.omit() |> 
-   sep_ReIm(eof, longer = FALSE) |> 
-   D(, FitLm(hgt, R, I), by = .(lon, lat, season(time))) |> 
-   rm_intercept() |> 
-   dcast(lon + lat + season ~ term, value.var = "estimate") |> 
-   D(, variable := "hgt")
-
-regr <- rbind(regr, hgt, use.names = TRUE)
-
+regr <- 
+   rbind(
+      ensos$left |> 
+         D(sst, on = "time") |> 
+         sep_ReIm(eof, longer = FALSE) |> 
+         D(, t := t - mean(t), by = .(lon, lat, month(time))) |> 
+         D(, FitLm(t, R, I), by = .(lon, lat, season(time))) |> 
+         rm_intercept() |> 
+         dcast(lon + lat + season ~ term, value.var = "estimate") |> 
+         D(, variable := "sst"),
+      
+      
+      psi |> 
+         D(, psi_a := psi.z - mean(psi.z), by = .(lon, lat, month(time))) |> 
+         D(ensos$left, on = "time") |> 
+         na.omit() |> 
+         sep_ReIm(eof, longer = FALSE) |> 
+         D(, FitLm(psi_a, R, I), by = .(lon, lat, season(time))) |> 
+         rm_intercept() |> 
+         dcast(lon + lat + season ~ term, value.var = "estimate") |> 
+         D(, variable := "psi"),
+      
+      use.names = TRUE
+   )
 ```
 
 
@@ -413,7 +429,7 @@ regr <- rbind(regr, hgt, use.names = TRUE)
 # a <- 45*pi/180
 sf::sf_use_s2(FALSE)
 
-angles <- seq(-180, 180, by = 10)
+angles <- seq(-180, 170, by = 10)
 dir.create("ensos")
 
 
@@ -422,21 +438,16 @@ ranges <- regr |>
    D(, range(value, na.rm = TRUE), by = variable)
 
 breaks_sst <- AnchorBreaks(exclude = 0, bins = 20)(ranges[variable == "sst"]$V1*sqrt(2))
-breaks_hgt <- AnchorBreaks(exclude = 0, bins = 20)(ranges[variable == "hgt"]$V1*sqrt(2))
+breaks_psi <- AnchorBreaks(exclude = 0, bins = 20)(ranges[variable == "psi"]$V1*sqrt(2))
 
 h <- ensos$left |> 
    copy() |> 
-   D(season(time) == "SON") |> 
+   # D(season(time) == "SON") |> 
    # D(, eof := rotate(eof, angles[a]*pi/180)) |> 
-   D(, a := ConvertLongitude(abs(Arg(eof))*180/pi, from = 180)) |> 
-   D(, hist(a, plot = FALSE, breaks = seq(0, 360, by = 10)))
-
-
-h <- data.table(lon_min = h$breaks, 
-                lon_max = h$breaks + 10,
-                count = h$counts)
-
-h[, prop := count/sum(count)]
+   D(, a := Arg(eof)*180/pi) |> 
+   D(, hist(a, plot = FALSE, breaks = seq(-180, 180, by = 10))[c("mids", "counts")], by = season(time)) |> 
+   D(, prop := counts/sum(counts), by = .(season)) |> 
+   D(, mids := mids + 180)
 
 
 w <- 900
@@ -453,33 +464,26 @@ sink <- lapply(seq_along(angles), function(a) {
    }
    
    png(file, width = w, height = w/2)
-   prop <- ensos$left |> 
-      copy() |> 
-      D(season(time) == "SON") |> 
-      D(, eof := rotate(eof, angles[a]*pi/180)) |> 
-      D(, mean(acos(cos(Arg(eof))) < 5*pi/180))
    
    plot <- regr |> 
       copy() |> 
       D(, R := Re(rotate_ReIm(R, I, angles[a]*pi/180))) |> 
       ggplot(aes(lon, lat)) +
       geom_contour_fill(data = ~.x[variable == "sst"], aes(z = R), breaks = breaks_sst) +
-      geom_contour2(data = ~.x[variable == "hgt"], breaks = breaks_hgt,
-                    aes(z = R, label = ..level../100, linetype = factor(-sign(..level..))), 
+      geom_contour2(data = ~.x[variable == "psi"], breaks = breaks_psi,
+                    aes(z = R, label = ..level..*1e7, linetype = factor(-sign(..level..))), 
                     family = hrbrthemes::font_rc,
                     label.placer = label_placer_flattest(45)) +
       geom_rect(data = h, 
                 alpha = 0.5,
-                aes(xmin = lon_min, xmax = lon_max, ymin = -90, 
-                    ymax = scales::rescale(count, to = c(-90, -50))), inherit.aes = FALSE) +
-      
-      annotate("segment", x = ConvertLongitude(abs(angles[a]+5)), y = -90, 
-               xend = ConvertLongitude(abs(angles[a]+5)), yend = -50, 
-               color = "#c6262e") +
-      annotate("text", x = ConvertLongitude(abs(angles[a]+5)), y = -90, color = "#c6262e", 
-               family = hrbrthemes::font_rc_light,
-               label = scales::percent(h[lon_min == ConvertLongitude(abs(angles[a]))]$prop)) +
-      
+                aes(xmin = mids - 5 , xmax = mids + 5, ymin = -90, 
+                    ymax = scales::rescale(counts, to = c(-90, -50))), inherit.aes = FALSE) +
+      geom_text(data = h[mids == angles[a]+180+5],
+                aes(x = mids, y = -90, label = scales::percent(prop)),
+                family = hrbrthemes::font_rc_light, color = "#c6262e") +
+      geom_segment(data =h[mids == angles[a]+180+5],
+                   aes(x = mids, xend = mids, y = -90, yend = -50),
+                   color = "#c6262e") +
       geom_qmap() +
       labs(x = NULL, y = NULL) +
       scale_fill_divergent(guide = "none") +
@@ -493,14 +497,14 @@ sink <- lapply(seq_along(angles), function(a) {
 
 ```
 
-(ref:cap-slide) Regresión trimestral de SST (sombreado) y altura geopotencial en 200 hPa (contornos). 
+(ref:cap-slide) Regresión trimestral de SST (sombreado) y función corriente en 200 hPa (contornos, valores $\times 1·10^7$). Las barras grises indican el histograma en función de la fase (similar a la Figura \@ref(fig:hist)) y el texto rojo indica la proporción de meses con determinada fase. 
 
 ```{r slider, fig.cap="(ref:cap-slide)", fig.width = 10, out.width = "100%", out.extra="id='img'", fig.fullwidth = TRUE}
 knitr::include_graphics("ensos/0.png")
 ```
 
 <div style="text-align:center">
-<input style="width: 50%;" id="valR" type="range" min="-180" max="180" value="0" step="10" oninput="showVal(this.value)" onchange="showVal(this.value)" /> <br/>
+<input style="width: 50%;" id="valR" type="range" min="-180" max="170" value="0" step="10" oninput="showVal(this.value)" onchange="showVal(this.value)" /> <br/>
 <p align = "center" id="range">0º</p>
 <div>
 
