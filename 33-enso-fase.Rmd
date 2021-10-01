@@ -387,21 +387,39 @@ En resumen,
 * el ENSO es más intenso (tanto positivo como negativo) cuando se alínea con el ENSO canónico,
 * los desvíos significativos con respecto al ENSO canónico se dan únicamente en la dirección del centro de anomalías positivas corrido hacia el oeste.
 
-Bien, ¿y qué hay de los efectos en el PSA? La Figura \@ref(fig:slider) muestra mapas de regresión de SST en sombreado y función corriente en 200hPa en contornos para los distintos trimestres y distintas fases del ENSO complejo. 
-
 
 ```{r psi}
 psi <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = "vo", 
                   subset = list(level = 200)) |> 
    normalise_coords() |> 
-   # .[season(time) == "SON"] %>%
-   # .[, w := season_weights(time)] %>% 
-   # .[, .(vo = mean(vo*w)), by = .(lon, lat, lev, time = seasonally(time))] %>%
    D(, shceof::solve_poisson(vo, lon, lat), by = .(lev, time)) %>%
    data.table::setnames("value", "psi") 
-   # .[, psi := psi*scaling[2] + scaling[1]]
 ```
 
+
+```{r cmap}
+cmap <- "DATA/precip.mon.mean.nc" |> 
+   ReadNetCDF(vars = c(pp = "precip"), 
+              subset = list(time = unique(ensos$left$time))) 
+
+
+land <- cmap |>
+   D(time == time[1]) |>
+   D(MaskLand(lon, lat) == TRUE) |>
+   D(, .(lon, lat)) |>
+   unique()
+
+valid <- cmap |> 
+   # D(land, on = c("lon", "lat")) |> 
+   D(, mean(is.finite(pp)), by  = .(lon, lat, season(time))) |> 
+   D(V1 > 0.8, .(lon, lat, season))
+
+cmap <- cmap |> 
+   D(, season := season(time)) |> 
+   D(valid, on = c("lon", "lat", "season")) |> 
+   D(, season := NULL)
+
+```
 
 ```{r regr}
 regr <- 
@@ -421,14 +439,25 @@ regr <-
          D(ensos$left, on = "time") |> 
          na.omit() |> 
          sep_ReIm(eof, longer = FALSE) |> 
+         D(, ":="(R = scale(R), I = scale(I)), by = .()) |> 
          D(, FitLm(psi_a, R, I), by = .(lon, lat, season(time))) |> 
          rm_intercept() |> 
          dcast(lon + lat + season ~ term, value.var = "estimate") |> 
          D(, variable := "psi"),
       
+      
+      cmap |> 
+         D(lat > -60) |> 
+         D(, pp_a := Anomaly(pp, na.rm = TRUE)/sd(pp, na.rm = TRUE), by = .(lon, lat, month(time))) |> 
+         D(ensos$left, on = "time") |> 
+         sep_ReIm(eof, longer = FALSE) |> 
+         D(, FitLm(pp_a, R, I), by = .(lon, lat, season(time))) |> 
+         rm_intercept() |> 
+         dcast(lon + lat + season ~ term, value.var = "estimate") |> 
+         D(, variable := "pp"),
+      
       use.names = TRUE
    )
-
 ```
 
 
@@ -437,15 +466,16 @@ regr <-
 sf::sf_use_s2(FALSE)
 
 angles <- seq(-180, 170, by = 10)
-dir.create("ensos")
-
+dir.create("ensos_slider")
 
 ranges <- regr |> 
-   melt(id.vars = c("lon", "lat", "variable"), variable.name = "part", measure.vars = c("R", "I")) |> 
-   D(, range(value, na.rm = TRUE), by = variable)
+   D(, m := sqrt(R^2 + I^2)) |> 
+   D(variable != "pp" | lon %between% c(-55, 60)) |>
+   D(, max(m, na.rm = TRUE), by = variable) 
 
-breaks_sst <- AnchorBreaks(exclude = 0, bins = 20)(ranges[variable == "sst"]$V1*sqrt(2))
-breaks_psi <- AnchorBreaks(exclude = 0, bins = 20)(ranges[variable == "psi"]$V1*sqrt(2))
+breaks_sst <- AnchorBreaks(exclude = 0, bins = 20)(c(-1, 1)*ranges[variable == "sst"]$V1)
+breaks_psi <- AnchorBreaks(exclude = 0, bins = 25)(c(-1, 1)*ranges[variable == "psi"]$V1)
+breaks_pp <- AnchorBreaks(exclude = 0, bins = 20)(c(-1, 1)*ranges[variable == "pp"]$V1)
 
 h <- ensos$left |> 
    copy() |> 
@@ -459,14 +489,8 @@ h <- ensos$left |>
 
 
 w <- 900
-sink <- lapply(seq_along(angles), function(a) {
-   file <- paste0("ensos/", formatC(a, digits = 2, flag = "0"), "_", 
-                  formatC(angles[a], digits = 3, flag = "0") , ".png")
-   if (file.exists(file)) {
-      return(NULL)
-   }
-   
-   file <- paste0("ensos/", angles[a], ".png")
+files <- lapply(seq_along(angles), function(a) {
+   file <- paste0("ensos_slider/", angles[a], ".png")
    if (file.exists(file)) {
       return(NULL)
    }
@@ -479,15 +503,19 @@ sink <- lapply(seq_along(angles), function(a) {
       D(variable == "psi", c("fx", "fy") := shceof::WaveFlux(.SD, p = 200), 
         by = .(season)) |> 
       ggplot(aes(lon, lat)) +
-      geom_contour_fill(data = ~.x[variable == "sst"], aes(z = R), breaks = breaks_sst) +
+      geom_contour_fill(data = ~.x[variable == "sst"], aes(z = R, fill = ..level..), 
+                        breaks = breaks_sst) +
+      scale_fill_divergent_discretised(guide = "none") +
+      
       geom_contour2(data = ~.x[variable == "psi"], breaks = breaks_psi,
-                    aes(z = R, label = ..level..*1e7, linetype = factor(-sign(..level..))), 
+                    size = 0.4, alpha = 0.6,
+                    aes(z = R, label = signif(..level..*1e7, digits = 2), 
+                        linetype = factor(-sign(..level..))),
                     family = hrbrthemes::font_rc,
                     label.placer = label_placer_flattest(45)) +
-      
-      # geom_vector(data = ~.x[variable == "psi"], 
+      # geom_vector(data = ~.x[variable == "psi"],
       #             aes(dx = fx, dy = fy)) +
-      scale_mag() +
+      # scale_mag() +
       geom_rect(data = h, 
                 alpha = 0.5,
                 aes(xmin = mids - 5 , xmax = mids + 5, ymin = -90, 
@@ -500,16 +528,51 @@ sink <- lapply(seq_along(angles), function(a) {
                    color = "#c6262e") +
       geom_qmap() +
       labs(x = NULL, y = NULL) +
-      scale_fill_divergent(guide = "none") +
+      
       scale_y_continuous(limits = c(-90, 90)) +
       scale_x_continuous(limits = c(0, 360)) +
       facet_wrap(~season, ncol = 2)
    
    print(plot)
    dev.off()
+   return(file)
 }) 
 
 ```
+
+```{r slider}
+slider <- function(name, min, max, start, step) {
+   
+   id_range <- paste0(name, "-range")
+   id_img <- paste0(name, "-img")
+   id_label <- paste0(name, "-label")
+   
+   
+   ui <- glue::glue('<div style="text-align:center"><input style="width: 50%;" id="{id_range}" type="range" min="{min}" max="{max}" value="{start}" step="{step}" oninput="showVal_{name}(this.value)" onchange="showVal_{name}(this.value)" /> <br/>
+<p align = "center" id="{id_label}">{start}º</p>
+</div>')
+   
+   js <- glue::glue('<script>
+            function showVal_{name}(newVal){{
+            document.getElementById("{id_label}").innerHTML=newVal + "º";
+            document.getElementById("{id_img}").src = "{name}/" + newVal+ ".png";
+            }}
+            
+            function showValExternal_{name}(newVal){{
+            document.getElementById("{id_label}").innerHTML=newVal + "º";
+            document.getElementById("{id_img}").src = "{name}/" + newVal+ ".png";
+            document.getElementById("{id_range}").value = newVal;
+            }}
+         </script>', )
+   
+   cat(ui)
+   cat("\n")
+   cat(js)
+   
+}
+```
+
+Bien, ¿y qué hay de los efectos en el PSA? La Figura \@ref(fig:regresions) muestra mapas de regresión de SST en sombreado y función corriente en 200hPa en contornos para los distintos trimestres y distintas fases del ENSO complejo. 
 
 Mirando al trimestre de SON, la anomalía negativa sobre el mar de Amundsen se desplaza considerablemente entre las fases <a href="javascript:showValExternal(-20)">-20º</a> y <a href="javascript:showValExternal(30)">30º</a> --las fases del ENSO complejo positivo más comunes. 
 Las anomalías en la cercanía de Sudamérica también cambian considerablemente. 
@@ -517,35 +580,18 @@ Pero la forma del tren de ondas es bastante distinto.
 En la fase de <a href="javascript:showValExternal(30)">30º</a>, el tren de ondas está bien desarrollado y viene desde el Pacífico, con anomalías fuertes al Sur de las anomlaías de SST.
 En la fase de <a href="javascript:showValExternal(-20)">-20º</a>, por ejemplo, el tren de ondas es mucho más hemisférico y parece emanar más desde el Índico más que desde el Pacífico. 
 
-(ref:cap-slide) Regresión trimestral de SST (sombreado) y función corriente en 200 hPa (contornos, valores $\times 1·10^7$). Las barras grises indican el histograma en función de la fase (similar a la Figura \@ref(fig:hist)) y el texto rojo indica la proporción de meses con determinada fase. 
 
-```{r slider, fig.cap="(ref:cap-slide)", fig.width = 10, out.width = "100%", out.extra="id='img'", fig.fullwidth = TRUE}
-knitr::include_graphics("ensos/0.png")
+
+(ref:cap-regresions) Regresión trimestral de SST (sombreado) y función corriente en 200 hPa (contornos, valores $\times 1·10^7$). Las barras grises indican el histograma en función de la fase (similar a la Figura \@ref(fig:hist)) y el texto rojo indica la proporción de meses con determinada fase. 
+
+
+```{r regresions, fig.cap="(ref:cap-regresions)", fig.width = 12, fig.height=6, out.extra="id='ensos_slider-img'", fig.fullwidth = TRUE}
+knitr::include_graphics("ensos_slider/0.png")
 ```
 
-<div style="text-align:center">
-<input style="width: 50%;" id="valR" type="range" min="-180" max="170" value="0" step="10" oninput="showVal(this.value)" onchange="showVal(this.value)" /> <br/>
-<p align = "center" id="range">0º</p>
-</div>
-
-```{=html}
-<script>
-function showVal(newVal){
-document.getElementById("range").innerHTML=newVal + "º";
-document.getElementById("img").src = "ensos/" + newVal+ ".png";
-}
-
-function showValExternal(newVal){
-document.getElementById("range").innerHTML=newVal + "º";
-document.getElementById("img").src = "ensos/" + newVal+ ".png";
-document.getElementById("valR").value = newVal;
-}
-</script>
-
-
+```{r regresions-slider, results='asis'}
+slider("ensos_slider", -180, 170, 0, 10)
 ```
-
-
 
 En MAM también hay indicación de un poco de dependencia, aunque menor que en SON. 
 Por ejemplo, el tren de onda sólo cambia ligerametne entre <a href="javascript:showValExternal(0)">0º</a> y <a href="javascript:showValExternal(80)">80º</a>.
@@ -559,3 +605,60 @@ Estas dependencias de la localización de las anomalías también puede observar
 
 
 
+```{r, cache = FALSE}
+lonmin <- 270
+lonmax <- 330
+latmin <- -60
+latmax <- -10
+M <- regr |> 
+   D(variable == "pp") |> 
+   D(lon %between% c(lonmin, lonmax) & 
+        lat %between% c(latmin, latmax)) |> 
+   D(, max(sqrt(I^2 + R^2)))
+
+breaks_pp <- AnchorBreaks(exclude = 0, bins = 20)(c(-1, 1)*M)
+
+
+files <- lapply(seq_along(angles), function(a) {
+   dir.create("pp_slider", showWarnings = FALSE)
+   file <- paste0("pp_slider/", angles[a], ".png")
+   if (file.exists(file)) {
+      return(NULL)
+   }
+   
+   
+   png(file, width = w, height = w)
+   plot <- regr |> 
+      D(variable == "pp") |> 
+      D(lon %between% c(lonmin, lonmax) & 
+           lat %between% c(latmin, latmax)) |>
+      copy() |> 
+      D(, R := Re(rotate_ReIm(R, I, -angles[a]*pi/180))) |> 
+      ggplot(aes(lon, lat)) +
+      
+      geom_contour_fill(aes(z = R, fill = ..level..), breaks = breaks_pp) +
+      scale_fill_divergent_discretised(guide = "none",  
+                                       low = "#8E521C",
+                                       high = "#00665E") +
+      
+      geom_qmap(subset = ~ sf::st_crop(.x, c(xmin = lonmin, xmax = lonmax, 
+                                             ymin = latmin, ymax = latmax)), 
+                keep = 1) +
+      
+      scale_y_continuous(NULL) +
+      scale_x_continuous(NULL) +
+      facet_wrap(~season, ncol = 2)
+   
+   print(plot)
+   dev.off()
+   return(file)
+}) 
+```
+
+```{r pp, fig.cap="(ref:cap-regresions)", fig.width = 4, fig.height=4, out.extra="id='pp_slider-img'"}
+knitr::include_graphics("pp_slider/0.png")
+```
+
+```{r pp-slider, results='asis'}
+slider("pp_slider", -180, 170, 0, 10)
+```
