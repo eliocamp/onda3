@@ -617,7 +617,7 @@ M <- regr |>
    D(, max(sqrt(I^2 + R^2)))
 
 breaks_pp <- AnchorBreaks(exclude = 0, bins = 20)(c(-1, 1)*M)
-
+w <- 900/12*4
 
 files <- lapply(seq_along(angles), function(a) {
    dir.create("pp_slider", showWarnings = FALSE)
