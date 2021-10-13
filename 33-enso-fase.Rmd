@@ -193,7 +193,8 @@ download_ersst <- function(file) {
    
    files <- vapply(urls, function(url) {
       file <- tempfile(fileext = ".nc")
-      download.file(url, file)
+      message(paste0("Descargando ", file))
+      download.file(url, file, quiet = TRUE)
       file
    }, character(1))
    
@@ -214,7 +215,8 @@ if (!file.exists(file)) {
 ```
 
 ```{r sst}
-sst <- readRDS(file)
+sst <- readRDS(file) |> 
+   D(, time := round_date(time, "month"))
 ```
 
 ```{r enso}
@@ -388,13 +390,6 @@ En resumen,
 * los desvíos significativos con respecto al ENSO canónico se dan únicamente en la dirección del centro de anomalías positivas corrido hacia el oeste.
 
 
-```{r psi}
-psi <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = "vo", 
-                  subset = list(level = 200)) |> 
-   normalise_coords() |> 
-   D(, shceof::solve_poisson(vo, lon, lat), by = .(lev, time)) %>%
-   data.table::setnames("value", "psi") 
-```
 
 
 ```{r cmap}
@@ -520,9 +515,13 @@ files <- lapply(seq_along(angles), function(a) {
                 alpha = 0.5,
                 aes(xmin = mids - 5 , xmax = mids + 5, ymin = -90, 
                     ymax = scales::rescale(counts, to = c(-90, -50))), inherit.aes = FALSE) +
-      geom_text(data = h[mids == angles[a]+180+5],
-                aes(x = mids, y = -90, label = scales::percent(prop)),
-                family = hrbrthemes::font_rc_light, color = "#c6262e") +
+      
+      ggfx::with_outer_glow(
+         geom_text(data = h[mids == angles[a]+180+5],
+                   aes(x = mids, y = -90, label = scales::percent(prop)),
+                   family = hrbrthemes::font_rc_light, color = "#c6262e")
+      ) +
+      
       geom_segment(data =h[mids == angles[a]+180+5],
                    aes(x = mids, xend = mids, y = -90, yend = -50),
                    color = "#c6262e") +
@@ -570,15 +569,23 @@ slider <- function(name, min, max, start, step) {
    cat(js)
    
 }
+
+
+
+set_slider <- function(name, value) {
+   glue::glue('<a href="javascript:showValExternal_{name}({value})">{value}º</a>')
+}
+
 ```
+
 
 Bien, ¿y qué hay de los efectos en el PSA? La Figura \@ref(fig:regresions) muestra mapas de regresión de SST en sombreado y función corriente en 200hPa en contornos para los distintos trimestres y distintas fases del ENSO complejo. 
 
-Mirando al trimestre de SON, la anomalía negativa sobre el mar de Amundsen se desplaza considerablemente entre las fases <a href="javascript:showValExternal(-20)">-20º</a> y <a href="javascript:showValExternal(30)">30º</a> --las fases del ENSO complejo positivo más comunes. 
+Mirando al trimestre de SON, la anomalía negativa sobre el mar de Amundsen se desplaza considerablemente entre las fases `r set_slider("ensos_slider", -20)` y `r set_slider("ensos_slider", 30)` --las fases del ENSO complejo positivo más comunes. 
 Las anomalías en la cercanía de Sudamérica también cambian considerablemente. 
 Pero la forma del tren de ondas es bastante distinto. 
-En la fase de <a href="javascript:showValExternal(30)">30º</a>, el tren de ondas está bien desarrollado y viene desde el Pacífico, con anomalías fuertes al Sur de las anomlaías de SST.
-En la fase de <a href="javascript:showValExternal(-20)">-20º</a>, por ejemplo, el tren de ondas es mucho más hemisférico y parece emanar más desde el Índico más que desde el Pacífico. 
+En la fase de `r set_slider("ensos_slider", 30)`, el tren de ondas está bien desarrollado y viene desde el Pacífico, con anomalías fuertes al Sur de las anomlaías de SST.
+En la fase de `r set_slider("ensos_slider", -20)`, por ejemplo, el tren de ondas es mucho más hemisférico y parece emanar más desde el Índico más que desde el Pacífico. 
 
 
 
@@ -593,19 +600,178 @@ knitr::include_graphics("ensos_slider/0.png")
 slider("ensos_slider", -180, 170, 0, 10)
 ```
 
+
 En MAM también hay indicación de un poco de dependencia, aunque menor que en SON. 
-Por ejemplo, el tren de onda sólo cambia ligerametne entre <a href="javascript:showValExternal(0)">0º</a> y <a href="javascript:showValExternal(80)">80º</a>.
+Por ejemplo, el tren de onda sólo cambia ligerametne entre 
+`r set_slider("ensos_slider", 0)` y `r set_slider("ensos_slider", 80)`.
 
 En JJA, parecería que la localización de las anomalías de función corriente no cambian con la localización de las anomalías de SST. 
-Las anomalías no ambian entre <a href="javascript:showValExternal(100)">100º</a> y 
-<a href="javascript:showValExternal(0)">0º</a>.
+Las anomalías no cambian entre `r set_slider("ensos_slider", 100)` y 
+`r set_slider("ensos_slider", 0)`.
 Lo que cambia es principalmente la intensidad (aunque eso no estoy seguro si está muy bien porque hay que recordar que la amplitud del ENSO medio también cambia en cada fase).
+
+
+
+```{r psi}
+psi <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = "vo", 
+                  subset = list(level = 200)) |> 
+   normalise_coords() |> 
+   D(, shceof::solve_poisson(vo, lon, lat), by = .(lev, time)) |> 
+   data.table::setnames("value", "psi") 
+```
+
+
+```{r psa}
+psa <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = c("hgt" = "z"), 
+                  subset = list(level = list(200),
+                                latitude = c(-85, -20))) |> 
+   normalise_coords() |> 
+   D(season(time) == "SON") |> 
+   D(, days := lubridate::days_in_month(time)) |> 
+   D(, .(hgt = weighted.mean(hgt, w = days)), by = .(lon, lat, time = seasonally(time))) |> 
+   D(, hgt := hgt - mean(hgt), by = .(time, lat)) |> 
+   D(, hgt.c := spectral::analyticFunction(hgt), by = .(time, lat)) |> 
+   D(, hgt := hgt.c*sqrt(cos(lat*pi/180))) |> 
+   EOF(formula = hgt ~ time | lon + lat, n = 1:2)
+
+# enso_son <- enso |> 
+#    D(season(time) == "SON") |> 
+#    D(, days := lubridate::days_in_month(time)) |> 
+#    D(, .(enso34 = weighted.mean(enso34, w = days)), by = .(time = seasonally(time)))
+
+
+enso_son <- ensos$left |> 
+   D(season(time) == "SON") |> 
+   D(, days := lubridate::days_in_month(time)) |> 
+   D(, .(eof = weighted.mean(eof, w = days)), by = .(time = seasonally(time)))
+
+with_enso <-  cut(psa, 2)$left |> 
+   copy() |> 
+   D(enso_son, on = "time") |> 
+   na.omit() 
+
+rotations_cEOF2 <- lapply(seq(-pi, pi, by = .5*pi/180), function(a) {
+   with_enso |> 
+      D(, hgt2 := rotate(hgt, a)) |> 
+      D(, partial_cor(Re(eof), Re(hgt2), Im(hgt2))) |>
+      # D(, .(R = cor(Re(hgt2), Re(eof)),
+      #       I = cor(Im(hgt2), Re(eof)))) |> 
+      D(, rotation := a)
+}) |> 
+   rbindlist()
+
+best_rotation_cEOF2 <- rotations_cEOF2 |> 
+   D(term == "Im(hgt2)") |> 
+   D(which.max(partial_correlation)) |> 
+   D(, rotation)
+
+# best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
+
+psa_pattern <- cut(psa, 2)$right |> 
+   D(, psa := rotate(hgt, best_rotation_cEOF2)) |> 
+   D(, hgt := NULL) |> 
+   sep_ReIm(psa, longer = TRUE)
+
+psa_index <- ReadNetCDF("DATA/ERA-Interim/erai.mon.mean.nc", vars = c("hgt" = "z"), 
+                        subset = list(level = list(200))) |> 
+   normalise_coords() |> 
+   D(, hgt := hgt - mean(hgt), by = .(time, lat)) |> 
+   D(psa_pattern, on = .NATURAL) |> 
+   D(, .(psa = weighted.mean(hgt*psa, w = cos(lat*pi/180))),  by = .(part, time))
+
+```
+
+```{r eval=FALSE, include=FALSE}
+psa_index |> 
+   D(, days := lubridate::days_in_month(time)) |> 
+   D(, .(psa = weighted.mean(psa, w= days)), by = .(time = seasonally(time), part)) |> 
+   dcast(time ~ part, value.var = "psa") |> 
+   D(, psas := complex(real = Real, imaginary = Imaginary)) |> 
+   
+   D(psa$left[PC == "PC2"], on = "time") |> 
+   D(, hgt := rotate(hgt, best_rotation_cEOF2)) |> 
+   D() |> 
+   ggplot(aes(Arg(psas), Arg(hgt))) +
+   geom_point()
+```
+
+
+```{r psa-enso, fig.cap = "Relación entre el ángulo del ENSO y el ángulo del PSA para promedios trimestrales. El tamaño de los puntos es proporcional a la magnitud del ENSO complejo."}
+psa_enso <- psa_index |> 
+   dcast(time ~ part, value.var = "psa") |> 
+   D(, psa := complex(real = Real, imaginary = Imaginary)) |> 
+   D(ensos$left, on = "time") |> 
+   na.omit() |> 
+   D(, days := lubridate::days_in_month(time)) |>
+   D(, .(psa = weighted.mean(psa, w = days),
+         eof = weighted.mean(eof, w = days)),
+     by = .(time = seasonally(time))) |> 
+   D()
+
+psa_enso |> 
+   copy() |>
+   D(, phase_enso := Arg(eof)) |>
+   D(, phase_psa := Arg(psa)) |>
+   ggperiodic::periodic(phase_enso = c(-pi, pi)) |> 
+   ggplot(aes(phase_enso, phase_psa)) +
+   geom_point(aes(size = Mod(eof)), alpha = 0.7) +
+   scale_size_area(max_size = 3, guide = "none") +
+   scale_x_continuous("Ángulo de ENSO", 
+                      # limits = c(-pi, pi),
+                      breaks = seq(-pi - 1/4*pi, pi - 1/4*pi, by = 90*pi/180),
+                      labels = function(x) paste0(round(x*180/pi, 5), "º")) +
+   scale_y_continuous("Ángulo de PSA", 
+                      # limits = c(-pi, pi),
+                      breaks = seq(-pi - 1/4*pi, pi - 1/4*pi, by = 90*pi/180),
+                      labels = function(x) paste0(round(x*180/pi, 5), "º")) +
+   facet_wrap(~season(time)) +
+   coord_equal()
+```
+
+
+
+La Figura \@ref(fig:psa-enso) muestra la relación entre el ángulo del ENSO y el ángulo del PSA para medias trimestrales de cada índice. 
+En SON hay una fuerte relación entre las fases extremas del ENSO que corresponden con la noción clásica de eventos Niño y Niña. 
+Pero también se observa que el cambio en el ángulo de ENSO dentro de eventos Niño afecta el ángulo del PSA. 
+Esta relación no parecería cumplirse para las Niñas. 
+
+```{r}
+# psa_enso |> 
+#    copy() |> 
+#    D(, phase_enso := circular(Arg(eof))) |> 
+#    D(, phase_psa := circular(Arg(psa))) |> 
+#    D(, cor.circular(phase_enso, phase_psa), by = .(season(time)))
+```
+
+
+```{r}
+# psa_enso |> 
+#    copy() |> 
+#    D(, season := season(time)) |> 
+#    ggplot(aes(Mod(eof), Mod(psa))) +
+#    geom_point() +
+#    scale_size_area() +
+#    scale_x_continuous("Magnitud de ENSO") +
+#    scale_y_continuous("Magnitud de PSA") +
+#    facet_wrap(~season) 
+```
+
+
+
+
 
 Estas dependencias de la localización de las anomalías también puede observarse en el impacto sobre la SST extratropical. 
 
 
+El impacto en la precipitación de Sudamérica de las distintas fases del ENSO complejo se ve en la Figura \@ref(fig:pp). 
+El impacto típico de El Niño en SON en SESA y Chile central se puede observar en `r set_slider("pp_slider", 0)`. 
+Sin embargo, se puede ver que el impacto cerca de SESA es sensible a la fase de ENSO ya que se desplaza hacia el oeste para los `r set_slider("pp_slider", 20)`.
 
-```{r, cache = FALSE}
+El trimestre de DJF también muestra sensibilidad a la fase de ENSO. 
+El impacto del ENSO en `r set_slider("pp_slider", -20)` en SESA es similar al de SON, pero en `r set_slider("pp_slider", 20)` la señal se reduce considerablemente. 
+En `r set_slider("pp_slider", 60)` aparece nuevamente algo de señal, pero esta vez inversa en el SESA. 
+
+```{r cache=FALSE}
 lonmin <- 270
 lonmax <- 330
 latmin <- -60
@@ -617,17 +783,18 @@ M <- regr |>
    D(, max(sqrt(I^2 + R^2)))
 
 breaks_pp <- AnchorBreaks(exclude = 0, bins = 20)(c(-1, 1)*M)
-w <- 900/12*4
+w <- 900/1.5
 
-files <- lapply(seq_along(angles), function(a) {
+
+barwidth <- (lonmax - lonmin)/uniqueN(h$mids)
+
+
+h2 <- h |> 
+   copy() |> 
+   D(, mids2 := scales::rescale(mids-5, to = c(lonmin, lonmax - barwidth)) + barwidth/2)
+
+plots <- lapply(seq_along(angles), function(a) {
    dir.create("pp_slider", showWarnings = FALSE)
-   file <- paste0("pp_slider/", angles[a], ".png")
-   if (file.exists(file)) {
-      return(NULL)
-   }
-   
-   
-   png(file, width = w, height = w)
    plot <- regr |> 
       D(variable == "pp") |> 
       D(lon %between% c(lonmin, lonmax) & 
@@ -637,9 +804,30 @@ files <- lapply(seq_along(angles), function(a) {
       ggplot(aes(lon, lat)) +
       
       geom_contour_fill(aes(z = R, fill = ..level..), breaks = breaks_pp) +
-      scale_fill_divergent_discretised(guide = "none",  
+      # geom_contour2(aes(z = R, label = ..level..), breaks = breaks_pp, 
+      #               size = 0.3) +
+      scale_fill_divergent_discretised(name = NULL, 
+                                       guide = guide_colorstrip_bottom(15),
                                        low = "#8E521C",
                                        high = "#00665E") +
+      
+      
+      geom_rect(data = h2, 
+                alpha = 0.5,
+                aes(xmin = mids2 - barwidth/2, xmax = mids2 + barwidth/2, ymin = latmin, 
+                    ymax = scales::rescale(counts, to = c(latmin, -50))), inherit.aes = FALSE) +
+      
+      ggfx::with_outer_glow(
+         geom_text(data = h2[mids == angles[a]+180+5],
+                   aes(x = mids2, y = latmin, label = scales::percent(prop)),
+                   family = hrbrthemes::font_rc_light, color = "#c6262e"), 
+         colour = "white",
+         sigma = 0, expand = 1.5
+      ) +
+      geom_segment(data = h2[mids == angles[a]+180+5],
+                   aes(x = mids2, xend = mids2, y = latmin, yend = -50),
+                   color = "#c6262e") +
+      
       
       geom_qmap(subset = ~ sf::st_crop(.x, c(xmin = lonmin, xmax = lonmax, 
                                              ymin = latmin, ymax = latmax)), 
@@ -649,16 +837,25 @@ files <- lapply(seq_along(angles), function(a) {
       scale_x_continuous(NULL) +
       facet_wrap(~season, ncol = 2)
    
-   print(plot)
-   dev.off()
-   return(file)
+   file <- paste0("pp_slider/", angles[a], ".png")
+   
+   if (!file.exists(file)) {
+      png(file, width = w, height = w)
+      print(plot)
+      dev.off()
+   }
+   
+   return(plot)
 }) 
 ```
 
-```{r pp, fig.cap="(ref:cap-regresions)", fig.width = 4, fig.height=4, out.extra="id='pp_slider-img'"}
-knitr::include_graphics("pp_slider/0.png")
+(ref:cap-pp) Igual que la figura \@ref(fig:regresions) pero para la precipitación en Sudamérica.
+
+```{r pp, fig.cap="(ref:cap-pp)", fig.width = w/72, fig.height=w/72, out.extra="id='pp_slider-img'"}
+plots[[which(angles == 0)]]
 ```
 
 ```{r pp-slider, results='asis'}
 slider("pp_slider", -180, 170, 0, 10)
 ```
+
