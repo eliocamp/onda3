@@ -1,0 +1,427 @@
+---
+title: "34-cEOF CMIP6"
+author: "Elio Campitelli"
+output: 
+   bookdown::html_document2:
+         base_format: tufte::tufte_html 
+link-citations: yes 
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+options(htmltools.dir.version = FALSE)
+# knitr::knit_hooks$set(document = function(x) {
+#    took <- unclass(Sys.time()) - start.time
+#    if (unclass(Sys.time()) - start.time >= min.time) {
+#       notify("Done knitting!", 
+#              paste0("Took ", round(took), " seconds"),
+#              time = 5)
+#    }  
+#    knit_doc(x)
+# })
+
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(
+   echo = FALSE,
+   fig.path = paste0("fig/", name, "/"),
+   message = FALSE,
+   warning = FALSE,
+   cache = TRUE, 
+   cache.lazy = FALSE,
+   cache.extra = 42,
+   cache.path = paste0("cache/", name, "/")
+)
+library(data.table)
+library(magrittr)
+library(ggplot2)
+library(metR)
+library(gt)
+library(tagger)
+D <- `[`
+
+factor_ReIm <- function(part) {
+   factor(part, levels = c("Real", "Imaginary"), ordered = TRUE)
+}
+
+ReIm <- function(complex) {
+   list(Real = Re(complex), Imaginary = Im(complex))
+}
+
+sep_ReIm <- function(data, column, format = c("longer", "wider")) {
+   R <- part <- I <- NULL
+   names <- c("Real", "Imaginary")
+   
+   
+   if (missing(column)) {
+      complex <- vapply(data, function(x) inherits(x, "complex"), TRUE)
+      if (sum(complex) > 1) {
+         stop("`column` missing and more than one complex column found")
+      }
+      if (sum(complex) == 0) {
+         warning("`column` missing and no complex column found. Returning unchanged data")
+         return(data)
+      }
+      
+      col <- colnames(data)[complex]
+   } else {
+      col <- deparse(substitute(column))
+   }
+   
+   
+   data <- data.table::copy(data)[, (names) := ReIm(get(col))]
+   
+   
+   if (format[1] == "longer") {
+      data[, c(col) := NULL]
+      data <- data.table::setDT(tidyr::pivot_longer(data, Real:Imaginary, names_to = "part", values_to = col))
+      data[, part := factor(part, levels = names, ordered = TRUE)]
+   }
+   
+   return(data[])
+}
+
+source("scripts/theme.R")
+theme_set(theme_elio())
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   ggplot2::guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                             barheight = height,
+                             barwidth = width, ...)
+}
+
+sink <- capture.output(sf::sf_use_s2(FALSE))
+geom_qmap <- function(subset = identity,
+                      crop = NULL,
+                      color = "gray50", size = 0.3,
+                      fill = NA, wrap = c(0, 360), weighting = 0.7,
+                      keep = 0.015, ...) {
+   lon <- lat <- group <- NULL
+   data <- map_simple(wrap = wrap, keep  = keep, weighting = weighting)
+   
+   if (!is.null(crop)) {
+      bbox <- sf::st_bbox(data)
+      
+      for (n in names(crop)) {
+         bbox[[n]] <- crop[[n]]
+      }
+      
+      data <- suppressWarnings(suppressMessages(sf::st_crop(data, bbox)))
+   }
+   
+   
+   subset <- purrr::as_mapper(subset)
+   data <- subset(data)
+   
+   ggplot2::geom_sf(data = data,
+                    inherit.aes = FALSE,
+                    color = color,
+                    size = size,
+                    fill = fill,
+                    ...)
+   
+}
+
+map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
+   map <- maps::map("world", fill = TRUE,
+                    col = "transparent", plot = FALSE, wrap = wrap)
+   map <- sf::st_as_sf(map)
+   if (keep != 1) {
+      map <- rmapshaper::ms_simplify(map, keep = keep, weighting = weighting)
+   }
+   
+   
+   map
+}
+```
+
+
+
+Vamos a ver qué tan bien funcionan modelos del CMIP6 para representar los EOFs complejos. 
+Me interesa el 2 en particular porque es más interesante y además porque el 1 tiene mucho de la media zonal. 
+
+Primero listemos las simulaciones que tenemos:
+
+```{r}
+folder <- "/pikachu/datos3/CMIP6/historical/mon/zg/"
+files <- list.files(folder)
+
+simulaciones <- unglue::unglue_data(files, "zg_Amon_{model}_historical_i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc4") %>% 
+   as.data.table() %>% 
+   D(, file := files) %>% 
+   D(, members := GlanceNetCDF(file.path(folder, file))$dims$ensemble$len, by = file) %>% 
+   D()
+```
+
+```{r}
+knitr::kable(simulaciones[, .(model, members, init, physics, forcing)], 
+             caption = "Modelos disponibles.")
+```
+
+
+
+Hay una bocha de miembros (relativamente hablando), incluyendo algunos modelos con distintas inicializaciones, parametrizaciones físicas y forzantes solares. 
+En una primera aproximación, voy a simplemente analizar el primer miembro del primer caso de cada modelo. 
+
+
+```{r}
+era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>% 
+   ReadNetCDF(vars = c(hgt = "z"), 
+              subset = list(lat = c(-90, 10), 
+                            lev = list(200, 50))) %>% 
+   D(season(time) == "SON") %>% 
+   D(, hgt := hgt/9.8) %>% 
+   D(, lev := as.numeric(lev)) %>% 
+   D(, .(hgt = mean(hgt)), by = .(lon, lat, lev, time = seasonally(time))) %>% 
+   D(, model := "ERA5") %>%
+   D(, time := as.Date(time))
+```
+
+```{r}
+grid <- list(lon = unique(era5$lon), 
+             lat = unique(era5$lat))
+
+periodic_lon <- function(data) {
+   m_lon <- min(data$lon)
+   range <- c(0, 360) + m_lon
+   range2 <- c(0 - m_lon, 360) 
+   
+   ggperiodic::periodic(data, lon = range) %>% 
+      ggperiodic::wrap(lon = range2)
+}
+
+leer_son <- function(file) {
+   file.path(folder, file) %>% 
+      ReadNetCDF(vars = c(hgt = "zg"), 
+                 subset = list(time = c("1979-01-01", NA),
+                               lat = c(-90, 10),
+                               plev = list(200*100, 50*100), 
+                               ensemble = 1)) %>% 
+      setnames("plev", "lev") %>% 
+      D(season(time) == "SON") %>% 
+      D(, time := as.Date(time)) %>% 
+      D(, lev := lev/100) %>% 
+      D(, .(hgt = mean(hgt), .N), by = .(lon, lat, lev, time = seasonally(time))) %>% 
+      periodic_lon() %>% 
+      D(, Interpolate(hgt ~ lon + lat, x.out = grid$lon, y.out = grid$lat), by = .(time, lev)) %>% 
+      D(lat <= 10)
+}
+
+normalize_lon <- function(data) {
+   data <- copy(data)
+   na_0 <- data[lon == 0][, mean(is.na(hgt))]
+   na_360 <- data[lon == 360][, mean(is.na(hgt))]
+   
+   # if (na_0*na_360 != 0) {
+   #   browser()
+   #   stop("mal!")
+   # }
+   
+   
+   data[lon == 0]$hgt <- fifelse(is.na(data[lon == 0]$hgt), 
+                                 data[lon == 360]$hgt, 
+                                 data[lon == 0]$hgt)
+   
+   data[lon == 360]$hgt <- fifelse(is.na(data[lon == 360]$hgt), 
+                                   data[lon == 0]$hgt, 
+                                   data[lon == 360]$hgt)
+   
+   
+}
+
+hgt_son <- simulaciones %>% 
+   D(, .SD[1], by = model) %>% 
+   D(, leer_son(file), by = .(model)) %>% 
+   D(, lev := as.numeric(lev))
+
+hgt_son <- rbind(hgt_son, era5, use.names = TRUE)
+```
+
+
+
+```{r}
+compute_ceof <- function(data) {
+   data %>% 
+      copy() %>% 
+      D(, hgt_z := hgt - mean(hgt), by = .(time, lat, lev)) %>% 
+      D(, hgt_z := hgt_z/sd(hgt_z), by = .(lev)) %>% 
+      D(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, lev, lat)) %>% 
+      D(, eof := hgt_cplx) %>% 
+      EOF(formula = eof ~ time | lon + lat + lev, n = 1:2)
+}
+
+
+ceof <- hgt_son %>% 
+   D(lat %between% c(-85, -20)) %>% 
+   D(, .(eof = list(compute_ceof(.SD))), by = model)
+```
+
+Un primer paso es rotar el cEOF de manera que maximice la correlación (pesada por el coseno de la latitud) con el cEOF de ERA5. 
+
+```{r}
+rotate <- function(z, angle = 0) {
+   complex(real = cos(angle), imaginary = sin(angle)) * z
+}
+
+angles <- seq(-pi, pi, by = .5*pi/180)
+
+ref <- ceof[model == "ERA5", eof[[1]]$right] %>%
+   copy() %>% 
+   setnames("eof", "eof_ref")
+
+cor_complex <- function(z1, z2) {
+   # z1 <- z1 - mean(z1)
+   # z2 <- z2 - mean(z2)
+   # 
+   # inner_prod <- sum(z1*z2)
+   # inner_prod/(Mod(z1)*Mod(z2))
+   weighted.mean(cos(Arg(z1) - Arg(z2)), Mod(z1)*Mod(z2))
+}
+
+weighted_correlation <- function(x, y, w) {
+   cov.wt(cbind(x, y), wt = w, cor = TRUE)$cor[1, 2]
+}
+
+
+cors <- lapply(angles, function(a) {
+   ceof[, eof[[1]]$right, by = model] %>% 
+      D(ref, on = .NATURAL) %>% 
+      D(lev == 200) %>% 
+      D(, eof := rotate(eof, a)) %>% 
+      D(, .(correlation = weighted_correlation(Re(eof), Re(eof_ref), cos(lat*pi/180))),
+        by = model) %>% 
+      D(, angle := a) %>% 
+      D()
+   
+}) %>% 
+   rbindlist()
+
+best_cor <- cors[, .SD[which.max(correlation)], by = model]
+
+rotate_eof <- function(eof, angle) {
+   eof <- copy(eof)
+   eof$right[, eof := rotate(eof, angle)]
+   eof$left[, eof := rotate(eof, angle)]
+   eof
+}
+
+
+ceof_rotated <- ceof %>% 
+   D(best_cor, on = "model") %>% 
+   D(, eof := list(list(rotate_eof(eof[[1]], angle))), by = .(model))
+```
+
+La Tabla \@ref(tab:cor-modelos) muestra la correlación del campo espacial del cEOF2 para cada modelo con ERA5. 
+MIROC6, CanESM5 y IPSL-CM6A-LR tienen correlaciones de más de 0.8, por lo que parecerían no ser tan malos. 
+MRI-ESM2-0 tiene una correlación bajísima. 
+
+```{r cor-modelos}
+best_cor %>% 
+   D(order(-correlation)) %>% 
+   D(model != "ERA5") %>% 
+   D(, .(model, scales::number(correlation, accuracy = 0.01))) %>% 
+   knitr::kable(col.names = c("Model", "Correlación espacial"), 
+                caption = "Correlación espacial de los campos de cEOF2 en 200 hPa de cada modelo con ERA5.")
+```
+
+
+```{r ceofs-modelos, fig.width=10, fig.height=6, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
+models <- best_cor %>% 
+   D(order(-correlation)) %>%
+   D(, model)
+   
+labels <- best_cor %>% 
+   D(order(-correlation)) %>%
+   D(, setNames(paste0(model, " (", scales::number(correlation, 0.01), ")"),
+                model))
+
+ceof_rotated %>% 
+   D(, model := factor(model, levels = models)) 
+
+hgt_son %>% 
+   D(, model := factor(model, levels = models)) 
+
+ceof_rotated %>% 
+   # D(, denormalise(eof[[1]], "right"), by = model) %>% 
+   D(, eof[[1]]$right, by = model) %>% 
+   D(lev == 200) %>% 
+   D(PC == "PC2") %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = Re(eof))) +
+   geom_contour2(aes(z = Im(eof), linetype = factor(-sign(..level..)))) +
+   scale_linetype(guide = "none") +
+   scale_fill_divergent() +
+   geom_qmap(crop = c(ymax = -20)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   facet_wrap(model ~ ., labeller = labeller(model = labels))
+```
+
+La Figura \@ref(fig:ceofs-modelos) muestra los campos espaciales de los cEOFs para cada modelo, incluyendo ERA5. 
+En general no estan tan mal. 
+MRI se ve que tiene un tren de ondas pero su localización es es distinta al resto. 
+El máximo de amplitud (y latitud) es más al oeste y pareciera tener una escala algo mayor. 
+
+Otra cosa para calcular es el campo de regresión asociado a cada cEOF. 
+Éstos se muestran en la Figura \@ref(fig:ceofs-regr). 
+En general son parecidos y los que tienen mejor correlación en en campo del cEOF se parecen más a ERA5, aunque hay excepciones. 
+Por ejemplo, el campo de regresión con la parte Real en GISS-E2-1-G no se parece en nada. 
+Por otro lado, el campo de regresión Real de MRI funciona sorprendentemente bien. 
+
+```{r}
+regr <- ceof_rotated %>% 
+   D(, denormalise(eof[[1]], "left"), by = model) %>% 
+   sep_ReIm(format = "wide") %>% 
+   D(PC == "PC2") %>% 
+   D(hgt_son[lev == 200], on = c("model", "time")) %>% 
+   D(, FitLm(hgt, Real, Imaginary), by = .(PC, model, lon, lat, lev)) %>% 
+   D(term != "(Intercept)") 
+
+
+cor_regr <- regr[model == "ERA5"] %>% 
+   setnames("estimate", "estimate_ref") %>% 
+   D(, model := NULL) %>% 
+   D(regr[model != "ERA5"], on = .NATURAL) %>% 
+   na.omit() %>% 
+   D(, .(correlation_regression = cor(estimate, estimate_ref)), by = .(term, model))
+```
+
+```{r ceofs-regr, fig.width=7, fig.height=11, fig.cap = "Campos de regresión de altura geopotencial en 200hPa de los cEOF2."}
+regr %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   geom_qmap(crop = c(ymax = 0)) + 
+   scale_fill_divergent() +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   facet_grid(model ~ term)
+```
+
+La Figura \@ref(fig:cor-relation) resume la relación entre la correlación en los campos de cEOF (eje horizontal) y en los campos de regresión (eje vertical).
+Para la parte Imaginaria, la correlación de los campos de regresión siguen bastante bien la correlación del cEOF. 
+En la parte Real, no tanto. 
+MRI -- el de correlación bajísima, tiene una correlación sorprendentemente alta, comparable con los mejores modelos. 
+GISS y CNRM, por el contrario, tienen una correlación mucho más baja de lo esperable. 
+
+```{r cor-relation, fig.cap = "Correlación con ERA5 de los campos espaciales de cEOF2 en 200 hPa en el eje horizontal y correlación con ERA5 de los capmos de regresión."}
+cor_regr[best_cor, on = "model"] %>% 
+   D(model != "ERA5") %>% 
+   ggplot(aes(correlation, correlation_regression)) +
+   geom_point() +
+   geom_abline(color = "#667885", size = 0.3) +
+   ggrepel::geom_text_repel(aes(label = model)) +
+   facet_wrap(~term) +
+   coord_equal() +
+   scale_x_continuous(limits = c(0, 1)) +
+   scale_y_continuous(limits = c(0, 1)) +
+   theme(panel.background = element_rect(fill = "#fafafa", color = NA),
+         panel.ontop = FALSE)
+```
+
+
+IPSL, CanESM5 y MIROC6 son lso tres modelos que tienen una buena similaridad tanto en el campo de cEOF como en el campo de regresiones. 
+
+

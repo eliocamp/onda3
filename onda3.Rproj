@@ -11,7 +11,3 @@ Encoding: UTF-8
 
 RnwWeave: knitr
 LaTeX: pdfLaTeX
-
-MarkdownWrap: Sentence
-
-SpellingDictionary: es_ES
