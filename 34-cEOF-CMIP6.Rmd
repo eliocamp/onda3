@@ -42,6 +42,7 @@ library(ggplot2)
 library(metR)
 library(gt)
 library(tagger)
+library(tidyfast)
 D <- `[`
 
 factor_ReIm <- function(part) {
@@ -145,7 +146,7 @@ Me interesa el 2 en particular porque es más interesante y además porque el 1 
 
 Primero listemos las simulaciones que tenemos:
 
-```{r}
+```{r info-simulaciones}
 folder <- "/pikachu/datos3/CMIP6/historical/mon/zg/"
 files <- list.files(folder)
 
@@ -156,7 +157,7 @@ simulaciones <- unglue::unglue_data(files, "zg_Amon_{model}_historical_i{init}p{
    D()
 ```
 
-```{r}
+```{r tabla-simulaciones}
 knitr::kable(simulaciones[, .(model, members, init, physics, forcing)], 
              caption = "Modelos disponibles.")
 ```
@@ -167,7 +168,7 @@ Hay una bocha de miembros (relativamente hablando), incluyendo algunos modelos c
 En una primera aproximación, voy a simplemente analizar el primer miembro del primer caso de cada modelo. 
 
 
-```{r}
+```{r era5}
 era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>% 
    ReadNetCDF(vars = c(hgt = "z"), 
               subset = list(lat = c(-90, 10), 
@@ -180,7 +181,7 @@ era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>%
    D(, time := as.Date(time))
 ```
 
-```{r}
+```{r hgt_son}
 grid <- list(lon = unique(era5$lon), 
              lat = unique(era5$lat))
 
@@ -193,13 +194,13 @@ periodic_lon <- function(data) {
       ggperiodic::wrap(lon = range2)
 }
 
-leer_son <- function(file) {
+leer_son_ <- function(file, e = 1) {
    file.path(folder, file) %>% 
       ReadNetCDF(vars = c(hgt = "zg"), 
                  subset = list(time = c("1979-01-01", NA),
                                lat = c(-90, 10),
                                plev = list(200*100, 50*100), 
-                               ensemble = 1)) %>% 
+                               ensemble = e)) %>% 
       setnames("plev", "lev") %>% 
       D(season(time) == "SON") %>% 
       D(, time := as.Date(time)) %>% 
@@ -207,8 +208,11 @@ leer_son <- function(file) {
       D(, .(hgt = mean(hgt), .N), by = .(lon, lat, lev, time = seasonally(time))) %>% 
       periodic_lon() %>% 
       D(, Interpolate(hgt ~ lon + lat, x.out = grid$lon, y.out = grid$lat), by = .(time, lev)) %>% 
-      D(lat <= 10)
+      D(lat <= 10) %>% 
+      D(, lev := as.numeric(lev))
 }
+
+leer_son <- memoise::memoise(leer_son_, cache = cachem::cache_disk("cache/34-cEOF-CMIP6/memoise"))
 
 normalize_lon <- function(data) {
    data <- copy(data)
@@ -234,15 +238,14 @@ normalize_lon <- function(data) {
 
 hgt_son <- simulaciones %>% 
    D(, .SD[1], by = model) %>% 
-   D(, leer_son(file), by = .(model)) %>% 
-   D(, lev := as.numeric(lev))
+   D(, leer_son(file), by = .(model)) 
 
 hgt_son <- rbind(hgt_son, era5, use.names = TRUE)
 ```
 
 
 
-```{r}
+```{r ceof}
 compute_ceof <- function(data) {
    data %>% 
       copy() %>% 
@@ -261,45 +264,23 @@ ceof <- hgt_son %>%
 
 Un primer paso es rotar el cEOF de manera que maximice la correlación (pesada por el coseno de la latitud) con el cEOF de ERA5. 
 
-```{r}
+```{r ceof_rotated}
 rotate <- function(z, angle = 0) {
    complex(real = cos(angle), imaginary = sin(angle)) * z
 }
 
-angles <- seq(-pi, pi, by = .5*pi/180)
+
 
 ref <- ceof[model == "ERA5", eof[[1]]$right] %>%
    copy() %>% 
    setnames("eof", "eof_ref")
 
-cor_complex <- function(z1, z2) {
-   # z1 <- z1 - mean(z1)
-   # z2 <- z2 - mean(z2)
-   # 
-   # inner_prod <- sum(z1*z2)
-   # inner_prod/(Mod(z1)*Mod(z2))
-   weighted.mean(cos(Arg(z1) - Arg(z2)), Mod(z1)*Mod(z2))
-}
-
 weighted_correlation <- function(x, y, w) {
+   # w <- w/sum(w)
+   # sum(x*y^2)/sqrt(sum(x^2)*sum(y^2))
+   
    cov.wt(cbind(x, y), wt = w, cor = TRUE)$cor[1, 2]
 }
-
-
-cors <- lapply(angles, function(a) {
-   ceof[, eof[[1]]$right, by = model] %>% 
-      D(ref, on = .NATURAL) %>% 
-      D(lev == 200) %>% 
-      D(, eof := rotate(eof, a)) %>% 
-      D(, .(correlation = weighted_correlation(Re(eof), Re(eof_ref), cos(lat*pi/180))),
-        by = model) %>% 
-      D(, angle := a) %>% 
-      D()
-   
-}) %>% 
-   rbindlist()
-
-best_cor <- cors[, .SD[which.max(correlation)], by = model]
 
 rotate_eof <- function(eof, angle) {
    eof <- copy(eof)
@@ -308,34 +289,52 @@ rotate_eof <- function(eof, angle) {
    eof
 }
 
+optimise_rotation <- function(eof, ref) {
+   angles <- seq(-pi, pi, by = 2*pi/180)
+   data <- eof$right %>% 
+      D(ref, on = .NATURAL) %>% 
+      D(lev == 200 & PC == "PC2")
+   
+   cors <- lapply(angles, function(a) {
+      data %>% 
+         D(, eof2 := rotate(eof, a)) %>% 
+         D(, .(correlation = weighted_correlation(Re(eof2), Re(eof_ref), cos(lat*pi/180)))) %>% 
+         D(, angle := a) %>% 
+         D()
+   }) %>% 
+      rbindlist()
+   
+   best_cor <- cors[which.max(correlation)]
+   
+   eof <- rotate_eof(eof, best_cor$angle)
+   list(eof = list(eof), 
+        correlation = best_cor$correlation)
+   
+}
 
-ceof_rotated <- ceof %>% 
-   D(best_cor, on = "model") %>% 
-   D(, eof := list(list(rotate_eof(eof[[1]], angle))), by = .(model))
+ceof_rotated <- ceof[, optimise_rotation(eof[[1]], ref), by = model]
 ```
 
-La Tabla \@ref(tab:cor-modelos) muestra la correlación del campo espacial del cEOF2 para cada modelo con ERA5. 
-MIROC6, CanESM5 y IPSL-CM6A-LR tienen correlaciones de más de 0.8, por lo que parecerían no ser tan malos. 
-MRI-ESM2-0 tiene una correlación bajísima. 
+La Tabla \@ref(tab:cor-modelos) muestra el $r^2$ del campo espacial del cEOF2 para cada modelo con ERA5. 
 
 ```{r cor-modelos}
-best_cor %>% 
+ceof_rotated %>% 
    D(order(-correlation)) %>% 
    D(model != "ERA5") %>% 
-   D(, .(model, scales::number(correlation, accuracy = 0.01))) %>% 
+   D(, .(model, scales::number(correlation^2, accuracy = 0.01))) %>% 
    knitr::kable(col.names = c("Model", "Correlación espacial"), 
-                caption = "Correlación espacial de los campos de cEOF2 en 200 hPa de cada modelo con ERA5.")
+                caption = "R^2 espacial de los campos de cEOF2 en 200 hPa de cada modelo con ERA5.")
 ```
 
 
 ```{r ceofs-modelos, fig.width=10, fig.height=6, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
-models <- best_cor %>% 
+models <- ceof_rotated %>% 
    D(order(-correlation)) %>%
    D(, model)
-   
-labels <- best_cor %>% 
+
+labels <- ceof_rotated %>% 
    D(order(-correlation)) %>%
-   D(, setNames(paste0(model, " (", scales::number(correlation, 0.01), ")"),
+   D(, setNames(paste0(model, " (", scales::number(correlation^2, 0.01), ")"),
                 model))
 
 ceof_rotated %>% 
@@ -361,17 +360,12 @@ ceof_rotated %>%
 ```
 
 La Figura \@ref(fig:ceofs-modelos) muestra los campos espaciales de los cEOFs para cada modelo, incluyendo ERA5. 
-En general no estan tan mal. 
-MRI se ve que tiene un tren de ondas pero su localización es es distinta al resto. 
-El máximo de amplitud (y latitud) es más al oeste y pareciera tener una escala algo mayor. 
 
 Otra cosa para calcular es el campo de regresión asociado a cada cEOF. 
 Éstos se muestran en la Figura \@ref(fig:ceofs-regr). 
-En general son parecidos y los que tienen mejor correlación en en campo del cEOF se parecen más a ERA5, aunque hay excepciones. 
-Por ejemplo, el campo de regresión con la parte Real en GISS-E2-1-G no se parece en nada. 
-Por otro lado, el campo de regresión Real de MRI funciona sorprendentemente bien. 
 
-```{r}
+
+```{r cor_regr}
 regr <- ceof_rotated %>% 
    D(, denormalise(eof[[1]], "left"), by = model) %>% 
    sep_ReIm(format = "wide") %>% 
@@ -386,7 +380,8 @@ cor_regr <- regr[model == "ERA5"] %>%
    D(, model := NULL) %>% 
    D(regr[model != "ERA5"], on = .NATURAL) %>% 
    na.omit() %>% 
-   D(, .(correlation_regression = cor(estimate, estimate_ref)), by = .(term, model))
+   D(, .(correlation_regression = weighted_correlation(estimate, estimate_ref, cos(lat*pi/180))), 
+     by = .(term, model))
 ```
 
 ```{r ceofs-regr, fig.width=7, fig.height=11, fig.cap = "Campos de regresión de altura geopotencial en 200hPa de los cEOF2."}
@@ -401,15 +396,12 @@ regr %>%
 ```
 
 La Figura \@ref(fig:cor-relation) resume la relación entre la correlación en los campos de cEOF (eje horizontal) y en los campos de regresión (eje vertical).
-Para la parte Imaginaria, la correlación de los campos de regresión siguen bastante bien la correlación del cEOF. 
-En la parte Real, no tanto. 
-MRI -- el de correlación bajísima, tiene una correlación sorprendentemente alta, comparable con los mejores modelos. 
-GISS y CNRM, por el contrario, tienen una correlación mucho más baja de lo esperable. 
+
 
 ```{r cor-relation, fig.cap = "Correlación con ERA5 de los campos espaciales de cEOF2 en 200 hPa en el eje horizontal y correlación con ERA5 de los capmos de regresión."}
-cor_regr[best_cor, on = "model"] %>% 
+cor_regr[ceof_rotated, on = "model"] %>% 
    D(model != "ERA5") %>% 
-   ggplot(aes(correlation, correlation_regression)) +
+   ggplot(aes(correlation^2, correlation_regression^2)) +
    geom_point() +
    geom_abline(color = "#667885", size = 0.3) +
    ggrepel::geom_text_repel(aes(label = model)) +
@@ -422,6 +414,191 @@ cor_regr[best_cor, on = "model"] %>%
 ```
 
 
-IPSL, CanESM5 y MIROC6 son lso tres modelos que tienen una buena similaridad tanto en el campo de cEOF como en el campo de regresiones. 
 
+
+Todo esto es para un único miembro de cada modelo, pero es importante ver si depende del miembro. 
+
+```{r process_ensemble}
+process_member_ <- function(file, e) {
+   data <- leer_son(file, e)
+   ceof <- compute_ceof(data[lat %between% c(-85, -20)])
+   ceof <- optimise_rotation(ceof, ref)
+   
+   r <- denormalise(ceof$eof[[1]], "left") %>% 
+      sep_ReIm(format = "wide") %>% 
+      D(PC == "PC2") %>% 
+      D(data[lev == 200], on = c("time")) %>% 
+      D(lev == 200) %>% 
+      D(, FitLm(hgt, Real, Imaginary), by = .(PC, lon, lat, lev)) %>% 
+      D(term != "(Intercept)") 
+   
+   
+   cor_regr <- regr[model == "ERA5"] %>% 
+      setnames("estimate", "estimate_ref") %>% 
+      D(, model := NULL) %>% 
+      D(r, on = .NATURAL) %>% 
+      D(lev == 200) %>% 
+      na.omit() %>% 
+      D(, .(correlation_regression = weighted_correlation(estimate, estimate_ref,
+                                                          cos(lat*pi/180))), 
+        by = .(term))
+   
+   
+   list(eof = ceof$eof,
+        regression_fields = list(r),
+        correlations = list(cor_regr[, correlation := ceof$correlation][]))
+}
+
+process_member <- memoise::memoise(process_member_, 
+                                   cache = cachem::cache_disk("cache/34-cEOF-CMIP6/memoise"))
+
+process_ensemble <- function(file) {
+   members <- GlanceNetCDF(file.path(folder, file))$dims$ensemble$vals
+   # N <- min(10, length(members))
+   # members <- members[seq_len(N)]
+   
+   message("Reading ", file)
+   # pb <- txtProgressBar(min = 1, max = length(members), style = 3)
+   r <- lapply(members, function(e) {
+      # setTxtProgressBar(pb, e)
+      message("Miembro ", e, " (", e/length(members), ")")
+      process_member(file, e)
+   }) %>% 
+      rbindlist(idcol = "member")
+   # close(pb)
+   r
+}
+```
+
+```{r cors}
+cors <- simulaciones %>% 
+   D(, .SD[1], by = model) %>% 
+   D(,  process_ensemble(file), by = .(model, init, physics, forcing))
+```
+
+La Figura \@ref(fig:cor-relation-all) muestra lo mismo que la figura anterior, pero agregando todos los miembros de cada modelo (pero sólo para una "corrida"; es decir, mismas condiciones iniciales, misma física, mismo forzante). 
+
+```{r cor-relation-all, fig.cap = "Igual que la figura anterior, pero para todos los miembros de cada modelo."}
+
+cors %>% 
+   dt_unnest(correlations) %>%
+   ggplot(aes(correlation^2, correlation_regression^2)) +
+   geom_point(aes(color = model), alpha = 0.5) +
+   # geom_path(aes(color = model), alpha = 0.5) +
+   geom_abline(color = "#667885", size = 0.3) +
+   # ggrepel::geom_text_repel(aes(label = model)) +
+   facet_wrap(.~term) +
+   coord_equal() +
+   scale_x_continuous(limits = c(0, 1)) +
+   scale_y_continuous(limits = c(0, 1)) +
+   theme(panel.background = element_rect(fill = "#fafafa", color = NA),
+         panel.ontop = FALSE)
+```
+
+Lo que se ve es que hay mush variabilidad en la representación del cEOF2 en cada miembro, aún dentro del mismo modelo!
+La variación dentro de un mismo modelo es mayor que la variación entre modelos.  
+Esto implica que no se pueden seleccionar "buenos" modelos fácilmente.
+
+De todas formas, hay ciertas características de cada modelo.
+
+
+```{r cor-relation-per-model, fig.cap = "Igual que la figura anterior, pero un panel para cada modelo", fig.height=18, fig.width=6}
+cors %>% 
+   dt_unnest(correlations) %>% 
+   copy() %>% 
+   D(, model := forcats::fct_reorder(model, -correlation^2, .fun = mean)) %>% 
+   ggplot(aes(correlation^2, correlation_regression^2)) +
+   
+   geom_hline(data = ~.x[, .(r = mean(correlation_regression^2)), by = .(model, term)], 
+              aes(yintercept = r), alpha = 0.5) +
+   geom_vline(data = ~.x[, .(r = mean(correlation^2)), by = .(model, term)], 
+              aes(xintercept = r), alpha = 0.5) +
+   geom_point(alpha = 0.5) +
+   # geom_path(aes(color = model), alpha = 0.5) +
+   geom_abline(color = "#667885", size = 0.3) +
+   # ggrepel::geom_text_repel(aes(label = model)) +
+   facet_grid(model~term) +
+   coord_equal() +
+   scale_x_continuous(limits = c(0, 1)) +
+   scale_y_continuous(limits = c(0, 1)) + 
+   scale_color_discrete(guide = "none") +
+   theme(panel.background = element_rect(fill = "#fafafa", color = NA),
+         panel.ontop = FALSE)
+```
+
+La Figura \@ref(fig:cor-relation-per-model) es igual que la anterior pero separa cada modelo en su propio panel para poder distinguir mejor el comportaniento de cada uno. 
+
+
+```{r not-eval}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r cor-per-member}
+cors %>% 
+   dt_unnest(correlations) %>% 
+   ggplot(aes(correlation^2, correlation_regression^2)) +
+   geom_path(aes(group = member), alpha = 0.5) +
+   geom_point(aes(color = term), alpha = 0.5) +
+   geom_abline(color = "#667885", size = 0.3) +
+   # ggrepel::geom_text_repel(aes(label = model)) +
+   facet_wrap(model~.) +
+   coord_equal() +
+   scale_x_continuous(limits = c(0, 1)) +
+   scale_y_continuous(limits = c(0, 1)) +
+   # scale_color_discrete(guide = "none") +
+   theme(panel.background = element_rect(fill = "#fafafa", color = NA),
+         panel.ontop = FALSE)
+```
+
+
+```{r best-worst-fields}
+select <- cors %>% 
+   dt_unnest(correlations) %>% 
+   D(, .SD[c(which.min(correlation), 
+             which.max(correlation))], by = .(model)) 
+
+cors[select, on = c("model", "member")] %>% 
+   D(order(correlation)) %>% 
+   copy() %>% 
+   D(, member := seq_len(.N), by = .(model)) %>% 
+   D(, eof[[1]]$right, by = .(model, member, correlation)) %>% 
+   D(lev == 200) %>% 
+   D(PC == "PC2") %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = Re(eof))) +
+   geom_contour2(data = ref[lev == 200 & PC == "PC2"], aes(z = Re(eof_ref))) +
+   scale_linetype(guide = "none") +
+   scale_fill_divergent() +
+   geom_qmap(crop = c(ymax = -20)) +
+   geom_label(data = ~.x[, .SD[1], by = .(model, member)], 
+              aes(label = scales::number(correlation^2, accuracy = 0.01)), x = 50, y = -30) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   facet_grid(model ~ member)
+
+```
+
+
+```{r field-difference}
+cors[select, on = c("model", "member")] %>% 
+   D(order(correlation)) %>% 
+   copy() %>% 
+   D(, member := seq_len(.N), by = .(model)) %>% 
+   D(, eof[[1]]$right, by = .(model, member, correlation)) %>% 
+   D(lev == 200) %>% 
+   D(PC == "PC2") %>%
+   D(ref[lev == 200 & PC == "PC2"], on = .NATURAL) %>% 
+   D(, d := Re(eof) - Re(eof_ref)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = d)) +
+   scale_linetype(guide = "none") +
+   scale_fill_divergent() +
+   geom_qmap(crop = c(ymax = -20)) +
+   geom_label(data = ~.x[, .SD[1], by = .(model, member)], 
+              aes(label = scales::number(correlation^2, accuracy = 0.01)), x = 50, y = -30) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   facet_grid(model ~ member)
+
+```
 
