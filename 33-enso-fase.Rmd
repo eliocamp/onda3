@@ -185,7 +185,7 @@ Yo voy a hacer algo parecido a esto último, pero dado que lo que estoy buscando
 download_ersst <- function(file) {
    base_url <- "https://www.ncei.noaa.gov/pub/data/cmb/ersst/v5/netcdf/ersst.v5."
    
-   years <- 1979:2020
+   years <- 1854:2020
    months <- formatC(1:12, width = 2, flag = "0")
    dates <- data.table::CJ(years, months)[, paste0(years, months)]
    
@@ -369,13 +369,13 @@ ensos$left |>
    ggplot(aes(Arg(eof))) +
    geom_histogram(aes(Arg(eof)), boundary = 0, binwidth = 10*pi/180,
                   inherit.aes = FALSE) +
-   geom_point(aes(y = Mod(eof)*200, color = is_enso_oni(enso34))) +
+   geom_point(aes(y = Mod(eof)*1500, color = is_enso_oni(enso34))) +
    # geom_point(aes(y = abs(enso34)*10, color = is_enso_oni(enso34))) +
    scale_x_continuous("Phase", 
                       breaks = seq(-pi - 1/4*pi, pi - 1/4*pi, by = 45*pi/180),
                       labels = function(x) paste0(round(x*180/pi, 5), "º")) +
    scale_y_continuous("Cuenta (barras)",
-                      sec.axis = sec_axis(~.x/200, name = "Mod(eof) (puntos)")) +
+                      sec.axis = sec_axis(~.x/1500, name = "Mod(eof) (puntos)")) +
    scale_color_enso()
 ```
 
