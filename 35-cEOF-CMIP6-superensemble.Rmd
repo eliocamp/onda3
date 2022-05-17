@@ -1,0 +1,1003 @@
+---
+title: "35-cEOF Superensamble"
+author: "Elio Campitelli"
+output: 
+   bookdown::html_document2:
+         base_format: tufte::tufte_html 
+link-citations: yes 
+---
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+options(htmltools.dir.version = FALSE)
+# knitr::knit_hooks$set(document = function(x) {
+#    took <- unclass(Sys.time()) - start.time
+#    if (unclass(Sys.time()) - start.time >= min.time) {
+#       notify("Done knitting!", 
+#              paste0("Took ", round(took), " seconds"),
+#              time = 5)
+#    }  
+#    knit_doc(x)
+# })
+
+
+# name <- tools::file_path_sans_ext(knitr::current_input())
+name <- "35-cEOF-CMIP6-superensemble"
+knitr::opts_chunk$set(
+   echo = FALSE,
+   fig.path = paste0("fig/", name, "/"),
+   message = TRUE,
+   warning = FALSE,
+   message = FALSE,
+   cache = TRUE, 
+   cache.lazy = FALSE,
+   cache.extra = 42,
+   cache.path = paste0("cache/", name, "/")
+)
+
+cache <- cachem::cache_disk(file.path("cache", name, "memoise"))
+
+library(data.table)
+library(magrittr)
+library(ggplot2)
+library(metR)
+library(gt)
+library(tagger)
+library(tidyfast)
+library(rcmip6)
+source("scripts/fftspectrum.R")
+source("scripts/helperfun.R")
+D <- `[`
+
+factor_ReIm <- function(part) {
+   factor(part, levels = c("Real", "Imaginary"), ordered = TRUE)
+}
+
+ReIm <- function(complex) {
+   list(Real = Re(complex), Imaginary = Im(complex))
+}
+
+sep_ReIm <- function(data, column, format = c("longer", "wider")) {
+   R <- part <- I <- NULL
+   names <- c("Real", "Imaginary")
+   
+   
+   if (missing(column)) {
+      complex <- vapply(data, function(x) inherits(x, "complex"), TRUE)
+      if (sum(complex) > 1) {
+         stop("`column` missing and more than one complex column found")
+      }
+      if (sum(complex) == 0) {
+         warning("`column` missing and no complex column found. Returning unchanged data")
+         return(data)
+      }
+      
+      col <- colnames(data)[complex]
+   } else {
+      col <- deparse(substitute(column))
+   }
+   
+   
+   data <- data.table::copy(data)[, (names) := ReIm(get(col))]
+   
+   
+   if (format[1] == "longer") {
+      data[, c(col) := NULL]
+      data <- data.table::setDT(tidyr::pivot_longer(data, Real:Imaginary, names_to = "part", values_to = col))
+      data[, part := factor(part, levels = names, ordered = TRUE)]
+   }
+   
+   return(data[])
+}
+
+source("scripts/theme.R")
+theme_set(theme_elio())
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   ggplot2::guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                             barheight = height,
+                             barwidth = width, ...)
+}
+
+sink <- capture.output(sf::sf_use_s2(FALSE))
+geom_qmap <- function(subset = identity,
+                      crop = NULL,
+                      color = "gray50", size = 0.3,
+                      fill = NA, wrap = c(0, 360), weighting = 0.7,
+                      keep = 0.015, ...) {
+   lon <- lat <- group <- NULL
+   data <- map_simple(wrap = wrap, keep  = keep, weighting = weighting)
+   
+   if (!is.null(crop)) {
+      bbox <- sf::st_bbox(data)
+      
+      for (n in names(crop)) {
+         bbox[[n]] <- crop[[n]]
+      }
+      
+      data <- suppressWarnings(suppressMessages(sf::st_crop(data, bbox)))
+   }
+   
+   
+   subset <- purrr::as_mapper(subset)
+   data <- subset(data)
+   
+   ggplot2::geom_sf(data = data,
+                    inherit.aes = FALSE,
+                    color = color,
+                    size = size,
+                    fill = fill,
+                    ...)
+   
+}
+
+map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
+   map <- maps::map("world", fill = TRUE,
+                    col = "transparent", plot = FALSE, wrap = wrap)
+   map <- sf::st_as_sf(map)
+   if (keep != 1) {
+      map <- rmapshaper::ms_simplify(map, keep = keep, weighting = weighting)
+   }
+   
+   
+   map
+}
+
+height <- GetTopography(0, 180-1.5, 10.5, -89, resolution = 1.5, 
+                        file.dir = file.path("cache", name)) %>% 
+   rbind(GetTopography(180+1.5, 360, 10.5, -89, resolution = 1.5,
+                       file.dir = file.path("cache", name))) %>% 
+   as.data.table()
+
+
+coord_polar <- function(ymax = -20, ...) {
+   
+   x <- c(seq(0, 360, length.out = 40), 
+          seq(360, 0, length.out = 40), 
+          0)
+   y <- c(rep(ymax, length.out = 40), 
+          rep(60, length.out = 40), 
+          ymax)
+   
+   cbind(x, y) %>% 
+      list() %>% 
+      sf::st_polygon() %>% 
+      sf::st_sfc(crs = "+proj=latlong") -> white
+   
+   list(
+      geom_sf(data = white, inherit.aes = FALSE, 
+              fill = "white", 
+              colour = "white", size = 2),
+      coord_sf(ylim = c(-90, ymax), 
+               lims_method = "box",
+               crs = "+proj=laea +lat_0=-90",
+               default_crs = "+proj=longlat",
+               label_axes =  "----", ...)
+   )
+}
+
+periodic_lon <- function(data) {
+   m_lon <- min(data$lon)
+   range <- c(0, 360) + m_lon
+   range2 <- c(0 - m_lon, 360) 
+   
+   ggperiodic::periodic(data, lon = range) %>% 
+      ggperiodic::wrap(lon = range2)
+}
+
+
+n_eof <- 2
+
+climatology <- as.Date(c("1985-01-01", "2014-12-31"))
+
+is.enso34 <- function(lon, lat) {
+   (abs(lat) < 5) & (ConvertLongitude(lon) %between% c(-170, -120))
+}
+```
+
+
+Dada la experiencia anterior, voy a calcular los cEOFs usando todos los miembros concatenados: el superensemble (?). 
+
+Algunos detalles:
+- Medias estacionales de SON
+- Estandarizo cada nivel usando el desvio estándard de la climatología `r paste0(year(climatology), collapse = " -- ")`
+
+```{r cmip_available}
+# Tuve que optimizar algunas cosas para poder parsear miles de archivos
+cmip_available <- function(..., root = cmip_root_get()) {
+   template <- rcmip6:::cmip6_folder_template %>% 
+      gsub("\\%\\(", "{", .) %>% 
+      gsub("\\)s", "}", .)
+   
+   vars <- template %>% 
+      gsub("\\{", "", .) %>% 
+      gsub("\\}", "", .) %>% 
+      strsplit("/") %>% 
+      .[[1]]
+   
+   
+   search_null <- rep("*", length(vars)) %>% 
+      setNames(vars) %>% 
+      as.list()
+   
+   globulate <- function(x) {
+      if (length(x) > 1) {
+         paste0("@(", paste0(unique(x), collapse = "|"), ")")   
+      } else {
+         x
+      }
+   }
+   
+   search <- list(...)
+   for (name in names(search)) {
+      search_null[[name]] <- search[[name]]
+   }
+   search <- search_null
+   
+   search <- lapply(search, globulate)
+   # browser()
+   
+   # Hay que asegurarse de correr en bash
+   command <- paste0("ls -f ", paste0(root, "/", glue::glue_data(search, template), "/model.info"))
+   command <- paste0("shopt -s extglob\n ls -f ", 
+                     paste0(root, "/", glue::glue_data(search, template), "/model.info"))
+   script_file <- tempfile()
+   writeLines(command, script_file)
+   
+   info <- system(paste0("/bin/bash  ", script_file), intern = TRUE)
+   
+   cmip6_folder_template <- gsub("%\\(", "", rcmip6:::cmip6_folder_template)
+   cmip6_folder_template <- gsub("\\)s", "", rcmip6:::cmip6_folder_template)
+   vars <- c(vars, "variable_long_name", 
+             "datetime_start", "datetime_stop", "nominal_resolution")
+   data <- Reduce(rbind, lapply(info, function(info) {
+      files <- Sys.glob(paste0(dirname(info), "/*nc"))
+      
+      data <- jsonlite::read_json(info, simplifyVector = TRUE)
+      
+      for (var in vars) {
+         if (is.null(data[[var]])) {
+            data[[var]] <- NA_character_
+         }
+      }
+      
+      subdata <- data[vars]
+      
+      
+      browser(expr = any(lengths(subdata) == 0))
+      
+      info <- as.data.frame(data[vars], stringsAsFactors = FALSE)
+      info$files <- list(files)
+      info$full_info <- list(data)
+      info
+   }))
+   return(data)
+}
+```
+
+
+```{r sims}
+cmip_root_set("/shera/datos/CMIP/")
+sims <- cmip_available(mip_era = "CMIP6", 
+                       activity_drs = "CMIP",
+                       experiment_id = "historical",
+                       # source_id = unique(simulaciones$model),
+                       variable_id = c("zg", "tos")) %>% 
+   as.data.table() %>% 
+   .[, c("ensemble", "init", "physics", "forcing") := as.list(unglue::unglue_data(member_id, "r{ensemble}i{init}p{physics}f{forcing}", convert = TRUE))] %>% 
+   .[order(ensemble)]
+
+# Algunos modelos tienen distintas parametrizaciones, inicializaciones y demás. 
+# Me quedo sólo con una combinación para no volverme loque. 
+sims <- sims[, .SD[physics == physics[1] & init == init[1] & forcing == forcing[1]],
+             by =  .(source_id, variable_id)] %>% 
+   .[, .SD[uniqueN(ensemble) >= 5], by = source_id]
+
+# Me quedo con la "mejor grilla". Esto afecta únicamente 
+# a tos (sst).
+# El orden de preferencia de las grillas es 
+# medio aleatorio; gn es el más común.
+grid_order <- c("gn", "gr", "gr1")
+
+sims <- sims %>% 
+   copy() %>% 
+   .[, grid_label := factor(grid_label, levels = grid_order, ordered = TRUE)] %>% 
+   .[order(grid_label)] %>%
+   .[, .SD[grid_label == grid_label[1]], by = .(source_id, ensemble, variable_id)] 
+```
+
+```{r select_merge}
+future::plan("multisession")
+select_merge <- function(file_in) {
+   
+   unique_items <- file_in %>% 
+      basename() %>% 
+      unglue::unglue_data("{variable}_{mean}_{model}_historical_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc") %>% 
+      as.data.table() %>% 
+      .[, ":="(start_date = NULL, end_date = NULL)] %>% 
+      unique() %>% 
+      nrow()
+   
+   stopifnot(unique_items == 1)
+   
+   file_out <- file.path("cmip_son", basename(file_in[1]))
+   
+   if (file.exists(file_out)) {
+      return(file_out)
+   }
+   
+   # Hay algunos archivos mal bajados. 
+   nulos <- file.size(file_in) == 0
+   if (any(nulos)) {
+      warning("Archivo(s) nulos: \n", paste0(file_in[nulos], collapse = "\n"))
+      return(NA_character_)
+   }
+   
+   message("Procesando archivos ", basename(file_in[1]))
+   var <- substr(basename(file_in[1]), 1, 1) 
+   
+   # Algunos modelos (IPSL) vienen con una grilla "genérica" en vez de lonlat
+   to_regrid <- FALSE
+   if (var == "t") {
+      grid <- tempfile()
+      invisible(capture.output(t <- system(paste0("cdo griddes ", file_in[1], " > ", grid), intern = TRUE)))
+      if (length(grep("generic", readLines(grid))) != 0) {
+         to_regrid <- TRUE
+         invisible(capture.output(t <- system(paste0('sed -i "s/generic/lonlat/g" ', grid), intern = TRUE)))
+      }
+   }  
+   
+   
+   # Selecciondo para cada archivito
+   # TODO: hacer un hard stop si falla algún archivo. 
+   # https://twitter.com/UbuntR314/status/1523761710548406272
+   temp_files <- furrr::future_map_chr(file_in, function(file) {
+      file_out <- tempfile(fileext = ".nc")
+      
+      if (to_regrid) {
+         outfile <- tempfile(fileext = ".nc")
+         invisible(capture.output(t <- system(paste0("cdo setgrid,", grid, " ", file, " ", outfile))))
+         file <- outfile
+      }
+      if (var == "z") {
+         select <- "-sellevel,20000,5000"
+         remap <- NULL
+      } else {
+         select <- NULL
+         # Paso sst a una grilla regular porque sino distintos modelos tienen distintas
+         # grillas y es un quilombo procesarlos programáticamente.
+         remap <- "-remapdis,r240x60" 
+      }
+      
+      s <- capture.output(system(paste0("cdo ", select, " -timselmean,3 -select,season=SON ",
+                                        remap, " ", 
+                                        shQuote(file), " ", 
+                                        shQuote(file_out)), 
+                                 intern = TRUE))
+      if (!file.exists(file_out)) {
+         file_out <- NA_character_
+      }
+      
+      return(file_out)
+   })
+   
+   # y luego uno
+   system(paste0("cdo mergetime ", paste0(shQuote(temp_files), collapse = " "), " ",
+                 shQuote(file_out)),
+          intern = TRUE)
+   unlink(temp_files)
+   return(file_out)
+}
+```
+
+```{r}
+files <- sims$files %>% 
+   vapply(select_merge, character(1))
+```
+
+
+
+```{r simulaciones}
+simulaciones <- na.omit(files) %>% 
+   basename() %>% 
+   unglue::unglue_data("{variable}_{mean}_{model}_historical_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc", convert = TRUE) %>% 
+   as.data.table() %>% 
+   DT(, file := na.omit(files)) %>% 
+   DT(order(variable, model, member))
+```
+
+```{r era5}
+era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>% 
+   ReadNetCDF(vars = c(hgt = "z"), 
+              subset = list(lat = c(-90, 10), 
+                            time = c("1979-01-01", "2014-12-31"),
+                            lev = list(200, 50))) %>% 
+   D(season(time) == "SON") %>% 
+   D(, hgt := hgt/9.8) %>% 
+   D(, lev := as.integer(lev)) %>% 
+   setnames("lev", "plev") %>% 
+   D(, .(hgt = mean(hgt)), by = .(lon, lat, plev, time = as.integer(year(time)))) %>% 
+   D(, model := "ERA5") %>%
+   D(, member := 1L) %>% 
+   D(is.finite(hgt)) %>% 
+   D(, hgt_z := hgt - mean(hgt), by = .(time, lat, plev)) 
+
+set.seed(42)
+ceof_era5 <-
+   era5 %>% 
+   D(, hgt_z := hgt_z/sd(hgt_z[time %between% year(climatology)]), by = .(plev)) %>% 
+   D(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, plev, lat)) %>% 
+   D(, eof := hgt_cplx) %>% 
+   D(lat %between% c(-85, -20)) %>%
+   D(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + plev, n = 1:2, 
+                        data = .SD, 
+                        suffix = "cEOF"))), by = .(model))
+
+ceof_era5$eof[[1]]$sdev %>% 
+   D(, let(correlation = 1, 
+           angle = 0))
+```
+
+```{r sst_era5}
+sst_ear5 <- "DATA/reanalysis/ERA5/mon/era5sl.mon.mean.nc" %>% 
+   ReadNetCDF(vars = c(sst = "sst"), 
+              subset = list(
+                 lat = c(-90, 10),
+                 time = c("1979-01-01", "2014-12-31"))) %>% 
+   D(season(time) == "SON") %>% 
+   D(, .(sst = mean(sst)), by = .(lon, lat, time = year(time))) %>% 
+   D(, model := "ERA5") %>%
+   D(, ensemble := 1L) %>% 
+   D(is.finite(sst)) 
+```
+
+
+
+```{r optimise_rotation}
+weighted_correlation <- function(x, y, w) {
+   cov.wt(cbind(x, y), wt = w, cor = TRUE)$cor[1, 2]
+}
+
+rotate <- function(z, angle = 0) {
+   complex(real = cos(angle), imaginary = sin(angle)) * z
+}
+
+rotate_eof <- function(eof, angle) {
+   eof <- copy(eof)
+   eof$right <- eof$right[angle, on = "cEOF", ][, eof := rotate(eof, angle)][, angle := NULL]
+   eof$left <- eof$left[angle, on = "cEOF", ][, eof := rotate(eof, angle)][, angle := NULL]
+   eof
+}
+
+ref <- ceof_era5$eof[[1]]$right %>%
+   copy() %>% 
+   setnames("eof", "eof_ref")
+
+optimise_rotation <- function(eof) {
+   angles <- seq(-pi, pi, by = 1*pi/180)
+   
+   joined <- eof$right %>% 
+      DT(, Interpolate(eof ~ lon + lat, x.out = unique(ref$lon), y.out = unique(ref$lat)), 
+         by = .(cEOF, lev)) %>% 
+      DT(ref, on = .NATURAL) %>% 
+      na.omit()
+   
+   cors <- lapply(angles, function(a) {
+      joined %>% 
+         DT(, eof2 := rotate(eof, a)) %>% 
+         DT(, .(correlation = weighted_correlation(Re(eof2), Re(eof_ref), cos(lat*pi/180))), 
+            by = .(cEOF)) %>% 
+         DT(, angle := a) 
+   }) %>% 
+      rbindlist()
+   
+   best_cor <- cors[, .SD[which.max(correlation)], by = cEOF]
+   eof <- rotate_eof(eof, best_cor[, .(cEOF, angle)])
+   
+   eof$sdev <- eof$sdev[best_cor[, .(cEOF, correlation, angle)], on = "cEOF"]
+   eof
+}
+```
+
+```{r rotation_era5}
+enso <- rsoi::download_oni(use_cache = TRUE, file = "DATA/enso.csv") %>% 
+   as.data.table() %>% 
+   .[, .(time = lubridate::as_datetime(Date), oni = ONI)] %>% 
+   na.omit() %>%
+   .[season(time) == "SON"] %>%
+   .[, .(oni = mean(oni)), by = .(time = year(time))]
+
+with_enso <-  cut(ceof_era5$eof[[1]], 2)$left %>%
+   copy() %>%
+   enso[., on = "time"] %>% 
+   na.omit() 
+
+angles <- seq(-pi, pi, by = .5*pi/180)
+rotations_cEOF2 <- lapply(angles, function(a) {
+   with_enso %>%
+      .[, hgt2 := rotate(eof, a)] %>%
+      .[, .(R = cor(Re(hgt2), oni),
+            I = cor(Im(hgt2), oni))] %>%
+      .[, rotation := a]
+}) %>%
+   rbindlist()
+
+best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
+
+ceof_era5$eof[[1]] <- rotate_eof(ceof_era5$eof[[1]],
+                                 data.table(cEOF = "cEOF2", 
+                                            angle = best_rotation_cEOF2))
+
+
+ceof_era5$eof[[1]]$left[, cEOF := factor(cEOF, levels = paste0("cEOF", 1:2),
+                                         ordered = TRUE)]
+ceof_era5$eof[[1]]$right[, cEOF :=  factor(cEOF, levels = paste0("cEOF", 1:2),
+                                           ordered = TRUE)]
+```
+
+
+```{r compute_eof}
+compute_eof_ <- function(files, member) {
+   message("procesando ", files[1])
+   
+   array <- lapply(files, function(file) {
+      ReadNetCDF(file, vars = c(hgt = "zg"), 
+                 subset = list(lat = c(-85, -20),
+                               time = c("1979-10-01", "2014-12-31")),
+                 out = "array")[[1]]
+   })
+   
+   time_lookup <- data.table::data.table(time = dimnames(array[[1]])$time,
+                                         time_date = as.integer(year(attr(array[[1]], "dimvalues")$time)))
+   
+   array <- abind::abind(array, rev.along = 0,
+                         use.dnns = TRUE)
+   
+   dimnames(array)[[5]] <- member
+   names(dimnames(array))[[5]] <- "ensemble"
+   
+   
+   whichdim <- function(array, dims) {
+      which((names(dimnames(array)) %in% dims))
+   }
+   whichdimnot <- function(array, dims) {
+      which(!(names(dimnames(array)) %in% dims))
+   }
+   
+   # Calcular anomalias zonales
+   array <- apply(array, whichdimnot(array, "lon"), Anomaly) %>% 
+      aperm(names(dimnames(array)))
+   
+   # Estandarizar
+   sd <- apply(array, "plev", sd)
+   array <- sweep(array, whichdim(array, "plev"), sd, FUN = "/")
+   
+   # Transfomar de hilbert
+   hilbert <- apply(array, whichdimnot(array, "lon"), spectral::analyticFunction) %>% 
+      aperm(names(dimnames(array)))
+   
+   hilbert <- aperm(hilbert, setNames(seq_along(dimnames(hilbert)), 
+                                      names(dimnames(hilbert)))[c("time", "ensemble", "lon", "lat", "plev")])
+   
+   # Calcular EOF y hacer tidy
+   dim(hilbert) <- list(prod(lengths(dimnames(hilbert))[1:2]),
+                        prod(lengths(dimnames(hilbert))[3:5]))
+   
+   eof <- irlba::irlba(hilbert, 2, 2)
+   
+   dim(eof$u) <-  as.list(c(dimnames(array)[c("time", "ensemble")] %>% lengths(),
+                            eof = 2))
+   dimnames(eof$u) <- with(dimnames(array), 
+                           list(time = time, ensemble = ensemble, cEOF = 1:2))
+   eof$u <- reshape2::melt(eof$u, value.name = "eof") %>% data.table::setDT()
+   eof$u[, time := as.character(time)]
+   
+   eof$u <- time_lookup[eof$u, on = .NATURAL] %>% 
+      D(, time := NULL) %>% 
+      data.table::setnames("time_date", "time")
+   eof$u[, cEOF := factor(paste0("cEOF", cEOF))]
+   
+   dim(eof$v) <- as.list(c(c(dimnames(array)[c("lon", "lat", "plev")] %>% lengths(),
+                             eof = 2)))
+   dimnames(eof$v) <- with(dimnames(array),
+                           list(lon = lon, lat = lat, lev = plev, cEOF = 1:2))
+   
+   eof$v <- reshape2::melt(eof$v, value.name = "eof") %>%  data.table::setDT()
+   eof$v[, cEOF := factor(paste0("cEOF", cEOF))]
+   eof$v[, lat := as.numeric(lat)]
+   eof$v[, lon := as.numeric(lon)]
+   eof$v[, lev := as.integer(lev/100)]
+   
+   variance <- norm(abs(hilbert), type = "F")
+   
+   eof$d <- data.table(cEOF = factor(paste0("cEOF", 1:2), levels = paste0("cEOF", 1:2),
+                                     ordered = TRUE), 
+                       sd = eof$d, 
+                       r2 = eof$d^2/variance^2)
+   
+   return(structure(
+      list(left = eof$u, 
+           right = eof$v, 
+           sdev = eof$d),
+      call = match.call(), 
+      class = c("eof", "list"), 
+      suffix = "cEOF", 
+      value.var = "eof"))
+}
+
+compute_eof <- memoise::memoise(compute_eof_, cache = cache)
+```
+
+
+```{r ceofs} 
+ceofs <- simulaciones %>% 
+   .[variable == "zg"] %>%
+   .[, .(eof = list(compute_eof(file, member) %>% optimise_rotation())), 
+     by = model]
+ceofs <- rbind(ceofs, ceof_era5)
+# rm(ceof_era5)
+```
+
+```{r plot_ceof} 
+plot_ceof <- function(data, n, which_lev = 200) {
+   data <- data[, .(eof = list(cut(eof[[1]], n))), by = model]
+   
+   which_pc <- paste0("cEOF", n)
+   
+   models <- data %>% 
+      D(, eof[[1]]$sdev, by = model) %>%
+      D(cEOF == which_pc) %>% 
+      D(order(-correlation)) 
+   
+   labels <- models %>%
+      D(, setNames(paste0(model, "\n(", scales::number(correlation^2, 0.01), ")"),
+                   model))
+   
+   data %>% 
+      D(, eof[[1]]$right, by = model) %>%
+      # DT(, denormalise(eof[[1]], "right"), by = model) %>%
+      D(cEOF == which_pc) %>% 
+      # D(, eof[[1]]$right, by = model) %>%
+      DT(, model := factor(model, levels = models$model)) %>%
+      DT(lev == which_lev) %>% 
+      DT(, eof := eof/max(Mod(eof)), by = model) %>% 
+      # DT(, eof := eof/sd(eof), by = .(model)) %>% 
+      ggperiodic::periodic(lon = c(0, 360)) %>% 
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(aes(z = Re(eof)), bins = 10) +
+      geom_contour2(aes(z = Im(eof), linetype = factor(-sign(..level..))), bins = 15) +
+      scale_linetype(guide = "none") +
+      scale_fill_divergent() +
+      geom_qmap(crop = c(ymax = -20)) +
+      scale_x_longitude() +
+      scale_y_latitude(limits = c(-90, NA)) +
+      coord_polar() +
+      facet_wrap(model ~., labeller = labeller(model = labels))
+   
+}
+```
+
+
+```{r comparacion-r2}
+cors <- ceofs %>% 
+   D(, eof[[1]]$sdev, by = model) %>% 
+   # D(model != "ERA5") %>% 
+   copy() %>% 
+   D(, r2 := correlation^2) 
+
+cors %>% 
+   D(model != "ERA5") %>% 
+   dcast(model ~ cEOF, value.var = "r2") %>% 
+   D(order(-(cEOF1*cEOF2))) %>% 
+   knitr::kable(col.names = c("Modelo", "cEOF1", "cEOF2"), digits = 2,
+                caption = "R^2 espacial de los campos de cEOF1 y cEOF2 de cada modelo con ERA5.")
+```
+
+La Tabla\ \@ref(tabl:comparacion-r2) muestra el $r^2$ de los modelos para los dos cEOFs. 
+Por alguna razón los valores del superensemble tienen menos correlación que los miembros en promedio ¯\_(ツ)_/¯. 
+
+# Parte espacial
+
+Las Figuras\ \@ref(fig:ceof-1-50) y \@ref(fig:ceof-1-200) muestan el cEOF1 en 50 hPa y 200 hPa respectivamente. 
+En general los patrones son bastante similares, especialmente en la estratósfera, donde e patrón es de mayor escala y entonces hay menos chances de cosas que fallen. 
+Sin embargo, la localización de los centros no parece estar muy bien en algunos modelos. 
+En 50 hPa IPSL-CM6A-LR, CNRM-CM6-1 y CNRM-ESM2-1 tienen la onda corrida hacia el oeste y un r^2 relativamente bajo.
+
+```{r, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
+plot_ceof(ceofs, 1, 50)
+```
+
+
+```{r, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
+plot_ceof(ceofs, 1, 200)
+```
+
+En 200 hPa la cosa es un poco más compleja por los detalles de escala más chica, pero en general parece bien. 
+
+
+En las Figuras\ \@ref(fig:ceofs-2-50)  y \@ref(fig:ceofs-2-200) se muestran lo mismo que antes pero para el cEOF2. 
+
+```{r ceofs-2-50, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
+plot_ceof(ceofs, 2, 50)
+```
+
+```{r ceof-2-200, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
+plot_ceof(ceofs, 2, 200)
+```
+
+
+# Parte temporal
+
+
+
+```{r plot_trends, fig.height = 12, fig.width=8}
+plot_trends <- function(which_eof) {
+   which_eof <- paste0("cEOF", which_eof)
+   models <- cors[cEOF == which_eof] %>% 
+      .[order(correlation)] %>% 
+      .[, model]
+   
+   ceofs[, eof[[1]]$left, by = model] %>% 
+      .[cEOF == which_eof] %>%
+      copy() %>% 
+      .[, eof := eof/sd(Mod(eof)), by = .(model)] %>% 
+      sep_ReIm() %>% 
+      .[, FitLm(eof, time, se = TRUE), by = .(model, cEOF, ensemble, part)] %>% 
+      .[term == "time"] %>%
+      cors[., on = c("model", "cEOF")] %>% 
+      .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
+      .[, model := reorder(model, correlation)] %>% 
+      ggplot(aes(model, estimate)) +
+      geom_hline(yintercept = 0, color = "gray50") +
+      geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model, part)],
+                aes(y = 0,
+                    height = 2*m,
+                    width = 0.5,
+                    group = part),
+                alpha = 0.2,
+                position = position_dodge(.8)) +
+      geom_point(alpha = 0) +
+      geom_boxplot(aes(color = part), width = 0.5,
+                   position = position_dodge(.8),
+                   fill = NA,
+                   data = ~.x[!startsWith(as.character(model), "ERA5")]) +
+      ggforce::geom_sina(aes(color = part), alpha = 0.5) +
+      scale_color_brewer(palette = "Set1") +
+      coord_flip()  
+}
+```
+
+Las Figuras\ \@ref(fig:trens-1) y \@ref(fig:trens-1) muestran las tendencias lineales de cada cEOF. 
+El recurado gris marca la región aproximada de insignificancia estadística al 5% ($\pm$ 2 errores estándar) y la conclusión es que no hay tendencias significativas. 
+
+```{r trends-1, fig.height = 12, fig.width=8}
+plot_trends(1)
+```
+
+```{r trens-2, fig.height = 12, fig.width=8}
+plot_trends(2)
+```
+
+
+```{r fft}
+fft <- ceofs[, eof[[1]]$left, by = model] %>% 
+   sep_ReIm() %>% 
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>%
+   .[order(time)] %>% 
+   .[, fftspectrum(eof, c(3, 5), B = 0), by = .(model, ensemble, cEOF, part)]
+```
+
+```{r plot_fft} 
+plot_fft <- function(which_ceof) {
+   which_ceof <- paste0("cEOF", which_ceof)
+   fft %>% 
+      .[cEOF == which_ceof] %>% 
+      # .[, .(spec = mean(spec)), by = .(freq, part, model, cEOF)] %>% 
+      cors[., on = c("model", "cEOF")] %>% 
+      .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
+      .[, model := reorder(model, -correlation)] %>% 
+      ggplot(aes(1/freq, spec)) +
+      # geom_ribbon(aes(ymin = 0, ymax = `95%`), position = "dodge", alpha = 0.1) +
+      # geom_line(aes(y = ar_spectrum), alpha = 0.15) +
+      geom_line(aes(color = part, group = interaction(part, ensemble)), alpha = 0.2) +
+      geom_line(data = ~.x[, .(spec = mean(spec)), by = .(freq, part, model, cEOF)], 
+                aes(color = part)) +
+      # annotation_logticks(sides = "b") +
+      scale_color_brewer(which_ceof, palette = "Dark2", aesthetics = c("color", "fill")) +
+      scale_x_log10("Period (years)") +
+      scale_y_continuous("Spectrum")  +
+      facet_wrap(model ~ .)
+}
+```
+
+Las Figuras\ \@ref(fig:fft-1) y \@ref(fig:fft-2) muestran periodogramas para cada cEOF con una línea por miembro y una línea gruesa marcando el periodograma promedio.
+
+
+
+```{r fft-1, fig.height=8, fig.width=9}
+plot_fft(1)
+```
+Para el cEOF1, no hay mucha señal. Algunos miembros tienen señales altas pero en el promedio es básicamente chato, coincidente con ERA5.
+
+```{r fft-2, fig.height=8, fig.width=9}
+plot_fft(2)
+```
+Para el cEOF2, algunos modelos tiene una señal consistente de ~3 años en la parte imaginaria, tambén consistente con ERA5. 
+Sin embargo, la señal no aparece en todos los modelos. 
+
+# SST
+
+
+```{r regress_sst}
+standardised <- ceofs[, eof[[1]]$left, by = model] %>%
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, ensemble, cEOF)] 
+
+regress_sst_ <- function(..model) {
+   sst_files <- simulaciones %>% 
+      .[variable == "tos"] %>% 
+      .[model == ..model]
+   
+   message("Procesando: ", sst_files$file[1])
+   
+   data <- lapply(seq_len(nrow(sst_files)), function(i) {
+      ReadNetCDF(sst_files[i, ]$file, c(sst = "tos"), 
+                 subset = list(lat  = c(-90, 10), 
+                               time = c("1979-10-01", "2014-12-31"))) %>% 
+         .[!is.na(sst)] %>% 
+         .[, time := year(time)] %>% 
+         .[, ensemble := as.integer(sst_files[i, ]$member)] 
+   })
+   
+   data <- rbindlist(data)
+   
+   enso34 <- data %>% 
+      .[is.enso34(lon, lat)] %>% 
+      .[, .(enso34 = mean(sst)), by = .(time, ensemble)] %>% 
+      .[, enso34 := (enso34 - mean(enso34))/sd(enso34), by = .(ensemble)]
+   
+   s <- standardised %>% 
+      .[model == ..model] %>% 
+      .[ensemble %in% unique(data$ensemble)] %>% 
+      enso34[., on = c("time", "ensemble")] 
+   
+   
+   angles <- seq(-pi, pi, by = .5*pi/180)
+   rotations_cEOF2 <- lapply(angles, function(a) {
+      s %>%
+         .[, hgt2 := rotate(eof, a)] %>%
+         .[, .(R = cor(Re(hgt2), enso34),
+               I = cor(Im(hgt2), enso34))] %>%
+         .[, rotation := a]
+   }) %>%
+      rbindlist()
+   
+   best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
+   
+   regression <- standardised %>% 
+      .[model == ..model] %>% 
+      .[ensemble %in% unique(data$ensemble)] %>%
+      # best_rotation_cEOF2[., on = "ensemble"] %>% 
+      .[, eof := rotate(eof, best_rotation_cEOF2)] %>% 
+      sep_ReIm(format = "wider") %>% 
+      data[., on = c("time", "ensemble"), allow.cartesian = TRUE] %>% 
+      .[, FitLm(sst, Real, Imaginary, se = TRUE), by = .(lon, lat,  cEOF, model)] %>% 
+      .[term != "(Intercept)"] %>% 
+      .[, model := NULL]
+   
+   return(regression)
+}
+
+
+regress_sst <- memoise::memoise(regress_sst_, cache = cache)
+```
+
+
+```{r sst_regression}
+sst_regression <- simulaciones %>% 
+   # .[model %in% "IPSL-CM6A-LR"] %>%
+   .[, regress_sst(model[1]), by = .(model)]
+```
+
+
+```{r plot_sst_regression}
+plot_sst_regression <- function(which_ceof) {
+   which_ceof <- paste0("cEOF", which_ceof)
+   sst_regression %>% 
+   .[cEOF == which_ceof] %>% 
+   copy() %>% 
+   .[!is.na(estimate)] %>% 
+   .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(cEOF, term, model)] %>%
+   .[, estimate := estimate/sd(estimate), by = .(model)] %>%
+   .[, enso := mean(estimate[is.enso34(lon, lat) & term == "Imaginary"]), 
+     by = .(cEOF, model)] %>%
+   .[, model := reorder(model, -enso)] %>%
+   # .[model == "CESM2"] %>%
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate)) +
+   geom_contour2(aes(z = p.val), breaks = 0.05, size = 0.3) +
+   stat_subset(aes(subset = is.cross(lon, lat, 1) & p.val <= 0.05),
+               alpha = 0.2, size = 0.3) +
+   scale_fill_divergent() +
+   ggnewscale::new_scale_fill() +
+   geom_contour_fill(data = height, aes(z  = h), fill = "gray90",
+                     breaks = c(0, max(height$h))) +
+   geom_contour2(data = height, aes(z  = h),
+                 size = 0.2, breaks = 0) +
+   facet_grid(model ~ term) +
+   coord_quickmap()
+}
+```
+
+```{r sst-1, fig.height=20, fig.width=7}
+plot_sst_regression(1)
+```
+
+```{r sst-2, fig.height=20, fig.width=7}
+plot_sst_regression(2)
+```
+
+
+```{r}
+make_regression <- function(eof, ..model) {
+   file <- simulaciones[model == ..model]$file_cut
+   
+   array <- ReadNetCDF(file, vars = c(hgt = "zg_z"), 
+                       subset = list(lat = c(-90, 0),
+                                     time = range(eof$time),
+                                     plev = c(20000, 5000)),
+                       out = "array")[[1]] %>% 
+      aperm(c("time", "ensemble", "lon", "lat", "plev"))
+   
+   
+   
+   timeseries <- eof %>% 
+      sep_ReIm(format = "wider") 
+   
+   regr <- function(Real, Imaginary) {
+      r <- apply(array, c("lon", "lat", "plev"), function(zg) {
+         regr <- FitLm(zg, Real, Imaginary)
+         setNames(regr$estimate[2:3], regr$term[2:3])
+      })
+      names(dimnames(r))[1] <- "term"
+      reshape2::melt(r, value.name = "estimate")
+   }
+   
+   
+   timeseries[, regr(Real, Imaginary), by = .(cEOF)][, ":="(lon = as.numeric(lon), 
+                                                            lat = as.numeric(lat),
+                                                            plev = as.integer(plev))]
+}
+
+# zg_regression <- ceofs[model != "ERA5"] %>%
+#    D(, make_regression(eof = denormalise(eof[[1]], "left"), ..model = model), by  = model)
+```
+
+
+
+
+
+<!-- ```{r} -->
+<!-- zg_regression <- zg_regression[model != "ERA5"] -->
+<!-- zg_regression <- rbind(zg_regression,  -->
+<!--                        era_regression, use.names = TRUE) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- zg_regression %>%  -->
+<!--    D(cEOF == "cEOF2" & plev == 20000) %>%  -->
+<!--    ggplot(aes(lon, lat)) + -->
+<!--    geom_contour_fill(aes(z = estimate)) + -->
+<!--    geom_qmap(crop = c(ymax = 0)) +  -->
+<!--    scale_fill_divergent() + -->
+<!--    scale_x_longitude() + -->
+<!--    scale_y_latitude() + -->
+<!--    facet_grid(model ~ term) -->
+<!-- ``` -->
+
+

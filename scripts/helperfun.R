@@ -1692,17 +1692,34 @@ ReIm <- function(complex) {
 }
 
 
-sep_ReIm <- function(dt, col, longer = TRUE) {
-   names <- c("R", "I")
-   expr <- quote(copy(dt)[, (names) := ReIm(col)])
-   expr  <-  do.call(substitute, list(expr, 
-                                      list(col = substitute(col))))
-   data <- eval(expr)
+sep_ReIm <- function(data, column, format = c("longer", "wider")) {
+   R <- part <- I <- NULL
+   names <- c("Real", "Imaginary")
    
-   if (isTRUE(longer)) {
-      data[, deparse(substitute(col)) := NULL]
-      data <- setDT(tidyr::pivot_longer(data, R:I, names_to = "part", values_to = deparse(substitute(col))))
-      data[, part := factor(part, levels = c("R", "I"), labels = c("Real", "Imaginary"))]
+   
+   if (missing(column)) {
+      complex <- vapply(data, function(x) inherits(x, "complex"), TRUE)
+      if (sum(complex) > 1) {
+         stop("`column` missing and more than one complex column found")
+      }
+      if (sum(complex) == 0) {
+         warning("`column` missing and no complex column found. Returning unchanged data")
+         return(data)
+      }
+      
+      col <- colnames(data)[complex]
+   } else {
+      col <- deparse(substitute(column))
+   }
+   
+   
+   data <- data.table::copy(data)[, (names) := ReIm(get(col))]
+   
+   
+   if (format[1] == "longer") {
+      data[, c(col) := NULL]
+      data <- data.table::setDT(tidyr::pivot_longer(data, Real:Imaginary, names_to = "part", values_to = col))
+      data[, part := factor(part, levels = names, ordered = TRUE)]
    }
    
    return(data[])
@@ -1741,7 +1758,7 @@ theme_elio <- function(base_size = 16) {
 setnames2 <- function(x, ...) {
    names <- c(...)
    # print(names)
-   data.table::setnames(x, unname(names), names(names))
+   data.table::setnames(x, names(names), unname(names))
 }
 
 
