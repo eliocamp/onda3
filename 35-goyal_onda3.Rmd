@@ -1,0 +1,433 @@
+---
+title: "35-Goyal Onda3"
+author: "Elio Campitelli"
+output: 
+   bookdown::html_document2:
+         base_format: tufte::tufte_html 
+link-citations: no 
+bibliography: bibliography-goyal_onda3.bib
+---
+
+```{r setup, include=FALSE}
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+options(htmltools.dir.version = FALSE)
+# knitr::knit_hooks$set(document = function(x) {
+#    took <- unclass(Sys.time()) - start.time
+#    if (unclass(Sys.time()) - start.time >= min.time) {
+#       notify("Done knitting!", 
+#              paste0("Took ", round(took), " seconds"),
+#              time = 5)
+#    }  
+#    knit_doc(x)
+# })
+
+
+name <- tools::file_path_sans_ext(knitr::current_input())
+knitr::opts_chunk$set(
+   echo = FALSE,
+   fig.path = paste0("fig/", name, "/"),
+   message = FALSE,
+   warning = FALSE,
+   cache = TRUE, 
+   cache.lazy = FALSE,
+   cache.extra = 42,
+   cache.path = paste0("cache/", name, "/")
+)
+
+library(metR)
+library(data.table)
+library(ggplot2)
+library(ggperiodic)
+library(magrittr)
+
+knitr::opts_hooks$set(label = function(options) {
+   if (is.null(options$fig.cap)) {
+      options$fig.cap <- paste0("(ref:", options$label, "-cap)")
+   }
+   options
+})
+
+DT <- `[`
+
+periodic_lon <- function(data) {
+   ggperiodic::periodic(data, lon = c(0, 360)) 
+}
+
+ggplot2::theme_set(ggplot2::theme_minimal(base_size = 14) +
+                      ggplot2::theme(
+                         legend.position = "bottom", legend.box = "vertical",
+                         # tagger.panel.tag.background = ggplot2::element_rect(color = NA),
+                         strip.text = ggplot2::element_text(size =  ggplot2::rel(11/16)),
+                         legend.box.spacing = grid::unit(-.5, "lines"),
+                         panel.grid = ggplot2::element_line(color = scales::alpha("gray60", 0.5), size = 0.1),
+                         panel.ontop = TRUE) )
+
+
+simplemap <- maps::map("world", fill = TRUE,
+                       col = "transparent", plot = FALSE, wrap = c(0, 360))
+simplemap <- sf::st_as_sf(simplemap)
+simplemap <- rmapshaper::ms_simplify(simplemap, keep = 0.015, weighting = 0.7)
+
+geom_qmap <- function(subset = identity,
+                      crop = NULL,
+                      color = "gray50", size = 0.3,
+                      fill = NA, ...) {
+   lon <- lat <- group <- NULL
+   data <- simplemap
+   
+   if (!is.null(crop)) {
+      bbox <- sf::st_bbox(data)
+      
+      for (n in names(crop)) {
+         bbox[[n]] <- crop[[n]]
+      }
+      
+      data <- sf::st_crop(data, bbox)
+   }
+   
+   data <- subset(data)
+   
+   ggplot2::geom_sf(data = data,
+                    inherit.aes = FALSE,
+                    color = color,
+                    size = size,
+                    fill = fill,
+                    ...)
+   
+}
+
+no_grid <- theme(panel.grid = element_blank())
+
+geom_coords <- function() {
+   
+   list(
+      no_grid,
+      annotate("segment",
+               y = seq(-90, 0, by = 15),
+               yend = seq(-90, 0, by = 15),
+               x = 0,
+               xend = 360,
+               size = 0.1, alpha = 0.5),
+      
+      annotate("segment",
+               x = seq(0, 360 - 30, by = 30),
+               xend =  seq(0, 360 - 30, by = 30),
+               y = -90 + 15,
+               yend = Inf,
+               size = 0.1, alpha = 0.5),
+      shadowtext::geom_shadowtext(data = data.frame(x = 0, y = seq(-90 + 15, 0, 
+                                                                   by = 15)),
+                                  aes(x, y, label = LatLabel(y)), size = 1.5, 
+                                  alpha = 0.7,
+                                  colour = "black",
+                                  bg.colour = "white")
+   )
+}
+
+
+coord_polar2 <- function(ymax = -20, ...) {
+   x <- c(seq(0, 360, length.out = 40), 
+          seq(360, 0, length.out = 40), 
+          0)
+   y <- c(rep(ymax, length.out = 40), 
+          rep(60, length.out = 40), 
+          ymax)
+   
+   white <- cbind(x, y) %>%  
+      list() %>% 
+      sf::st_polygon() %>% 
+      sf::st_sfc(crs = "+proj=latlong") 
+   
+   list(
+      geom_sf(data = white, inherit.aes = FALSE, 
+              fill = "white", 
+              colour = "white", size = 2),
+      coord_sf(ylim = c(-90, ymax), 
+               lims_method = "box",
+               crs = "+proj=laea +lat_0=-90",
+               default_crs = "+proj=longlat",
+               label_axes =  "----", ...)
+   )
+}
+
+
+ReIm <- function(complex) {
+   list(Real = Re(complex), Imaginary = Im(complex))
+}
+
+
+sep_ReIm <- function(data, column, format = c("longer", "wider")) {
+   R <- part <- I <- NULL
+   names <- c("Real", "Imaginary")
+   
+   
+   if (missing(column)) {
+      complex <- vapply(data, function(x) inherits(x, "complex"), TRUE)
+      if (sum(complex) > 1) {
+         stop("`column` missing and more than one complex column found")
+      }
+      if (sum(complex) == 0) {
+         warning("`column` missing and no complex column found. Returning unchanged data")
+         return(data)
+      }
+      
+      col <- colnames(data)[complex]
+   } else {
+      col <- deparse(substitute(column))
+   }
+   
+   
+   data <- data.table::copy(data)[, (names) := ReIm(get(col))]
+   
+   
+   if (format[1] == "longer") {
+      data[, c(col) := NULL]
+      data <- data.table::setDT(tidyr::pivot_longer(data, Real:Imaginary, names_to = "part", values_to = col))
+      data[, part := factor(part, levels = names, ordered = TRUE)]
+   }
+   
+   return(data[])
+}
+```
+
+```{r download-data}
+file_vwnd <- here::here("DATA/goyal-era5.vwnd.mean.nc")
+
+if (!file.exists(file_vwnd)) {
+   request_vwnd <- list(
+      format = "netcdf",
+      product_type = "monthly_averaged_reanalysis",
+      variable = c("v_component_of_wind"),
+      pressure_level = c("500"),
+      year = as.character(1979:2020),
+      month = formatC(1:12, width = 2, flag = 0),   # Need all months to compute PSA
+      time = "00:00",
+      grid = c("2.5", "2.5"),
+      area = c(-40, 0, -70, 360),
+      dataset_short_name = "reanalysis-era5-pressure-levels-monthly-means",
+      target = basename(file_vwnd)
+   )
+   
+   ecmwfr::wf_request(request_vwnd, path = dirname(file_vwnd))
+}
+```
+Vamos a ver un poco del [paper reciente](https://journals.ametsoc.org/view/journals/clim/aop/JCLI-D-21-0927.1/JCLI-D-21-0927.1.xml) de Rishav. 
+
+Lo que él hizo es calcular los primeros 2 EOFs de las anomalías de viento meridional en 500hPa. 
+
+```{r goyal2}
+knitr::include_graphics(here::here("ext_fig/goyal-fig2.png"))
+```
+
+(ref:goyal2-cap) Figura 2 de @goyal2022.
+
+Estos dos primeros EOFs muestran una onda 3 y son patrones en cuadratura. 
+Para unificarlos calcula un índice complejo donde la parte real es el EOF1 y la imaginaria, el EOF2^[En realidad no dice explícitamente esto, sino que directamente calcula la amplitud y la fase como $\sqrt{EOF1^2 + EOF2^2}$ y $\tan^{-1}\left (\frac{EOF2}{EOF1}  \right )$, pero es básicamente equivalente].
+
+Está bueno pero creo que usar cEOF es mejor. 
+Voy a reproducir su método y luego compararlo con usar cEOF. 
+
+```{r vwnd}
+vwnd <- ReadNetCDF(file_vwnd, 
+                   subset = list(time = c("1979-01-01", "2020-12-01"))) %>% 
+   setnames(c("longitude", "latitude"), c("lon", "lat")) %>% 
+   DT(, v_a := v - mean(v), by = .(lat, lon, month(time)))
+```
+
+```{r goyal}
+goyal <- vwnd %>% 
+   copy() %>% 
+   melt(id.vars = c("time", "lat", "lon")) %>% 
+   DT(, eof := value*sqrt(cos(lat*pi/180))) %>%
+   DT(, .(eof = list(EOF(eof ~ time | lon + lat, n = 1:2, data = .SD, suffix = "EOF"))), by = variable)
+```
+
+```{r ceof}
+ceof <- vwnd %>% 
+   copy() %>% 
+   DT(, value := spectral::analyticFunction(v_a), by = .(time, lat)) %>% 
+   DT(, eof := value*sqrt(cos(lat*pi/180))) %>% 
+   EOF(eof ~ time | lon + lat, n = 1, data = .)
+```
+
+(ref:eof-v-cap) Primeros EOFs de las anomalías de viento meridional entre `r knitr::combine_words(LatLabel(range(vwnd$lat)), and = " y ")` (sombreado). En contornos, la onda 3 pura reconstruida usando fourier. Comparar con la Figura 2 de @goyal2022. 
+
+```{r eof-v}
+lab <- goyal[variable == "v_a", eof[[1]]$sdev] %>% 
+   DT(, setNames(paste0(EOF, "\n(", scales::percent(r2, 0.1), ")"), EOF))
+
+goyal[variable == "v_a", eof[[1]]$right] %>%
+   copy() %>% 
+   DT(, wave3 := FilterWave(eof, 3), by = .(lat, EOF)) %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = eof), breaks = AnchorBreaks(exclude = 0)) +
+   geom_contour_tanaka(aes(z = eof), range = c(0.01, 0.2), 
+                       breaks = AnchorBreaks(exclude = 0)) +
+   geom_contour2(aes(z = wave3, linetype = factor(sign(-..level..))),
+                 size = 0.3, alpha = 0.5, 
+                 breaks = AnchorBreaks(exclude = 0)) +
+   scale_fill_divergent(guide = "none") +
+   scale_x_longitude(labels = NULL) +
+   scale_y_latitude(labels = NULL) +
+   scale_linetype(guide = "none") +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar2() +
+   facet_wrap(~EOF, labeller = labeller(EOF = lab))
+```
+
+La Figura \@ref(fig:eof-v) reproduce bastante bien la Figura \@ref(fig:goyal2) aunque hay algunas ligeras diferencias, como la varianza explicada.
+Pero está más que bien. 
+
+El problema que le veo es que la amplitud de este patrón combinando ambos EOFs es medio ruidosa. 
+
+(ref:v-amplitude-cap) Panel a: Magnitud espacial de los dos EOFs combinados ($\sqrt{EOF1^2 + EOF2^2}$). Panel b: Magnitud espacial del cEOF.
+
+```{r v-amplitude}
+rbind(
+   ceof$right %>% 
+      DT(, .(lon, lat, source = "cEOF", eof)),
+   
+   goyal[variable == "v_a", eof[[1]]$right] %>%
+      dcast(lon + lat ~ EOF, value.var = "eof") %>% 
+      DT(, .(lon, lat, source = "Goyal (2022)", eof = complex(real = EOF1, imaginary = EOF2)))
+) %>% 
+   DT(, eof := eof/max(Mod(eof)), by = .(source)) %>% 
+   DT(, source := factor(source, levels = c("Goyal (2022)", "cEOF"))) %>% 
+   periodic_lon() %>%  
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = Mod(eof))) +
+   geom_contour_tanaka(aes(z = Mod(eof)),
+                       range = c(0.01, 0.2)) +
+   scale_fill_viridis_c(guide = "none") +
+   scale_x_longitude(labels = NULL) +
+   scale_y_latitude(labels = NULL) +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar2() +
+   facet_wrap(~source) +
+   tagger::tag_facets("panel")
+```
+
+La Figura \@ref(fig:v-amplitude)a muestra la amplitud computada como $\sqrt{EOF1^2 + EOF2^2}$. 
+Se ve que la amplitud varía en una escala espacial similar a a onda 3, especialmente en la región del Índico donde la magnitud está localizada en los máximos y mínimos de la onda. 
+Si se compara con en panel b, la magnitud obtenida usando cEOF es suave y mucho más razonable. 
+
+Por completitud, la Figura \@ref(fig:ceof-field) muestra las partes reale e imaginarya del cEOF computado con las anomalías de viento meridional. 
+
+(ref:ceof-field-cap) Partes real e imaginaria del cEOF de las anomalías de viento meridional entre `r knitr::combine_words(LatLabel(range(vwnd$lat)), and = " y ")`.
+
+```{r ceof-field}
+ceof$right %>% 
+   sep_ReIm() %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = eof), breaks = AnchorBreaks(exclude = 0)) +
+   geom_contour_tanaka(aes(z = eof), range = c(0.01, 0.2), 
+                       breaks = AnchorBreaks(exclude = 0)) +
+   scale_fill_divergent(guide = "none") +
+   scale_x_longitude(labels = NULL) +
+   scale_y_latitude(labels = NULL) +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar2() +
+   facet_wrap(~part)
+```
+
+```{r}
+gdata <- rbind(
+   ceof$left %>% 
+      DT(, .(time, source = "Complex EOF", eof)),
+   
+   goyal[variable == "v_a", eof[[1]]$left] %>%
+      dcast(time ~ EOF, value.var = "eof") %>% 
+      DT(, .(time, source = "Goyal (2022)", eof = complex(real = EOF1, imaginary = EOF2)))
+) %>% 
+   DT(, mod := Mod(eof)) %>% 
+   dcast(time~source, value.var = "mod") 
+
+cor <- gdata[, cor(`Goyal (2022)`, `Complex EOF`)]
+```
+
+De todas formas, no sé si hay muuucha diferencia, porque la correlación entre la magnitud de ambos índices es `r scales::number(cor, 0.01)`. 
+
+## ¿Anomalías o no anomalías?
+
+Una cosa para notar es que @goyal2022 hizo todo eso usando las anomalías temporales de viento meridional. 
+El tema con esto, claro, es que como elimina el campo medio, no permite ver realmente la onda 3 climatológica. 
+
+Entonces, por ejemplo, cuando quieren usar el índice para evaluar la observación anterior sobre la onda 3 climatológica, no pueden:
+
+> Past studies (e.g., van Loon and Jenne, 1972) have suggested the presence of a ~15° phase shift in the climatological mean seasonal cycle of the Fourier filtered ZW3 pattern. 
+However, we do not find any seasonal cycle in the ZW3 pattern as our index is formed using the meridional wind anomalies where the seasonal cycle has already been removed.
+
+Entonces lo que hacen es usar el viento meridional total
+
+> To check if our technique identifies a seasonal shift in the phase of the mean ZW3 pattern, we derive equivalent ZW3 magnitude and phase indices using total 500 hPa meridional winds instead of meridional wind anomalies (Fig. 5). 
+Note that the EOF patterns obtained using raw meridional winds are qualitatively similar to the EOF patterns obtained using meridional wind anomalies
+
+Dicen que los patrones obtenidos son "qualitatively similar" a los otros y nos mandan a una figura suplementaria. 
+No tengo acceso a la figura suplementaria pero reproduje el cómputo y me dio lo que se ve en la Figura \@ref(fig:goyal-v).
+
+
+(ref:goyal-v-cap) Igual que la Figura \@ref(fig:eof-v) pero para el viento meridional completo (sin eliminar la media mensual).
+
+```{r goyal-v}
+lab <- goyal[variable == "v", eof[[1]]$sdev] %>% 
+   DT(, setNames(paste0(EOF, "\n(", scales::percent(r2, 0.1), ")"), EOF))
+
+goyal[variable == "v", eof[[1]]$right] %>%
+   copy() %>% 
+   DT(, wave3 := FilterWave(eof, 3), by = .(lat, EOF)) %>% 
+   periodic_lon() %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = eof), breaks = AnchorBreaks(exclude = 0)) +
+   geom_contour_tanaka(aes(z = eof), range = c(0.01, 0.2), 
+                       breaks = AnchorBreaks(exclude = 0)) +
+   geom_contour2(aes(z = wave3, linetype = factor(sign(-..level..))),
+                 size = 0.3, alpha = 0.5, 
+                 breaks = AnchorBreaks(exclude = 0)) +
+   scale_fill_divergent(guide = "none") +
+   scale_x_longitude(labels = NULL) +
+   scale_y_latitude(labels = NULL) +
+   scale_linetype(guide = "none") +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar2() +
+   facet_wrap(~EOF, labeller = labeller(EOF = lab))
+```
+
+Lo que se ve en la Figura \@ref(fig:goyal-v) a mí me parece sustancialmente distinto.
+En el EOF1, la amplitud de las ondas está totalmente cambiada.
+En vez de tener un máximo en la zona del Pacífico, el máximo está en la zona del Índico. 
+El centro correspondiente al Mar de Amundsen prácticamente no existe. 
+El EOF2 tiene una amplitud más homogénea. 
+
+(ref:mag-v-cap) Igual que la Figura \@ref(fig:v-amplitude) pero para los dos primeros EOFs del viento meridional total. 
+
+```{r mag-v}
+goyal[variable == "v", eof[[1]]$right] %>%
+   dcast(lon + lat ~ EOF, value.var = "eof") %>% 
+   DT(, .(lon, lat,  eof = complex(real = EOF1, imaginary = EOF2))) %>% 
+   periodic_lon() %>%  
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = Mod(eof))) +
+   geom_contour_tanaka(aes(z = Mod(eof)),
+                       range = c(0.01, 0.2)) +
+   scale_fill_viridis_c(guide = "none") +
+   scale_x_longitude(labels = NULL) +
+   scale_y_latitude(labels = NULL) +
+   geom_qmap() +
+   geom_coords() +
+   coord_polar2() 
+```
+
+La amplitud es aún más ruidosa que en el caso anterior (Figura \@ref(fig:mag-v)) y la región con más amplitud ahora está al sur de Australia. 
+
+Esto es porque al no eliminar la climatología, aparece la onda 1 (que tiene baja variabilidad pero alta ampitud climatológicamente)
+
+
