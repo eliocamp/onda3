@@ -598,13 +598,13 @@ optimise_rotation <- function(eof) {
 
 
 ```{r compute_eof}
-compute_eof_ <- function(files, member) {
+compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31")) {
    message("procesando ", files[1])
    
    array <- lapply(files, function(file) {
       ReadNetCDF(file, vars = c(hgt = "zg"), 
                  subset = list(lat = c(-85, -20),
-                               time = c("1979-10-01", "2014-12-31")),
+                               time = time),
                  out = "array")[[1]]
    })
    
@@ -771,7 +771,8 @@ cors <- ceofs %>%
    DT(, eof[[1]]$sdev, by = model) %>% 
    # DT(model != "ERA5") %>% 
    copy() %>% 
-   DT(, r2 := correlation^2) 
+   DT(, r2 := correlation^2) %>% 
+   DT(, label := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")"))
 ```
 
 (ref:comparacion-r2-cap) $r^2$ de los patrones espaciales de cada modelo con ERA5 para cada cEOF.
@@ -871,7 +872,8 @@ plot_trends <- function(which_eof) {
       copy() %>% 
       .[, eof := eof/sd(Mod(eof)), by = .(model)] %>% 
       sep_ReIm() %>% 
-      .[, FitLm(eof, time = time/10, se = TRUE), by = .(model, cEOF, ensemble, part)] %>% 
+      .[, FitLm(eof, time = time/10, se = TRUE), 
+        by = .(model, cEOF, ensemble, part)] %>% 
       .[term == "time"] %>%
       cors[., on = c("model", "cEOF")] %>% 
       .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
@@ -930,11 +932,16 @@ alpha_from_n <- function(n, max_alpha = 0.99) {
 ```{r plot_fft} 
 plot_fft <- function(which_ceof) {
    which_ceof <- paste0("cEOF", which_ceof)
+   
+   labs <- cors[cEOF == which_ceof] %>% 
+      .[, setNames(label, model)]
+   
+
+   
    fft %>% 
       .[cEOF == which_ceof] %>% 
       # .[, .(spec = mean(spec)), by = .(freq, part, model, cEOF)] %>% 
       cors[., on = c("model", "cEOF")] %>% 
-      .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
       .[, model := reorder(model, -correlation)] %>% 
       .[, ensembleN := uniqueN(ensemble), by = model] %>% 
       ggplot(aes(1/freq, spec)) +
@@ -949,7 +956,7 @@ plot_fft <- function(which_ceof) {
       scale_x_log10("Period (years)") +
       scale_y_continuous("Spectrum")  +
       scale_alpha_identity() +
-      facet_wrap(model ~ .)
+      facet_wrap(model ~ ., labeller = labeller(model = labs))
 }
 ```
 
@@ -966,7 +973,17 @@ Para el cEOF1, no hay mucha señal. Algunos miembros tienen señales altas pero 
 (ref:fft-2-cap) Igual que Figura \@ref(fig:fft-1) pero para el cEOF2.
 
 ```{r fft-2, fig.height=8, fig.width=9}
-plot_fft(2)
+con_picos <- data.table(
+   model = c("FGOALS-g3", "MIROC6", "GISS-E2-1-G", "CESM2", "CNRM-ESM2-1", "CNRM-CM6-1")
+)
+
+
+plot_fft(2) +
+   geom_rect(data = ~.x[con_picos, on = "model"] %>% 
+                .[, model := reorder(model, -correlation)],
+             inherit.aes = FALSE,
+             xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
+             fill = NA, color = "#7e8087") 
 ```
 
 Para el cEOF2, algunos modelos tiene una señal consistente de ~3 años en la parte imaginaria, también consistente con ERA5. 
@@ -1094,7 +1111,6 @@ plot_sst_regression(1)
 
 ```{r sst-2, fig.height=18, fig.width=7}
 plot_sst_regression(2)
-
 ```
 
 La Figura \@ref(fig:sst-2) muestra lo mismo para el cEOF2. 
@@ -1126,3 +1142,165 @@ sst_regression %>%
    coord_quickmap()
 ```
 
+
+```{r download-enso_perf}
+enso_perf_file <- "DATA/enso_perf.csv"
+
+if (!file.exists(enso_perf_file)) {
+   file <- tempfile()
+   url <- "https://pcmdi.llnl.gov/pmp-preliminary-results/interactive_plot/portrait_plot/enso_metric/raw_values/ENSO_perf_normalizedValue_v20210723_v20201122.xlsx"
+   
+   download.file(url, file, mode = "wb")
+   data <- readxl::read_excel(file)   
+   colnames(data)[1] <- "model" 
+   setDT(data)
+   data <- data[startsWith(model, "*")]
+   data[, model := gsub("\\* ", "", model)]
+   data <- data[!startsWith(model, "(")]
+   data <- melt(data, id.var = "model", variable.name = "metric")
+   fwrite(data, enso_perf_file)
+}
+
+enso_teleconnections_file <- "DATA/enso_teleconnections.csv"
+
+if (!file.exists(enso_teleconnections_file)) {
+   file <- tempfile()
+   url <- "https://pcmdi.llnl.gov/pmp-preliminary-results/interactive_plot/portrait_plot/enso_metric/raw_values/ENSO_tel_normalizedValue_v20210723_v20201122.xlsx"
+   
+   download.file(url, file, mode = "wb")
+   data <- readxl::read_excel(file)   
+   colnames(data)[1] <- "model" 
+   setDT(data)
+   data <- data[startsWith(model, "*")]
+   data[, model := gsub("\\* ", "", model)]
+   data <- data[!startsWith(model, "(")]
+   data <- melt(data, id.var = "model", variable.name = "metric")
+   fwrite(data, enso_teleconnections_file)
+}
+
+enso_perf <- fread(enso_perf_file)
+enso_teleconnections <- fread(enso_teleconnections_file)
+```
+
+
+(ref:enso-perf-plot-cap) Relación entre la correlación espacial de cada cEOF de cada modelo con ERA5 y valores normalizados de las métricas de performance de ENSO según [Planton et al. 2021](https://pcmdi.llnl.gov/pmp-preliminary-results/interactive_plot/portrait_plot/enso_metric/enso_metrics_interactive_portrait_plots_v20210723.html).
+
+```{r enso-perf-plot, fig.height=12, fig.width = 6}
+ceofs[, eof[[1]]$sdev, by = model] %>% 
+   .[model != "ERA5"] %>% 
+   enso_perf[., on = "model"] %>% 
+   .[, picos := model %in% con_picos$model] %>% 
+   .[!is.na(metric)] %>% 
+   ggplot(aes(correlation, value)) +
+   geom_point(aes(color = picos)) +
+   geom_smooth(method = "lm") +
+   scale_y_continuous(NULL) +
+   facet_grid(metric ~ cEOF, scales = "free") +
+   theme(strip.text.y = element_text(angle = 0, size = rel(0.8)), 
+         panel.background = element_rect(fill = "#f1f1f1", 
+                                         color = "#f1f1f1"), 
+         panel.ontop = FALSE) 
+```
+
+(ref:enso-teleconnections-plot-cap) Igual que la Figura \@ref(fig:enso-perf-plot) pero para las métricas de teleconexiones de ENSO. 
+
+```{r enso-teleconnections-plot, fig.height=12, fig.width = 6}
+ceofs[, eof[[1]]$sdev, by = model] %>% 
+   .[model != "ERA5"] %>% 
+   enso_teleconnections[., on = "model"] %>% 
+   .[, picos := model %in% con_picos$model] %>% 
+   .[!is.na(metric)] %>% 
+   ggplot(aes(correlation, value)) +
+   geom_point(aes(color = picos)) +
+   geom_smooth(method = "lm") +
+   scale_y_continuous(NULL) +
+   facet_grid(metric ~ cEOF, scales = "free") +
+   theme(strip.text.y = element_text(angle = 0, size = rel(0.8)), 
+         panel.background = element_rect(fill = "#f1f1f1", 
+                                         color = "#f1f1f1"), 
+         panel.ontop = FALSE) 
+```
+
+# Serie temporal larga 
+
+
+```{r ceofs_larga}
+ceofs_larga <- simulaciones %>% 
+   .[variable == "zg"] %>%
+   .[, .(eof = list(compute_eof(file, member, time = c(NA, "2014-12-31")) %>%
+                       optimise_rotation())), 
+     by = model]
+```
+
+(ref:tendencia-cap) Series temporales de anomalías estandarizadas de los cEOFs computados usando el período `r paste0(range(ceofs_larga[1, eof[[1]]$left]$time), collapse = " -- ")`. Las anomalías están computadas sobre el período 1850 -- 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. 
+
+```{r tendencia, fig.width=6, fig.height=4}
+ceofs_larga %>% 
+   .[model != "ERA5"] %>% 
+   .[ , eof[[1]]$left, by = model] %>% 
+   sep_ReIm() %>% 
+   .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
+                    scale = sd(eof[time <= 1900])),
+     by = .(model, part, cEOF)] %>% 
+   .[, .(eof = mean(eof)), by = .(model, time, cEOF, part)] %>% 
+   ggplot(aes(time, eof)) +
+   geom_line(aes(group = model), alpha = 0.1) +
+   geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF, part)]) +
+   scale_x_continuous(NULL) +
+   scale_y_continuous(NULL) +
+   coord_cartesian(ylim = c(-1, 1)) +
+   facet_grid(part ~ cEOF)
+```
+
+(ref:tendencias-roll-cap) Tendencias estandarizadas (con el período 1850 -- 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo. 
+
+
+```{r tendencias-roll,}
+ceofs_larga %>% 
+   .[model != "ERA5"] %>% 
+   .[ , eof[[1]]$left, by = model] %>% 
+   sep_ReIm() %>% 
+   .[, eof := scale(eof, center = mean(eof[time <= 1900]), scale = sd(eof[time <= 1900])),
+     by = .(model, part, cEOF)] %>% 
+   .[, .(eof = mean(eof)), by = .(model, time, cEOF, part)] %>%
+   rbind(., 
+         .[, .(eof = mean(eof), model = "MMM"), by = .(time, cEOF, part)]) %>% 
+   .[order(time)] %>% 
+   .[, trend := roll::roll_lm(time, eof, width = 20)$coefficients[, 2],
+     by = .(cEOF, part, model)] %>% 
+   .[!is.na(trend)] %>% 
+   ggplot(aes(time, trend)) +
+   geom_hline(yintercept = 0, size = 0.1) +
+   geom_line(aes(group = model, alpha = model == "MMM")) +
+   scale_x_continuous(NULL) +
+   scale_y_continuous(NULL) +
+   scale_alpha_manual(NULL, values = c("TRUE" = 1, "FALSE" = 0.1)) +
+   # coord_cartesian(ylim = c(-1, 1)) +
+   facet_grid(part ~ cEOF)
+```
+
+
+
+
+```{r fft2}
+fft <- ceofs_larga[, eof[[1]]$left, by = model] %>% 
+   sep_ReIm() %>% 
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>%
+   .[order(time)] %>% 
+   .[, fftspectrum(eof, c(3, 5), B = 0), by = .(model, ensemble, cEOF, part)]
+```
+
+
+
+(ref:fft-1l-cap) Igual que Figura \@ref(fig:fft-1) pero para el período 1850 -- 2014.
+
+```{r fft-1l, fig.height=8, fig.width=9}
+plot_fft(1)
+```
+
+(ref:fft-2l-cap) Igual que Figura \@ref(fig:fft-2) pero para el período 1850 -- 2014.
+
+```{r fft-2l, fig.height=8, fig.width=9}
+plot_fft(2)
+```
