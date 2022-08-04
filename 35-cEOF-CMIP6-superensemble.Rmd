@@ -4,8 +4,12 @@ author: "Elio Campitelli"
 output: 
    bookdown::html_document2:
          base_format: tufte::tufte_html 
+         css: tabset.css
 link-citations: yes 
 ---
+
+<SCRIPT language="JavaScript" SRC="tabset.js"></SCRIPT>
+
 
 ```{r setup, include=FALSE}
 # Notification
@@ -936,7 +940,7 @@ plot_fft <- function(which_ceof) {
    labs <- cors[cEOF == which_ceof] %>% 
       .[, setNames(label, model)]
    
-
+   
    
    fft %>% 
       .[cEOF == which_ceof] %>% 
@@ -970,7 +974,7 @@ plot_fft(1)
 
 Para el cEOF1, no hay mucha señal. Algunos miembros tienen señales altas pero en el promedio es básicamente chato, coincidente con ERA5.
 
-(ref:fft-2-cap) Igual que Figura \@ref(fig:fft-1) pero para el cEOF2.
+(ref:fft-2-cap) Igual que Figura \@ref(fig:fft-1) pero para el cEOF2. En recuadro negro, modelos que tienen un período importante cerca de 3 años en la parte imaginaria del cEOF2.
 
 ```{r fft-2, fig.height=8, fig.width=9}
 con_picos <- data.table(
@@ -988,6 +992,67 @@ plot_fft(2) +
 
 Para el cEOF2, algunos modelos tiene una señal consistente de ~3 años en la parte imaginaria, también consistente con ERA5. 
 Sin embargo, la señal no aparece en todos los modelos. 
+
+Dada la relación entre ENSO y el cEOF2 se puede ver si los modelos que tienen la periodicidad clara de 3 años también tienen esa periodicidad en el ENSO. 
+
+La Figura \@ref(fig:ensofft) Muestra los periodogramas del el índice de ENSO34 de cada modelo y miembro. 
+Se ve que, en efecto, los modelos seleccionados antes tienen un período en el ENSO más claro que el resto. 
+
+```{r enso_cmip}
+
+compute_enso <- function(file) {
+   ReadNetCDF(file, vars = c(sst = "tos"), 
+              subset = list(lat = c(-5, 5),
+                            time = c("1979-09-01", "2014-12-31"),
+                            lon = ConvertLongitude(c(-170, -120)))) %>% 
+      .[!is.na(sst)] %>% 
+      .[, time := year(time)] %>% 
+      .[, .(enso34 = mean(sst)), by = .(time)] %>% 
+      .[, enso34 := (enso34 - mean(enso34))/sd(enso34)] %>% 
+      .[]
+}
+
+enso_cmip <- simulaciones %>% 
+   .[variable == "tos"] %>%
+   .[, compute_enso(file), by = .(model, member)] 
+
+enso_cmip <- enso %>% 
+   copy() %>% 
+   .[, `:=`(model = "ERA5", member = 1)] %>% 
+   setnames("oni", "enso34") %>% 
+   rbind(enso_cmip)
+
+
+```
+
+(ref:ensofft-cap) Espectros de Fourier para los índices ENSO34 de cada modelo. En línea obscura es el espectro promedio de todos los miembros, que se muestran en líneas translúcidas. En recuadro negro, los mismos modelos recuadrados en la Figura \@ref(fig:fft-2). 
+
+```{r ensofft, fig.height=8, fig.width=9}
+
+labs <- cors[cEOF == "cEOF2"] %>% 
+   .[, setNames(label, model)]
+
+enso_cmip %>% 
+   .[order(time)] %>% 
+   .[, fftspectrum(enso34, c(3, 5), B = 0), by = .(model, member)] %>% 
+   .[cors[cEOF == "cEOF2"], on = c("model")] %>% 
+   .[, model := reorder(model, -correlation)] %>% 
+   .[, ensembleN := uniqueN(member), by = model] %>% 
+   ggplot(aes(1/freq, spec)) +
+   geom_line(aes(group = member, alpha = alpha_from_n(ensembleN, 0.9))) +
+   geom_line(data = ~.x[, .(spec = mean(spec)), by = .(freq, model)]) +
+   # annotation_logticks(sides = "b") +
+   scale_x_log10("Period (years)") +
+   scale_y_continuous("Spectrum")  +
+   scale_alpha_identity() +
+   facet_wrap(model ~ ., labeller = labeller(model = labs)) +
+   geom_rect(data = ~.x[con_picos, on = "model"] %>% 
+                .[, model := reorder(model, -correlation)],
+             inherit.aes = FALSE,
+             xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
+             fill = NA, color = "#7e8087") 
+```
+
 
 ## SST
 
@@ -1024,6 +1089,7 @@ regress_sst_ <- function(..model) {
    s <- standardised %>% 
       .[model == ..model] %>% 
       .[ensemble %in% unique(data$ensemble)] %>% 
+      .[cEOF == "cEOF2"] %>% 
       enso34[., on = c("time", "ensemble")] 
    
    
@@ -1043,10 +1109,11 @@ regress_sst_ <- function(..model) {
       .[model == ..model] %>% 
       .[ensemble %in% unique(data$ensemble)] %>%
       # best_rotation_cEOF2[., on = "ensemble"] %>% 
-      .[, eof := rotate(eof, best_rotation_cEOF2)] %>% 
+      .[cEOF == "cEOF2", eof := rotate(eof, best_rotation_cEOF2)] %>% 
       sep_ReIm(format = "wider") %>% 
       data[., on = c("time", "ensemble"), allow.cartesian = TRUE] %>% 
-      .[, FitLm(sst, Real, Imaginary, se = TRUE), by = .(lon, lat,  cEOF, model)] %>% 
+      .[, FitLm(sst, Real, Imaginary, se = TRUE), 
+        by = .(lon, lat,  cEOF, model)] %>% 
       .[term != "(Intercept)"] %>% 
       .[, model := NULL]
    
@@ -1056,6 +1123,7 @@ regress_sst_ <- function(..model) {
 
 regress_sst <- memoise::memoise(regress_sst_, cache = cache)
 ```
+
 
 
 ```{r sst_regression}
@@ -1223,8 +1291,10 @@ ceofs[, eof[[1]]$sdev, by = model] %>%
 
 # Serie temporal larga 
 
+Hay dos formas de extender los cEOFS para odo el período, puedo recomputar el cEOF usando todos los datos, o puedo proyectar los campos obtenidos. 
+La primera es más natural, pero tiene el inconveniente de que la interpretación depende de que los cEOFs obtenidos seaon comparables (los campos sean iguales o similares). 
 
-```{r ceofs_larga}
+```{r ceofs_larga }
 ceofs_larga <- simulaciones %>% 
    .[variable == "zg"] %>%
    .[, .(eof = list(compute_eof(file, member, time = c(NA, "2014-12-31")) %>%
@@ -1232,13 +1302,125 @@ ceofs_larga <- simulaciones %>%
      by = model]
 ```
 
-(ref:tendencia-cap) Series temporales de anomalías estandarizadas de los cEOFs computados usando el período `r paste0(range(ceofs_larga[1, eof[[1]]$left]$time), collapse = " -- ")`. Las anomalías están computadas sobre el período 1850 -- 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. 
+```{r eof_proyectado}
+fields <- ceofs[, eof[[1]]$right, by = model] %>% 
+   sep_ReIm()
+
+setorder(fields, model, part, cEOF, -lev, lat, lon)
+# a <- simulaciones %>% 
+#         .[variable == "zg"] %>% .[model == unique(model)[3]]
+# files <- a$file
+# member <- a$member
+# model <- a$model
+
+eof_proyectado_ <- function(files, member, ..model, time = c(NA, "2014-12-31")) {
+   message("procesando ", files[1])
+   
+   array <- lapply(files, function(file) {
+      ReadNetCDF(file, vars = c(hgt = "zg"), 
+                 subset = list(lat = c(-85, -20),
+                               time = time),
+                 out = "array")[[1]]
+   })
+   
+   time_lookup <- data.table::data.table(time = dimnames(array[[1]])$time,
+                                         time_date = as.integer(year(attr(array[[1]], "dimvalues")$time)))
+   
+   array <- abind::abind(array, rev.along = 0,
+                         use.dnns = TRUE)
+   
+   dimnames(array)[[5]] <- member
+   names(dimnames(array))[[5]] <- "ensemble"
+   
+   
+   whichdim <- function(array, dims) {
+      which((names(dimnames(array)) %in% dims))
+   }
+   whichdimnot <- function(array, dims) {
+      which(!(names(dimnames(array)) %in% dims))
+   }
+   
+   # Calcular anomalias zonales
+   array <- apply(array, whichdimnot(array, "lon"), Anomaly) %>% 
+      aperm(names(dimnames(array)))
+   
+   # Estandarizar
+   sd <- apply(array, "plev", sd)
+   array <- sweep(array, whichdim(array, "plev"), sd, FUN = "/")
+   
+   f <- fields[model == ..model[1]]
+   fa <- array(f$eof, dim = c(lon = uniqueN(f$lon), 
+                              lat = uniqueN(f$lat), 
+                              lev = uniqueN(f$lev),
+                              cEOF = uniqueN(f$cEOF),
+                              part = uniqueN(f$part)),
+               dimnames = list(lon = unique(f$lon),
+                               lat = unique(f$lat),
+                               lev = unique(f$lev)*100,
+                               cEOF = unique(f$cEOF),
+                               part = unique(f$part))
+   )
+   
+   v <- apply(array, c("time", "ensemble") , function(a) {
+      # ESTO NO DEBERÍA SER TAN COMPLICADO!!!
+      v <- apply(fa, c("cEOF", "part"), function(f) {
+         f %*% a
+      }) 
+      setNames(c(v) ,
+               interaction(rep(dimnames(v)$part, each  = 2), 
+                           rep(dimnames(v)$cEOF, 2)))
+   })
+   names(dimnames(v))[1] <- "part.cEOF"
+   
+   reshape2::melt(v, value.name = "eof") %>% 
+      setDT() %>% 
+      .[, c("part", "cEOF") := tstrsplit(part.cEOF, split = ".", fixed = TRUE)] %>% 
+      .[, part.cEOF := NULL] %>% 
+      .[, `:=`(part = factor(part, levels = c("Real", "Imaginary"), ordered = TRUE),
+               cEOF = factor(cEOF, levels = c("cEOF1", "cEOF2"), ordered = TRUE))] %>% 
+      .[, time := as.character(time)] %>% 
+      time_lookup[., on = "time"] %>% 
+      .[, time := NULL] %>% 
+      setnames("time_date", "time") %>% 
+      .[]
+}
+
+eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
+```
+
+```{r ceof_largo_p}
+ceof_largo_p <- simulaciones %>% 
+   .[variable == "zg"] %>% 
+   .[, eof_proyectado(file, member, model), by = model]
+```
+
+(ref:correlacion-metodos-cap) Correlación entre las series temporales de cada modelo, miembro, cEOF y parte calculadas como los cEOF de toda la serie o proyectando los campos obtenidos con el período moderno. 
+
+```{r correlacion-metodos, fig.height=5, fig.width=6}
+ceofs_larga[, eof[[1]]$left, by = model] %>% 
+   sep_ReIm() %>% 
+   copy() %>% 
+   .[, metodo := "ceof"] %>% 
+   rbind(copy(ceof_largo_p)[, metodo := "proyectado"]) %>% 
+   dcast(model + time + ensemble + cEOF + part ~ metodo, value.var = "eof") %>% 
+   .[, cor(proyectado, ceof), by = .(model, cEOF, part)] %>% 
+   ggplot(aes(model, V1)) +
+   geom_point(position = position_jitter(width = 0.2, height = 0)) +
+   scale_y_continuous("Correlacion", limits = c(0, 1)) +
+   scale_x_discrete(NULL) +
+   coord_flip()
+```
+
+Por suerte, no hace falta elegir ya que ambos métodos dan prácticamente el mismo resultado, como se ve en la Figura \@ref(fig:correlacion-metodos).
+
+Por las ventajas de interpretación y demás, vamos a seguir con la proyección.
+
+## Series
+
+(ref:tendencia-cap) Series temporales de anomalías estandarizadas de los cEOFs computados usando el período `r paste0(range(ceofs_larga[1, eof[[1]]$left]$time), collapse = " -- ")`. Las anomalías están computadas sobre el período 1850 -- 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo. 
 
 ```{r tendencia, fig.width=6, fig.height=4}
-ceofs_larga %>% 
-   .[model != "ERA5"] %>% 
-   .[ , eof[[1]]$left, by = model] %>% 
-   sep_ReIm() %>% 
+ceof_largo_p %>% 
    .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
                     scale = sd(eof[time <= 1900])),
      by = .(model, part, cEOF)] %>% 
@@ -1246,21 +1428,62 @@ ceofs_larga %>%
    ggplot(aes(time, eof)) +
    geom_line(aes(group = model), alpha = 0.1) +
    geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF, part)]) +
+   geom_smooth(data = ~.x[, .(eof = mean(eof)), by = .(time, part, cEOF)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
    coord_cartesian(ylim = c(-1, 1)) +
    facet_grid(part ~ cEOF)
 ```
 
+La Figura \@ref(fig:tendencia) muestra las series temporales de los cEOfs. 
+Se ve que la parte real del cEOF1 tiene una tendencia a la alza bien clara.
+Las otras series no tienen tendencias. 
+
+El cEOF2 real tiene una pequeña tendencia que se ve en la media multimodelo. 
+(ref:tendencias-largas-cap) Igual que la Figura \@ref(fig:trends-1) pero para el período 1950 -- 2014. 
+
+```{r tendencias-largas, fig.height = 12, fig.width=8}
+ceofs_larga[, eof[[1]]$left, by = model] %>% 
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model)] %>% 
+   sep_ReIm() %>% 
+   .[time >= 1950] %>% 
+   .[, FitLm(eof, time = time/10, se = TRUE), 
+     by = .(model, cEOF, ensemble, part)] %>% 
+   .[term == "time"] %>%
+   # cors[., on = c("model", "cEOF")] %>% 
+   # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
+   # .[, model := reorder(model, correlation)] %>% 
+   ggplot(aes(model, estimate)) +
+   geom_hline(yintercept = 0, color = "gray50") +
+   geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model, part)],
+             aes(y = 0,
+                 height = 2*m,
+                 width = 0.5,
+                 group = part),
+             alpha = 0.2,
+             position = position_dodge(.8)) +
+   geom_point(alpha = 0) +
+   geom_boxplot(aes(color = part), width = 0.5,
+                position = position_dodge(.8),
+                fill = NA,
+                data = ~.x[!startsWith(as.character(model), "ERA5")]) +
+   ggforce::geom_sina(aes(color = part), alpha = 0.5) +
+   scale_color_brewer(palette = "Set1") +
+   coord_flip()  +
+   facet_wrap(cEOF~ ., scale = "free_x")
+```
+
+La Figura \@ref(fig:tendencias-largas) reproduce las Figuras \@ref(fig:trends-1) y \@ref(fig:trends-2) para el período empezando en 1950. 
+
+
 (ref:tendencias-roll-cap) Tendencias estandarizadas (con el período 1850 -- 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo. 
 
 
-```{r tendencias-roll,}
-ceofs_larga %>% 
-   .[model != "ERA5"] %>% 
-   .[ , eof[[1]]$left, by = model] %>% 
-   sep_ReIm() %>% 
-   .[, eof := scale(eof, center = mean(eof[time <= 1900]), scale = sd(eof[time <= 1900])),
+```{r tendencias-roll, fig.height=5, fig.width=7}
+ceof_largo_p %>% 
+   .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
+                    scale = sd(eof[time <= 1900])),
      by = .(model, part, cEOF)] %>% 
    .[, .(eof = mean(eof)), by = .(model, time, cEOF, part)] %>%
    rbind(., 
@@ -1274,12 +1497,34 @@ ceofs_larga %>%
    geom_line(aes(group = model, alpha = model == "MMM")) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
-   scale_alpha_manual(NULL, values = c("TRUE" = 1, "FALSE" = 0.1)) +
-   # coord_cartesian(ylim = c(-1, 1)) +
+   scale_alpha_manual(NULL, values = c("TRUE" = 1, "FALSE" = 0.1), 
+                      guide = "none") +
    facet_grid(part ~ cEOF)
 ```
 
+La Figura \@ref(fig:tendencias-roll) muetra las tendencias de la media de cada modelo calculada en ventanas de 20 años. 
+Se obseva la tendencia positiva de la parte real del cEOF1 que compienza al rededor de 1980. 
+Por otro lado, también se ve que la parte real del cEOF2 tiene una pequeña tendencia. 
 
+(ref:tendencia-mod-cap) Amplitud promedio de cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra) y loess smooth de la media multimodelo (línea azul).
+
+```{r tendencia-mod, fig.height=4, fig.width=7}
+i <- complex(imaginary = 1)
+ceof_largo_p %>% 
+   tidyfast::dt_pivot_wider(names_from = part, values_from = eof) %>% 
+   .[, ceof := Real + Imaginary*i] %>% 
+   .[, .(eof = mean(Mod(ceof))), by = .(model, time, cEOF)] %>% 
+   ggplot(aes(time, eof)) +
+   geom_line(aes(group = model), alpha = 0.1) +
+   geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
+   geom_smooth(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
+   scale_x_continuous(NULL) +
+   scale_y_continuous(NULL) +
+   facet_grid(. ~ cEOF)
+```
+
+La tendencia del cEOF1 Real se destaca en el cambio en la amplitud del cEOF1. 
+La amplitud del cEOF2 también aumentó ligeramente. 
 
 
 ```{r fft2}
@@ -1302,5 +1547,6 @@ plot_fft(1)
 (ref:fft-2l-cap) Igual que Figura \@ref(fig:fft-2) pero para el período 1850 -- 2014.
 
 ```{r fft-2l, fig.height=8, fig.width=9}
-plot_fft(2)
+plot_fft(2) +
+   coord_cartesian(ylim = c(0, 11)) 
 ```
