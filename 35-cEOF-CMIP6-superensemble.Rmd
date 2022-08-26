@@ -39,7 +39,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 41,
+   cache.extra = 42,
    cache.path = paste0("cache/", name, "/")
 )
 
@@ -243,7 +243,6 @@ cmip_available <- function(..., root = cmip_root_get()) {
    search <- search_null
    
    search <- lapply(search, globulate)
-   # browser()
    
    # Hay que asegurarse de correr en bash
    command <- paste0("ls -f ", paste0(root, "/", glue::glue_data(search, template), "/model.info"))
@@ -254,31 +253,17 @@ cmip_available <- function(..., root = cmip_root_get()) {
    
    info <- system(paste0("/bin/bash  ", script_file), intern = TRUE)
    
-   cmip6_folder_template <- gsub("%\\(", "", rcmip6:::cmip6_folder_template)
-   cmip6_folder_template <- gsub("\\)s", "", rcmip6:::cmip6_folder_template)
-   vars <- c(vars, "variable_long_name", 
-             "datetime_start", "datetime_stop", "nominal_resolution")
-   data <- Reduce(rbind, lapply(info, function(info) {
-      files <- Sys.glob(paste0(dirname(info), "/*nc"))
-      
-      data <- jsonlite::read_json(info, simplifyVector = TRUE)
-      
-      for (var in vars) {
-         if (is.null(data[[var]])) {
-            data[[var]] <- NA_character_
-         }
-      }
-      
-      subdata <- data[vars]
-      
-      
-      browser(expr = any(lengths(subdata) == 0))
-      
-      info <- as.data.frame(data[vars], stringsAsFactors = FALSE)
-      info$files <- list(files)
-      info$full_info <- list(data)
-      info
-   }))
+   info <- normalizePath(info)
+   
+   data <- unglue::unglue_data(gsub(cmip_root_get(), "", dirname(info)),
+                               template)
+   
+   
+   files <- lapply(info, function(info) {
+      Sys.glob(paste0(dirname(info), "/*nc"))
+   })
+   data$files <- files
+   
    return(data)
 }
 ```
@@ -290,8 +275,10 @@ sims <- cmip_available(mip_era = "CMIP6",
                        activity_drs = "CMIP",
                        experiment_id = "historical",
                        # source_id = unique(simulaciones$model),
+                       table_id = c("Amon", "Omon"),
                        variable_id = c("zg", "tos")) %>% 
    as.data.table() %>% 
+   .[, version := as.numeric(version)] %>% 
    .[, c("ensemble", "init", "physics", "forcing") := as.list(unglue::unglue_data(member_id, "r{ensemble}i{init}p{physics}f{forcing}", convert = TRUE))] %>% 
    .[order(ensemble)]
 
@@ -300,6 +287,18 @@ sims <- cmip_available(mip_era = "CMIP6",
 sims <- sims[, .SD[physics == physics[1] & init == init[1] & forcing == forcing[1]],
              by =  .(source_id, variable_id)] %>% 
    .[, .SD[uniqueN(ensemble) >= 5], by = source_id]
+
+# El miembro 3 de EC-Earth3 me da problemas por alguna razón
+# cdo mergtime me dice "structure not supported" o algo así. 
+sims <- sims[!(source_id == "EC-Earth3" & ensemble == 3)]
+
+# EC-Earth3 da muchos problemas. Los miembros no tienen todos el mismo
+# rango de fechas y eso ya me da errores más abajo... se va.
+sims <- sims[!(source_id == "EC-Earth3")]
+
+# ICON-ESM-LR no tiene una grilla lon lat. Tiene una coordenada
+# i que identifica el punto de grilla.
+sims <- sims[source_id != "ICON-ESM-LR"]
 
 # Me quedo con la "mejor grilla". Esto afecta únicamente 
 # a tos (sst).
@@ -314,6 +313,7 @@ sims <- sims %>%
    .[, .SD[grid_label == grid_label[1]], by = .(source_id, ensemble, variable_id)] 
 ```
 
+
 ```{r select_merge}
 future::plan("multisession")
 select_merge <- function(file_in) {
@@ -326,7 +326,8 @@ select_merge <- function(file_in) {
       unique() %>% 
       nrow()
    
-   stopifnot(unique_items == 1)
+   browser(expr = unique_items != 1)
+   # stopifnot(unique_items == 1)
    
    file_out <- file.path("cmip_son", basename(file_in[1]))
    
@@ -340,7 +341,6 @@ select_merge <- function(file_in) {
       warning("Archivo(s) nulos: \n", paste0(file_in[nulos], collapse = "\n"))
       return(NA_character_)
    }
-   
    message("Procesando archivos ", basename(file_in[1]))
    var <- substr(basename(file_in[1]), 1, 1) 
    
@@ -390,13 +390,17 @@ select_merge <- function(file_in) {
    })
    
    # y luego uno
-   system(paste0("cdo mergetime ", paste0(shQuote(temp_files), collapse = " "), " ",
-                 shQuote(file_out)),
-          intern = TRUE)
+   s <- system(paste0("cdo mergetime ", paste0(shQuote(temp_files), collapse = " "), " ",
+                      shQuote(file_out)))
+   
+   if (s == 1) {
+      return(NA_character_)
+   }
    unlink(temp_files)
    return(file_out)
 }
 ```
+
 
 ```{r merge}
 files <- sims$files %>% 
@@ -703,6 +707,7 @@ ceofs <- rbind(ceofs, ceof_era5)
 # rm(ceof_era5)
 ```
 
+
 ```{r plot_ceof} 
 plot_ceof <- function(data, n, which_lev = 200) {
    data <- data[, .(eof = list(cut(eof[[1]], n))), by = model]
@@ -781,7 +786,7 @@ cors <- ceofs %>%
 
 (ref:comparacion-r2-cap) $r^2$ de los patrones espaciales de cada modelo con ERA5 para cada cEOF.
 
-```{r comparacion-r2 }
+```{r comparacion-r2, fig.height=6, fig.width=6}
 cors %>% 
    DT(model != "ERA5") %>% 
    DT(, model := reorder(model, r2, fun = mean)) %>% 
@@ -802,12 +807,11 @@ En general los patrones son bastante similares, especialmente en la estratósfer
 Sin embargo, la localización de los centros no parece estar muy bien en algunos modelos. 
 En 50 hPa IPSL-CM6A-LR, CNRM-CM6-1 y CNRM-ESM2-1 tienen la onda corrida hacia el oeste y un r^2 relativamente bajo.
 
-```{r ceofs-1-50, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
+```{r ceofs-1-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
 plot_ceof(ceofs, 1, 50)
 ```
 
-
-```{r ceofs-1-200, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
+```{r ceofs-1-200, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
 plot_ceof(ceofs, 1, 200)
 ```
 
@@ -816,11 +820,11 @@ En 200 hPa la cosa es un poco más compleja por los detalles de escala más chic
 
 En las Figuras\ \@ref(fig:ceofs-2-50)  y \@ref(fig:ceofs-2-200) se muestran lo mismo que antes pero para el cEOF2. 
 
-```{r ceofs-2-50, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
+```{r ceofs-2-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
 plot_ceof(ceofs, 2, 50)
 ```
 
-```{r ceofs-2-200, fig.width=10, fig.height=11, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
+```{r ceofs-2-200, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
 plot_ceof(ceofs, 2, 200)
 ```
 
@@ -941,7 +945,6 @@ plot_fft <- function(which_ceof) {
       .[, setNames(label, model)]
    
    
-   
    fft %>% 
       .[cEOF == which_ceof] %>% 
       # .[, .(spec = mean(spec)), by = .(freq, part, model, cEOF)] %>% 
@@ -968,7 +971,7 @@ Las Figuras\ \@ref(fig:fft-1) y \@ref(fig:fft-2) muestran periodogramas para cad
 
 (ref:fft-1-cap) Espectros de Fourier para la parte Real e Imaginaria del cEOF1. En línea obscura es el espectro promedio de todos los miembros, que se muestran en líneas translúcidas.
 
-```{r fft-1, fig.height=8, fig.width=10}
+```{r fft-1, fig.height=10, fig.width=10}
 plot_fft(1)
 ```
 
@@ -976,7 +979,7 @@ Para el cEOF1, no hay mucha señal. Algunos miembros tienen señales altas pero 
 
 (ref:fft-2-cap) Igual que Figura \@ref(fig:fft-1) pero para el cEOF2. En recuadro negro, modelos que tienen un período importante cerca de 3 años en la parte imaginaria del cEOF2.
 
-```{r fft-2, fig.height=8, fig.width=9}
+```{r fft-2, fig.height=10, fig.width=10}
 con_picos <- data.table(
    model = c("FGOALS-g3", "MIROC6", "GISS-E2-1-G", "CESM2", "CNRM-ESM2-1", "CNRM-CM6-1")
 )
@@ -1171,13 +1174,13 @@ La Figura \@ref(fig:sst-1) muetra la regresión para el cEOF1.
 Todos los modelos tienne valores de regresión altos y significativos en casi todo el globo. 
 Esto no es consistente con lo observado en ERA5, en donde no hay relación entre el cEOF1 y las SSTs. 
 
-```{r sst-1, fig.height=18, fig.width=7}
+```{r sst-1, fig.height=20, fig.width=7}
 plot_sst_regression(1)
 ```
 
 (ref:sst-2-cap) Igual que Figura \@ref(fig:sst-1) pero para el cEOF2.
 
-```{r sst-2, fig.height=18, fig.width=7}
+```{r sst-2, fig.height=20, fig.width=7}
 plot_sst_regression(2)
 ```
 
@@ -1469,6 +1472,7 @@ ceofs_larga[, eof[[1]]$left, by = model] %>%
                 fill = NA,
                 data = ~.x[!startsWith(as.character(model), "ERA5")]) +
    ggforce::geom_sina(aes(color = part), alpha = 0.5) +
+   scale_x_discrete(NULL) +
    scale_color_brewer(palette = "Set1") +
    coord_flip()  +
    facet_wrap(cEOF~ ., scale = "free_x")
@@ -1550,3 +1554,4 @@ plot_fft(1)
 plot_fft(2) +
    coord_cartesian(ylim = c(0, 11)) 
 ```
+
