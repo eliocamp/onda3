@@ -807,7 +807,7 @@ En general los patrones son bastante similares, especialmente en la estratósfer
 Sin embargo, la localización de los centros no parece estar muy bien en algunos modelos. 
 En 50 hPa IPSL-CM6A-LR, CNRM-CM6-1 y CNRM-ESM2-1 tienen la onda corrida hacia el oeste y un r^2 relativamente bajo.
 
-```{r ceofs-1-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
+```{r ceofs-1-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 50 hPa."}
 plot_ceof(ceofs, 1, 50)
 ```
 
@@ -820,7 +820,7 @@ En 200 hPa la cosa es un poco más compleja por los detalles de escala más chic
 
 En las Figuras\ \@ref(fig:ceofs-2-50)  y \@ref(fig:ceofs-2-200) se muestran lo mismo que antes pero para el cEOF2. 
 
-```{r ceofs-2-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
+```{r ceofs-2-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 50 hPa."}
 plot_ceof(ceofs, 2, 50)
 ```
 
