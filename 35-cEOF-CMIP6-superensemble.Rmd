@@ -1366,21 +1366,28 @@ eof_proyectado_ <- function(files, member, ..model, time = c(NA, "2014-12-31")) 
    
    v <- apply(array, c("time", "ensemble") , function(a) {
       # ESTO NO DEBERÍA SER TAN COMPLICADO!!!
-      v <- apply(fa, c("cEOF", "part"), function(f) {
-         f %*% a
+      v <- apply(fa, c("cEOF"), function(f) {
+         r <- .lm.fit(cbind(c(f[, , , 1]), c(f[, , , 2])), c(a))
+         exp <- 1 - var(r$residuals)/var(c(a))
+         setNames(c(r$coefficients, exp), c(dimnames(f)[["part"]], "r2"))
       }) 
-      setNames(c(v) ,
-               interaction(rep(dimnames(v)$part, each  = 2), 
-                           rep(dimnames(v)$cEOF, 2)))
+      
+      names(dimnames(v))[1] <- "variable"
+      v <- reshape::melt(v)
+      names <- paste(v$variable, v$cEOF, sep = ".")
+      setNames(v$value, names)
    })
-   names(dimnames(v))[1] <- "part.cEOF"
+   
+   names(dimnames(v))[1] <- "variable.cEOF"
    
    reshape2::melt(v, value.name = "eof") %>% 
       setDT() %>% 
-      .[, c("part", "cEOF") := tstrsplit(part.cEOF, split = ".", fixed = TRUE)] %>% 
-      .[, part.cEOF := NULL] %>% 
-      .[, `:=`(part = factor(part, levels = c("Real", "Imaginary"), ordered = TRUE),
-               cEOF = factor(cEOF, levels = c("cEOF1", "cEOF2"), ordered = TRUE))] %>% 
+      .[, c("variable", "cEOF") := tstrsplit(variable.cEOF,
+                                             split = ".", fixed = TRUE)] %>% 
+      .[, variable.cEOF := NULL] %>% 
+      dcast(time + ensemble + cEOF ~ variable, value.var = "eof") %>% 
+      .[, eof := complex(real = Real, imaginary = Imaginary)] %>% 
+      .[, `:=`(Imaginary = NULL, Real = NULL)] %>% 
       .[, time := as.character(time)] %>% 
       time_lookup[., on = "time"] %>% 
       .[, time := NULL] %>% 
@@ -1394,19 +1401,21 @@ eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
 ```{r ceof_largo_p}
 ceof_largo_p <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, eof_proyectado(file, member, model), by = model]
+   .[, eof_proyectado(file, member, model), by = model] 
 ```
 
 (ref:correlacion-metodos-cap) Correlación entre las series temporales de cada modelo, miembro, cEOF y parte calculadas como los cEOF de toda la serie o proyectando los campos obtenidos con el período moderno. 
 
 ```{r correlacion-metodos, fig.height=5, fig.width=6}
 ceofs_larga[, eof[[1]]$left, by = model] %>% 
+   copy() %>% 
+   .[, r2 := NA] %>% 
+   rbind(eof = ., 
+         proyectado = ceof_largo_p, idcol = "metodo") %>% 
    sep_ReIm() %>% 
    copy() %>% 
-   .[, metodo := "ceof"] %>% 
-   rbind(copy(ceof_largo_p)[, metodo := "proyectado"]) %>% 
    dcast(model + time + ensemble + cEOF + part ~ metodo, value.var = "eof") %>% 
-   .[, cor(proyectado, ceof), by = .(model, cEOF, part)] %>% 
+   .[, cor(proyectado, eof), by = .(model, cEOF, part)] %>% 
    ggplot(aes(model, V1)) +
    geom_point(position = position_jitter(width = 0.2, height = 0)) +
    scale_y_continuous("Correlacion", limits = c(0, 1)) +
@@ -1424,6 +1433,7 @@ Por las ventajas de interpretación y demás, vamos a seguir con la proyección.
 
 ```{r tendencia, fig.width=6, fig.height=4}
 ceof_largo_p %>% 
+   sep_ReIm() %>% 
    .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
                     scale = sd(eof[time <= 1900])),
      by = .(model, part, cEOF)] %>% 
@@ -1434,7 +1444,7 @@ ceof_largo_p %>%
    geom_smooth(data = ~.x[, .(eof = mean(eof)), by = .(time, part, cEOF)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
-   coord_cartesian(ylim = c(-1, 1)) +
+   coord_cartesian(ylim = c(-1.5, 1.5)) +
    facet_grid(part ~ cEOF)
 ```
 
@@ -1446,11 +1456,11 @@ El cEOF2 real tiene una pequeña tendencia que se ve en la media multimodelo.
 (ref:tendencias-largas-cap) Igual que la Figura \@ref(fig:trends-1) pero para el período 1950 -- 2014. 
 
 ```{r tendencias-largas, fig.height = 12, fig.width=8}
-ceofs_larga[, eof[[1]]$left, by = model] %>% 
+ceof_largo_p %>%
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model)] %>% 
-   sep_ReIm() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
    .[time >= 1950] %>% 
+   sep_ReIm() %>% 
    .[, FitLm(eof, time = time/10, se = TRUE), 
      by = .(model, cEOF, ensemble, part)] %>% 
    .[term == "time"] %>%
@@ -1485,13 +1495,13 @@ La Figura \@ref(fig:tendencias-largas) reproduce las Figuras \@ref(fig:trends-1)
 
 
 ```{r tendencias-roll, fig.height=5, fig.width=7}
-ceof_largo_p %>% 
-   .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
-                    scale = sd(eof[time <= 1900])),
-     by = .(model, part, cEOF)] %>% 
-   .[, .(eof = mean(eof)), by = .(model, time, cEOF, part)] %>%
+ceof_largo_p %>%
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
+   sep_ReIm() %>% 
+   .[, .(eof = mean(eof)), by = .(model, time, part, cEOF)] %>%
    rbind(., 
-         .[, .(eof = mean(eof), model = "MMM"), by = .(time, cEOF, part)]) %>% 
+         .[, .(eof = mean(eof), model = "MMM"), by = .(time, part, cEOF)]) %>% 
    .[order(time)] %>% 
    .[, trend := roll::roll_lm(time, eof, width = 20)$coefficients[, 2],
      by = .(cEOF, part, model)] %>% 
@@ -1510,13 +1520,61 @@ La Figura \@ref(fig:tendencias-roll) muetra las tendencias de la media de cada m
 Se obseva la tendencia positiva de la parte real del cEOF1 que compienza al rededor de 1980. 
 Por otro lado, también se ve que la parte real del cEOF2 tiene una pequeña tendencia. 
 
-(ref:tendencia-mod-cap) Amplitud promedio de cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra) y loess smooth de la media multimodelo (línea azul).
+
+(ref:varianza-roll-cap) 
+
+```{r varianza-roll,  fig.height=5, fig.width=7}
+ceof_largo_p %>%
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof[time < 1900])), by = .(model, cEOF)] %>% 
+   sep_ReIm() %>%
+   .[order(time)] %>% 
+   .[, var := roll::roll_var(eof, width = 20),
+     by = .(cEOF, part, model, ensemble)] %>%
+   .[!is.na(var)] %>%
+   .[, .(var = mean(var)), by = .(model, time, cEOF, part)] %>% 
+   ggplot(aes(time, var)) +
+   # geom_hline(yintercept = 0, size = 0.1) +
+   geom_line(aes(group = model), alpha = 0.1) +
+   geom_line(data = ~.x[, .(var = mean(var)), by = .(time, cEOF, part)]) +
+   geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, part, cEOF)]) +
+   scale_x_continuous(NULL) +
+   scale_y_continuous(NULL) +
+   facet_grid(part ~ cEOF)
+```
+
+
+```{r}
+ceof_largo_p %>%
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
+   .[order(time)] %>% 
+   .[, var := roll::roll_var(Mod(eof), width = 20),
+     by = .(cEOF, model, ensemble)] %>%
+   .[!is.na(var)] %>%
+   .[, .(var = mean(var)), by = .(model, time, cEOF)] %>% 
+   ggplot(aes(time, var)) +
+   # geom_hline(yintercept = 0, size = 0.1) +
+   geom_line(aes(group = model), alpha = 0.1) +
+   geom_line(data = ~.x[, .(var = mean(var)), by = .(time, cEOF)]) +
+   geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, cEOF)]) +
+   scale_x_continuous(NULL) +
+   scale_y_continuous(NULL) +
+   facet_grid(. ~ cEOF)
+```
+
+
+(ref:tendencia-mod-cap) Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra) y loess smooth de la media multimodelo (línea azul).
 
 ```{r tendencia-mod, fig.height=4, fig.width=7}
 i <- complex(imaginary = 1)
 ceof_largo_p %>% 
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof[time <= 1900])), by = .(model, cEOF)] %>% 
+   sep_ReIm() %>% 
    tidyfast::dt_pivot_wider(names_from = part, values_from = eof) %>% 
    .[, ceof := Real + Imaginary*i] %>% 
+   .[, ceof := Anomaly(ceof, time <= 1900), by = .(model, cEOF)] %>% 
    .[, .(eof = mean(Mod(ceof))), by = .(model, time, cEOF)] %>% 
    ggplot(aes(time, eof)) +
    geom_line(aes(group = model), alpha = 0.1) +
@@ -1529,6 +1587,62 @@ ceof_largo_p %>%
 
 La tendencia del cEOF1 Real se destaca en el cambio en la amplitud del cEOF1. 
 La amplitud del cEOF2 también aumentó ligeramente. 
+
+```{r}
+ceof_largo_p %>%
+   copy() %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
+   .[time >= 1950] %>% 
+   .[, FitLm(Mod(eof), time = time/10, se = TRUE), 
+     by = .(model, cEOF, ensemble)] %>% 
+   .[term == "time"] %>%
+   # cors[., on = c("model", "cEOF")] %>% 
+   # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
+   # .[, model := reorder(model, correlation)] %>% 
+   ggplot(aes(model, estimate)) +
+   geom_hline(yintercept = 0, color = "gray50") +
+   geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model)],
+             aes(y = 0,
+                 height = 2*m,
+                 width = 0.5),
+             alpha = 0.2,
+             position = position_dodge(.8)) +
+   geom_point(alpha = 0) +
+   geom_boxplot(width = 0.5,
+                position = position_dodge(.8),
+                fill = NA,
+                data = ~.x[!startsWith(as.character(model), "ERA5")]) +
+   ggforce::geom_sina(alpha = 0.5) +
+   scale_x_discrete(NULL) +
+   scale_color_brewer(palette = "Set1") +
+   coord_flip()  +
+   facet_wrap(cEOF~ ., scale = "free_x")
+```
+
+
+(ref:tendencia-r2-cap) Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra) y loess smooth de la media multimodelo (línea azul).
+
+```{r tendencia-r2, fig.height=4, fig.width=7}
+ceof_largo_p %>% 
+   .[, .(r2 = mean(r2)), by = .(model, time, cEOF)] %>% 
+   ggplot(aes(time, r2)) +
+   geom_line(aes(group = model), alpha = 0.1) +
+   geom_line(data = ~.x[, .(r2 = mean(r2)), by = .(time, cEOF)]) +
+   geom_smooth(data = ~.x[, .(r2 = mean(r2)), by = .(time, cEOF)]) +
+   scale_x_continuous(NULL) +
+   scale_y_continuous(NULL) +
+   # coord_cartesian(ylim = c(0, 1)) +
+   facet_wrap(. ~ cEOF, scales = "free_y")
+```
+
+
+```{r}
+ceof_largo_p %>% 
+   .[, cor(r2, Mod(eof)), by = .(cEOF, model, ensemble)] %>% 
+   tidyfast::dt_pivot_wider(names_from = cEOF, values_from = V1) %>% 
+   ggplot(aes(cEOF1, cEOF2)) +
+   geom_point()
+```
 
 
 ```{r fft2}
