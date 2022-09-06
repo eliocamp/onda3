@@ -807,11 +807,11 @@ En general los patrones son bastante similares, especialmente en la estratósfer
 Sin embargo, la localización de los centros no parece estar muy bien en algunos modelos. 
 En 50 hPa IPSL-CM6A-LR, CNRM-CM6-1 y CNRM-ESM2-1 tienen la onda corrida hacia el oeste y un r^2 relativamente bajo.
 
-```{r ceofs-1-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 50 hPa."}
+```{r ceofs-1-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 50 hPa."}
 plot_ceof(ceofs, 1, 50)
 ```
 
-```{r ceofs-1-200, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
+```{r ceofs-1-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
 plot_ceof(ceofs, 1, 200)
 ```
 
@@ -820,11 +820,11 @@ En 200 hPa la cosa es un poco más compleja por los detalles de escala más chic
 
 En las Figuras\ \@ref(fig:ceofs-2-50)  y \@ref(fig:ceofs-2-200) se muestran lo mismo que antes pero para el cEOF2. 
 
-```{r ceofs-2-50, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 50 hPa."}
+```{r ceofs-2-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 50 hPa."}
 plot_ceof(ceofs, 2, 50)
 ```
 
-```{r ceofs-2-200, fig.width=10, fig.height=13, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
+```{r ceofs-2-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
 plot_ceof(ceofs, 2, 200)
 ```
 
@@ -901,15 +901,18 @@ plot_trends <- function(which_eof) {
                    fill = NA,
                    data = ~.x[!startsWith(as.character(model), "ERA5")]) +
       ggforce::geom_sina(aes(color = part), alpha = 0.5) +
-      scale_color_brewer(palette = "Set1") +
-      coord_flip()  
+      scale_color_brewer(NULL, palette = "Set1") +
+      scale_x_discrete(NULL) +
+      scale_y_continuous("Tendencia") +
+      coord_flip()  +
+      NULL
 }
 ```
 
 Las Figuras\ \@ref(fig:trends-1) y \@ref(fig:trends-1) muestran las tendencias lineales de cada cEOF. 
 El recurado gris marca la región aproximada de insignificancia estadística al 5% ($\pm$ 2 errores estándar) y la conclusión es que no hay tendencias significativas. 
 
-(ref:trends-1-cap) Tendencias durante todo el período (en desvios estándared por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. El área gris marca la región aproximada de insignificancia estadística usando $\pm$ 2 errores estándares, tomando el error estándar promedio de las estimaciones de cada modelo. 
+(ref:trends-1-cap) Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. El área gris marca la región aproximada de insignificancia estadística usando $\pm$ 2 errores estándares, tomando el error estándar promedio de las estimaciones de cada modelo. 
 
 ```{r trends-1, fig.height = 12, fig.width=8}
 plot_trends(1)
@@ -1431,13 +1434,24 @@ Por las ventajas de interpretación y demás, vamos a seguir con la proyección.
 
 (ref:tendencia-cap) Series temporales de anomalías estandarizadas de los cEOFs computados usando el período `r paste0(range(ceofs_larga[1, eof[[1]]$left]$time), collapse = " -- ")`. Las anomalías están computadas sobre el período 1850 -- 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo. 
 
+
+```{r}
+scale_eof <- function(eof, baseline) {
+   scale(eof, center = mean(eof[baseline]), 
+         scale = sd(Mod(eof[baseline])))
+}
+```
+
+
 ```{r tendencia, fig.width=6, fig.height=4}
 ceof_largo_p %>% 
    sep_ReIm() %>% 
-   .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
-                    scale = sd(eof[time <= 1900])),
-     by = .(model, part, cEOF)] %>% 
-   .[, .(eof = mean(eof)), by = .(model, time, cEOF, part)] %>% 
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, part, ensemble, cEOF)] %>%
+   # .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
+   #                  scale = sd(eof[time <= 1900])),
+   #   by = .(model, part, cEOF)] %>% 
+   .[, .(eof = mean(eof)), by = .(model, time, part, cEOF)] %>% 
+   
    ggplot(aes(time, eof)) +
    geom_line(aes(group = model), alpha = 0.1) +
    geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF, part)]) +
@@ -1453,6 +1467,7 @@ Se ve que la parte real del cEOF1 tiene una tendencia a la alza bien clara.
 Las otras series no tienen tendencias. 
 
 El cEOF2 real tiene una pequeña tendencia que se ve en la media multimodelo. 
+
 (ref:tendencias-largas-cap) Igual que la Figura \@ref(fig:trends-1) pero para el período 1950 -- 2014. 
 
 ```{r tendencias-largas, fig.height = 12, fig.width=8}
@@ -1521,12 +1536,35 @@ Se obseva la tendencia positiva de la parte real del cEOF1 que compienza al rede
 Por otro lado, también se ve que la parte real del cEOF2 tiene una pequeña tendencia. 
 
 
-(ref:varianza-roll-cap) 
+
+(ref:tendencia-mod-cap) Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra).
+
+```{r tendencia-mod, fig.height=4, fig.width=7}
+ceof_largo_p %>% 
+   copy() %>% 
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
+   # .[, eof := Anomaly(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
+   
+   .[, .(eof = mean(Mod(eof))), by = .(model, time, cEOF)] %>% 
+   # .[, eof := eof/sd(eof[time <= 1900]), by = .(model, cEOF)] %>%
+   ggplot(aes(time, eof)) +
+   geom_line(aes(group = model), alpha = 0.1) +
+   geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
+   geom_smooth(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
+   scale_x_continuous(NULL) +
+   scale_y_continuous(NULL) +
+   facet_wrap(. ~ cEOF, scales = "free_y")
+```
+
+La tendencia del cEOF1 Real se destaca en el cambio en la amplitud del cEOF1. 
+La amplitud del cEOF2 también aumentó ligeramente. 
+
+(ref:varianza-roll-cap) Varianza de los índices estimadas en ventanas de 20 años. 
 
 ```{r varianza-roll,  fig.height=5, fig.width=7}
 ceof_largo_p %>%
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof[time < 1900])), by = .(model, cEOF)] %>% 
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
    sep_ReIm() %>%
    .[order(time)] %>% 
    .[, var := roll::roll_var(eof, width = 20),
@@ -1537,19 +1575,21 @@ ceof_largo_p %>%
    # geom_hline(yintercept = 0, size = 0.1) +
    geom_line(aes(group = model), alpha = 0.1) +
    geom_line(data = ~.x[, .(var = mean(var)), by = .(time, cEOF, part)]) +
-   geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, part, cEOF)]) +
+   # geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, part, cEOF)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
    facet_grid(part ~ cEOF)
 ```
 
 
-```{r}
+(ref:varianza-mod-roll-cap) Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años. 
+
+```{r varianza-mod-roll, fig.height=5, fig.width=7}
 ceof_largo_p %>%
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
    .[order(time)] %>% 
-   .[, var := roll::roll_var(Mod(eof), width = 20),
+   .[, var := roll::roll_sd(Mod(eof), width = 20),
      by = .(cEOF, model, ensemble)] %>%
    .[!is.na(var)] %>%
    .[, .(var = mean(var)), by = .(model, time, cEOF)] %>% 
@@ -1557,36 +1597,12 @@ ceof_largo_p %>%
    # geom_hline(yintercept = 0, size = 0.1) +
    geom_line(aes(group = model), alpha = 0.1) +
    geom_line(data = ~.x[, .(var = mean(var)), by = .(time, cEOF)]) +
-   geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, cEOF)]) +
+   # geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, cEOF)], span = 0.5) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
    facet_grid(. ~ cEOF)
 ```
 
-
-(ref:tendencia-mod-cap) Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra) y loess smooth de la media multimodelo (línea azul).
-
-```{r tendencia-mod, fig.height=4, fig.width=7}
-i <- complex(imaginary = 1)
-ceof_largo_p %>% 
-   copy() %>% 
-   .[, eof := eof/sd(Mod(eof[time <= 1900])), by = .(model, cEOF)] %>% 
-   sep_ReIm() %>% 
-   tidyfast::dt_pivot_wider(names_from = part, values_from = eof) %>% 
-   .[, ceof := Real + Imaginary*i] %>% 
-   .[, ceof := Anomaly(ceof, time <= 1900), by = .(model, cEOF)] %>% 
-   .[, .(eof = mean(Mod(ceof))), by = .(model, time, cEOF)] %>% 
-   ggplot(aes(time, eof)) +
-   geom_line(aes(group = model), alpha = 0.1) +
-   geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
-   geom_smooth(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
-   scale_x_continuous(NULL) +
-   scale_y_continuous(NULL) +
-   facet_grid(. ~ cEOF)
-```
-
-La tendencia del cEOF1 Real se destaca en el cambio en la amplitud del cEOF1. 
-La amplitud del cEOF2 también aumentó ligeramente. 
 
 ```{r}
 ceof_largo_p %>%
@@ -1620,7 +1636,7 @@ ceof_largo_p %>%
 ```
 
 
-(ref:tendencia-r2-cap) Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra) y loess smooth de la media multimodelo (línea azul).
+(ref:tendencia-r2-cap) Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra).
 
 ```{r tendencia-r2, fig.height=4, fig.width=7}
 ceof_largo_p %>% 
@@ -1628,21 +1644,13 @@ ceof_largo_p %>%
    ggplot(aes(time, r2)) +
    geom_line(aes(group = model), alpha = 0.1) +
    geom_line(data = ~.x[, .(r2 = mean(r2)), by = .(time, cEOF)]) +
-   geom_smooth(data = ~.x[, .(r2 = mean(r2)), by = .(time, cEOF)]) +
+   # geom_smooth(data = ~.x[, .(r2 = mean(r2)), by = .(time, cEOF)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
    # coord_cartesian(ylim = c(0, 1)) +
    facet_wrap(. ~ cEOF, scales = "free_y")
 ```
 
-
-```{r}
-ceof_largo_p %>% 
-   .[, cor(r2, Mod(eof)), by = .(cEOF, model, ensemble)] %>% 
-   tidyfast::dt_pivot_wider(names_from = cEOF, values_from = V1) %>% 
-   ggplot(aes(cEOF1, cEOF2)) +
-   geom_point()
-```
 
 
 ```{r fft2}
