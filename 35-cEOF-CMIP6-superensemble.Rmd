@@ -39,7 +39,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 42,
+   cache.extra = 41,
    cache.path = paste0("cache/", name, "/")
 )
 
@@ -157,10 +157,10 @@ map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
    map
 }
 
-height <- GetTopography(0, 180-1.5, 10.5, -89, resolution = 1.5, 
-                        file.dir = file.path("cache", name)) %>% 
+height <- GetTopography(0, 180-1.5, 10.5, -89, resolution = 1.5,
+                        file.dir = file.path("cache", name, "topo")) %>% 
    rbind(GetTopography(180+1.5, 360, 10.5, -89, resolution = 1.5,
-                       file.dir = file.path("cache", name))) %>% 
+                       file.dir = file.path("cache", name, "topo"))) %>% 
    as.data.table()
 
 
@@ -455,8 +455,7 @@ era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>%
    DT(, hgt_z := hgt - mean(hgt), by = .(time, lat, plev)) 
 
 set.seed(42)
-ceof_era5 <-
-   era5 %>% 
+ceof_era5 <- era5 %>% 
    DT(, hgt_z := hgt_z/sd(hgt_z[time %between% year(climatology)]), by = .(plev)) %>% 
    DT(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, plev, lat)) %>% 
    DT(, eof := hgt_cplx) %>% 
@@ -518,6 +517,22 @@ sst_ear5 <- "DATA/reanalysis/ERA5/mon/era5sl.mon.mean.nc" %>%
 ```
 
 
+```{r wave1_o3}
+wave1_o3 <- "DATA/era5.toc.mon.mean.nc" %>% 
+   ReadNetCDF(vars = c(toc = "tco3"), 
+              subset = list(
+                 latitude = c(-75, -45),
+                 time = c("1979-01-01", "2014-12-31"))) %>% 
+   normalise_coords() %>% 
+   DT(season(time) == "SON") %>% 
+   DT(, .(toc = mean(toc)), by = .(lon, lat, time = year(time))) %>% 
+   DT(, .(toc = weighted.mean(toc, w = cos(lat*pi/180), na.rm = TRUE)), 
+      by = .(time, lon)) %>% 
+   DT(, FitWave(toc, 1), by = .(time)) %>% 
+   DT(, .(time, amplitude))
+```
+
+
 ```{r rotate_eof}
 weighted_correlation <- function(x, y, w) {
    cov.wt(cbind(x, y), wt = w, cor = TRUE)$cor[1, 2]
@@ -548,6 +563,13 @@ with_enso <-  cut(ceof_era5$eof[[1]], 2)$left %>%
    enso[., on = "time"] %>% 
    na.omit() 
 
+
+with_o3 <-  cut(ceof_era5$eof[[1]], 1)$left %>%
+   copy() %>%
+   wave1_o3[., on = "time"] %>% 
+   na.omit() 
+
+
 angles <- seq(-pi, pi, by = .5*pi/180)
 rotations_cEOF2 <- lapply(angles, function(a) {
    with_enso %>%
@@ -560,9 +582,23 @@ rotations_cEOF2 <- lapply(angles, function(a) {
 
 best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
 
+
+rotations_cEOF1 <- lapply(angles, function(a) {
+   with_o3 %>%
+      .[, hgt2 := rotate(eof, a)] %>%
+      .[, .(R = cor(Re(hgt2), amplitude),
+            I = cor(Im(hgt2), amplitude))] %>%
+      .[, rotation := a]
+}) %>%
+   rbindlist()
+
+best_rotation_cEOF1 <- rotations_cEOF1[which.max(R)]$rotation
+
+
+
 ceof_era5$eof[[1]] <- rotate_eof(ceof_era5$eof[[1]],
                                  data.table(cEOF = c("cEOF1", "cEOF2"),
-                                            angle = c(0, best_rotation_cEOF2)))
+                                            angle = c(best_rotation_cEOF1, best_rotation_cEOF2)))
 
 
 ceof_era5$eof[[1]]$left[, cEOF := factor(cEOF, levels = paste0("cEOF", 1:2),
@@ -1086,6 +1122,7 @@ regress_sst_ <- function(..model) {
    })
    
    data <- rbindlist(data)
+   data[, sst := Detrend(sst), by = .(lon, lat, ensemble)]
    
    enso34 <- data %>% 
       .[is.enso34(lon, lat)] %>% 
@@ -1104,22 +1141,27 @@ regress_sst_ <- function(..model) {
       s %>%
          .[, hgt2 := rotate(eof, a)] %>%
          .[, .(R = cor(Re(hgt2), enso34),
-               I = cor(Im(hgt2), enso34))] %>%
+               I = cor(Im(hgt2), enso34)), by = ensemble] %>%
          .[, rotation := a]
    }) %>%
       rbindlist()
    
-   best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
+   best_rotation_cEOF2 <- rotations_cEOF2[I > 0] %>% 
+      .[, .SD[which.min(abs(R))]$rotation, by = ensemble] %>% 
+      .[, cEOF := "cEOF2"]
    
    regression <- standardised %>% 
       .[model == ..model] %>% 
       .[ensemble %in% unique(data$ensemble)] %>%
-      # best_rotation_cEOF2[., on = "ensemble"] %>% 
-      .[cEOF == "cEOF2", eof := rotate(eof, best_rotation_cEOF2)] %>% 
+      best_rotation_cEOF2[., on = c("ensemble", "cEOF")] %>%
+      .[cEOF == "cEOF2", eof := rotate(eof, V1)] %>% 
+      .[, V1 := NULL] %>% 
       sep_ReIm(format = "wider") %>% 
+      .[, `:=`(Real = Detrend(Real), Imaginary = Detrend(Imaginary)), 
+        by = .(model, ensemble, cEOF)] %>% 
       data[., on = c("time", "ensemble"), allow.cartesian = TRUE] %>% 
       .[, FitLm(sst, Real, Imaginary, se = TRUE), 
-        by = .(lon, lat,  cEOF, model)] %>% 
+        by = .(lon, lat, cEOF, model)] %>% 
       .[term != "(Intercept)"] %>% 
       .[, model := NULL]
    
@@ -1146,14 +1188,16 @@ plot_sst_regression <- function(which_ceof) {
       .[cEOF == which_ceof] %>% 
       copy() %>% 
       .[!is.na(estimate)] %>% 
-      .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), by = .(cEOF, term, model)] %>%
+      .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), 
+        by = .(cEOF, term, model)] %>%
       .[, estimate := estimate/sd(estimate), by = .(model)] %>%
       .[, enso := mean(estimate[is.enso34(lon, lat) & term == "Imaginary"]), 
         by = .(cEOF, model)] %>%
       .[, model := reorder(model, -enso)] %>%
       # .[model == "CESM2"] %>%
       ggplot(aes(lon, lat)) +
-      geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(binwidth = 0.5, exclude = 0)) +
+      geom_contour_fill(aes(z = estimate),
+                        breaks = AnchorBreaks(binwidth = 0.5, exclude = 0)) +
       geom_contour2(aes(z = p.val), breaks = 0.5,
                     size = 0.3) +
       stat_subset(aes(subset = is.cross(lon, lat, 1) & p.val <= 0.05),
@@ -1199,6 +1243,7 @@ La Figura \@ref(fig:sst-mmm) muestra el promedio multimodelo de estas regresione
 ```{r sst-mmm, fig.width=9, fig.height=4}
 sst_regression %>% 
    copy() %>% 
+   .[, .(estimate = mean(estimate)), by = .(lon, lat, cEOF, model, term)] %>% 
    .[, estimate := estimate/sd(estimate), by = .(model, cEOF)] %>%
    .[, .(estimate = mean(estimate)), by = .(term, lon, lat, cEOF)] %>% 
    ggplot(aes(lon, lat)) +
@@ -1547,6 +1592,9 @@ ceof_largo_p %>%
    
    .[, .(eof = mean(Mod(eof))), by = .(model, time, cEOF)] %>% 
    # .[, eof := eof/sd(eof[time <= 1900]), by = .(model, cEOF)] %>%
+   .[, mean := mean(eof), by = .(time, cEOF)] %>% 
+   .[, eof := eof - mean(eof[time <= 1900]) + mean(mean[time <= 1900]), 
+     by = .(model, cEOF)] %>% 
    ggplot(aes(time, eof)) +
    geom_line(aes(group = model), alpha = 0.1) +
    geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
@@ -1571,6 +1619,9 @@ ceof_largo_p %>%
      by = .(cEOF, part, model, ensemble)] %>%
    .[!is.na(var)] %>%
    .[, .(var = mean(var)), by = .(model, time, cEOF, part)] %>% 
+   .[, mean := mean(var), by = .(time, cEOF)] %>% 
+   .[, var := var - mean(var[time <= 1900]) + mean(mean[time <= 1900]), 
+     by = .(model, cEOF)] %>% 
    ggplot(aes(time, var)) +
    # geom_hline(yintercept = 0, size = 0.1) +
    geom_line(aes(group = model), alpha = 0.1) +
@@ -1593,6 +1644,9 @@ ceof_largo_p %>%
      by = .(cEOF, model, ensemble)] %>%
    .[!is.na(var)] %>%
    .[, .(var = mean(var)), by = .(model, time, cEOF)] %>% 
+   .[, mean := mean(var), by = .(time, cEOF)] %>% 
+   .[, var := var - mean(var[time <= 1900]) + mean(mean[time <= 1900]), 
+     by = .(model, cEOF)] %>% 
    ggplot(aes(time, var)) +
    # geom_hline(yintercept = 0, size = 0.1) +
    geom_line(aes(group = model), alpha = 0.1) +
