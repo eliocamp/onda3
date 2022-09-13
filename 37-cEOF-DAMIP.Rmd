@@ -1,0 +1,413 @@
+---
+title: "37-cEOF DAMIP"
+author: "Elio Campitelli"
+output: 
+   bookdown::html_document2:
+         base_format: tufte::tufte_html 
+         css: tabset.css
+link-citations: yes 
+---
+
+<SCRIPT language="JavaScript" SRC="tabset.js"></SCRIPT>
+
+
+```{r setup, include=FALSE}
+# Notification
+start.time <- unclass(Sys.time())
+min.time <- 10
+knit_doc <- knitr::knit_hooks$get("document")
+
+options(htmltools.dir.version = FALSE)
+# knitr::knit_hooks$set(document = function(x) {
+#    took <- unclass(Sys.time()) - start.time
+#    if (unclass(Sys.time()) - start.time >= min.time) {
+#       notify("Done knitting!", 
+#              paste0("Took ", round(took), " seconds"),
+#              time = 5)
+#    }  
+#    knit_doc(x)
+# })
+
+
+# name <- tools::file_path_sans_ext(knitr::current_input())
+name <- "37-cEOF-DAMIP"
+knitr::opts_chunk$set(
+   echo = FALSE,
+   fig.path = paste0("fig/", name, "/"),
+   message = TRUE,
+   warning = FALSE,
+   message = FALSE,
+   cache = TRUE, 
+   cache.lazy = FALSE,
+   cache.extra = 41,
+   cache.path = paste0("cache/", name, "/")
+)
+
+knitr::opts_hooks$set(label = function(options) {
+   if (is.null(options$fig.cap)) {
+      options$fig.cap <- paste0("(ref:", options$label, "-cap)")
+   }
+   options
+})
+
+cache <- cachem::cache_disk(file.path("cache", name, "memoise"))
+
+library(data.table)
+library(magrittr)
+library(ggplot2)
+library(metR)
+library(gt)
+library(tagger)
+library(tidyfast)
+library(rcmip6)
+source("scripts/fftspectrum.R")
+source("scripts/helperfun.R")
+D <- `[`
+
+factor_ReIm <- function(part) {
+   factor(part, levels = c("Real", "Imaginary"), ordered = TRUE)
+}
+
+ReIm <- function(complex) {
+   list(Real = Re(complex), Imaginary = Im(complex))
+}
+
+sep_ReIm <- function(data, column, format = c("longer", "wider")) {
+   R <- part <- I <- NULL
+   names <- c("Real", "Imaginary")
+   
+   
+   if (missing(column)) {
+      complex <- vapply(data, function(x) inherits(x, "complex"), TRUE)
+      if (sum(complex) > 1) {
+         stop("`column` missing and more than one complex column found")
+      }
+      if (sum(complex) == 0) {
+         warning("`column` missing and no complex column found. Returning unchanged data")
+         return(data)
+      }
+      
+      col <- colnames(data)[complex]
+   } else {
+      col <- deparse(substitute(column))
+   }
+   
+   
+   data <- data.table::copy(data)[, (names) := ReIm(get(col))]
+   
+   
+   if (format[1] == "longer") {
+      data[, c(col) := NULL]
+      data <- data.table::setDT(tidyr::pivot_longer(data, Real:Imaginary, names_to = "part", values_to = col))
+      data[, part := factor(part, levels = names, ordered = TRUE)]
+   }
+   
+   return(data[])
+}
+
+source("scripts/theme.R")
+theme_set(theme_elio())
+guide_colorstrip_bottom <- function(width = 25, height = 0.5, ...) {
+   ggplot2::guide_colorstrip(title.position = "top", title.hjust = 0.5,
+                             barheight = height,
+                             barwidth = width, ...)
+}
+
+sink <- capture.output(sf::sf_use_s2(FALSE))
+geom_qmap <- function(subset = identity,
+                      crop = NULL,
+                      color = "gray50", size = 0.3,
+                      fill = NA, wrap = c(0, 360), weighting = 0.7,
+                      keep = 0.015, ...) {
+   lon <- lat <- group <- NULL
+   data <- map_simple(wrap = wrap, keep  = keep, weighting = weighting)
+   
+   if (!is.null(crop)) {
+      bbox <- sf::st_bbox(data)
+      
+      for (n in names(crop)) {
+         bbox[[n]] <- crop[[n]]
+      }
+      
+      data <- suppressWarnings(suppressMessages(sf::st_crop(data, bbox)))
+   }
+   
+   
+   subset <- purrr::as_mapper(subset)
+   data <- subset(data)
+   
+   ggplot2::geom_sf(data = data,
+                    inherit.aes = FALSE,
+                    color = color,
+                    size = size,
+                    fill = fill,
+                    ...)
+   
+}
+
+map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
+   map <- maps::map("world", fill = TRUE,
+                    col = "transparent", plot = FALSE, wrap = wrap)
+   map <- sf::st_as_sf(map)
+   if (keep != 1) {
+      map <- rmapshaper::ms_simplify(map, keep = keep, weighting = weighting)
+   }
+   
+   
+   map
+}
+
+height <- GetTopography(0, 180-1.5, 10.5, -89, resolution = 1.5,
+                        file.dir = file.path("cache", name, "topo")) %>% 
+   rbind(GetTopography(180+1.5, 360, 10.5, -89, resolution = 1.5,
+                       file.dir = file.path("cache", name, "topo"))) %>% 
+   as.data.table()
+
+
+coord_polar <- function(ymax = -20, ...) {
+   
+   x <- c(seq(0, 360, length.out = 40), 
+          seq(360, 0, length.out = 40), 
+          0)
+   y <- c(rep(ymax, length.out = 40), 
+          rep(60, length.out = 40), 
+          ymax)
+   
+   cbind(x, y) %>% 
+      list() %>% 
+      sf::st_polygon() %>% 
+      sf::st_sfc(crs = "+proj=latlong") -> white
+   
+   list(
+      geom_sf(data = white, inherit.aes = FALSE, 
+              fill = "white", 
+              colour = "white", size = 2),
+      coord_sf(ylim = c(-90, ymax), 
+               lims_method = "box",
+               crs = "+proj=laea +lat_0=-90",
+               default_crs = "+proj=longlat",
+               label_axes =  "----", ...)
+   )
+}
+
+periodic_lon <- function(data) {
+   m_lon <- min(data$lon)
+   range <- c(0, 360) + m_lon
+   range2 <- c(0 - m_lon, 360) 
+   
+   ggperiodic::periodic(data, lon = range) %>% 
+      ggperiodic::wrap(lon = range2)
+}
+
+
+n_eof <- 2
+
+climatology <- as.Date(c("1985-01-01", "2014-12-31"))
+
+is.enso34 <- function(lon, lat) {
+   (abs(lat) < 5) & (ConvertLongitude(lon) %between% c(-170, -120))
+}
+```
+
+
+```{r cmip_available}
+# Tuve que optimizar algunas cosas para poder parsear miles de archivos
+cmip_available <- function(..., root = cmip_root_get()) {
+   template <- rcmip6:::cmip6_folder_template %>% 
+      gsub("\\%\\(", "{", .) %>% 
+      gsub("\\)s", "}", .)
+   
+   vars <- template %>% 
+      gsub("\\{", "", .) %>% 
+      gsub("\\}", "", .) %>% 
+      strsplit("/") %>% 
+      .[[1]]
+   
+   
+   search_null <- rep("*", length(vars)) %>% 
+      setNames(vars) %>% 
+      as.list()
+   
+   globulate <- function(x) {
+      if (length(x) > 1) {
+         paste0("@(", paste0(unique(x), collapse = "|"), ")")   
+      } else {
+         x
+      }
+   }
+   
+   search <- list(...)
+   for (name in names(search)) {
+      search_null[[name]] <- search[[name]]
+   }
+   search <- search_null
+   
+   search <- lapply(search, globulate)
+   
+   # Hay que asegurarse de correr en bash
+   command <- paste0("ls -f ", paste0(root, "/", glue::glue_data(search, template), "/model.info"))
+   command <- paste0("shopt -s extglob\n ls -f ", 
+                     paste0(root, "/", glue::glue_data(search, template), "/model.info"))
+   script_file <- tempfile()
+   writeLines(command, script_file)
+   
+   info <- system(paste0("/bin/bash  ", script_file), intern = TRUE)
+   
+   info <- normalizePath(info)
+   
+   data <- unglue::unglue_data(gsub(cmip_root_get(), "", dirname(info)),
+                               template)
+   
+   
+   files <- lapply(info, function(info) {
+      Sys.glob(paste0(dirname(info), "/*nc"))
+   })
+   data$files <- files
+   
+   return(data)
+}
+```
+
+
+```{r sims}
+cmip_root_set("/shera/datos/CMIP/")
+sims <- cmip_available(mip_era = "CMIP6", 
+                       activity_drs = "DAMIP",
+                       experiment_id = c("hist-GHG", "hist-stratO3", "hist-nat"),
+                       # source_id = unique(simulaciones$model),
+                       table_id = c("Amon"),
+                       variable_id = c("zg")) %>% 
+   as.data.table() %>% 
+   .[, version := as.numeric(version)] %>% 
+   .[, c("ensemble", "init", "physics", "forcing") := as.list(unglue::unglue_data(member_id, "r{ensemble}i{init}p{physics}f{forcing}", convert = TRUE))] %>% 
+   .[order(ensemble)]
+
+# # Algunos modelos tienen distintas parametrizaciones, inicializaciones y demás. 
+# # Me quedo sólo con una combinación para no volverme loque. 
+# sims <- sims[, .SD[physics == physics[1] & init == init[1] & forcing == forcing[1]],
+#              by =  .(source_id, variable_id)] 
+# 
+# # Me quedo con la "mejor grilla". Esto afecta únicamente 
+# # a tos (sst).
+# # El orden de preferencia de las grillas es 
+# # medio aleatorio; gn es el más común.
+# grid_order <- c("gn", "gr", "gr1")
+# 
+# sims <- sims %>% 
+#    copy() %>% 
+#    .[, grid_label := factor(grid_label, levels = grid_order, ordered = TRUE)] %>% 
+#    .[order(grid_label)] %>%
+#    .[, .SD[grid_label == grid_label[1]], by = .(source_id, ensemble, variable_id)] 
+```
+
+
+```{r select_merge}
+future::plan("multisession")
+select_merge <- function(file_in) {
+   
+   unique_items <- file_in %>% 
+      basename() %>% 
+      unglue::unglue_data("{variable}_{mean}_{model}_{experiment}_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc") %>% 
+      as.data.table() %>% 
+      .[, ":="(start_date = NULL, end_date = NULL)] %>% 
+      unique() %>% 
+      nrow()
+   
+   browser(expr = unique_items != 1)
+   # stopifnot(unique_items == 1)
+   
+   file_out <- file.path("damip_son", basename(file_in[1]))
+   
+   if (file.exists(file_out)) {
+      return(file_out)
+   }
+   
+   # Hay algunos archivos mal bajados. 
+   nulos <- file.size(file_in) == 0
+   if (any(nulos)) {
+      warning("Archivo(s) nulos: \n", paste0(file_in[nulos], collapse = "\n"))
+      return(NA_character_)
+   }
+   message("Procesando archivos ", basename(file_in[1]))
+   var <- substr(basename(file_in[1]), 1, 1) 
+   
+   # Algunos modelos (IPSL) vienen con una grilla "genérica" en vez de lonlat
+   to_regrid <- FALSE
+   if (var == "t") {
+      grid <- tempfile()
+      invisible(capture.output(t <- system(paste0("cdo griddes ", file_in[1], " > ", grid), intern = TRUE)))
+      if (length(grep("generic", readLines(grid))) != 0) {
+         to_regrid <- TRUE
+         invisible(capture.output(t <- system(paste0('sed -i "s/generic/lonlat/g" ', grid), intern = TRUE)))
+      }
+   }  
+   
+   
+   # Selecciondo para cada archivito
+   # TODO: hacer un hard stop si falla algún archivo. 
+   # https://twitter.com/UbuntR314/status/1523761710548406272
+   temp_files <- furrr::future_map_chr(file_in, function(file) {
+      file_out <- tempfile(fileext = ".nc")
+      
+      if (to_regrid) {
+         outfile <- tempfile(fileext = ".nc")
+         invisible(capture.output(t <- system(paste0("cdo setgrid,", grid, " ", file, " ", outfile))))
+         file <- outfile
+      }
+      if (var == "z") {
+         select <- "-sellevel,20000,5000"
+         remap <- NULL
+      } else {
+         select <- NULL
+         # Paso sst a una grilla regular porque sino distintos modelos tienen distintas
+         # grillas y es un quilombo procesarlos programáticamente.
+         remap <- "-remapdis,r240x60" 
+      }
+      
+      s <- capture.output(system(paste0("cdo ", select, " -timselmean,3 -select,season=SON ",
+                                        remap, " ", 
+                                        shQuote(file), " ", 
+                                        shQuote(file_out)), 
+                                 intern = TRUE))
+      if (!file.exists(file_out)) {
+         file_out <- NA_character_
+      }
+      
+      return(file_out)
+   })
+   
+   # y luego uno
+   s <- system(paste0("cdo mergetime ", paste0(shQuote(temp_files), collapse = " "), " ",
+                      shQuote(file_out)))
+   
+   if (s == 1) {
+      return(NA_character_)
+   }
+   unlink(temp_files)
+   return(file_out)
+}
+```
+
+
+```{r merge}
+files <- sims$files %>% 
+   vapply(select_merge, character(1))
+```
+
+
+```{r simulaciones}
+simulaciones <- na.omit(files) %>% 
+   basename() %>% 
+   unglue::unglue_data("{variable}_{mean}_{model}_{experiment}_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc", convert = TRUE) %>% 
+   as.data.table() %>% 
+   DT(, file := na.omit(files)) %>% 
+   DT(order(variable, model, member, experiment))
+```
+
+
+```{r descripcion}
+simulaciones %>% 
+   .[, .(miembros = .N), by = .(model)] %>% 
+   .[order(-miembros)] %>% 
+   knitr::kable(caption = "Modelos disponibles.", col.names = c("Modelo", "# de miembros"))
+```

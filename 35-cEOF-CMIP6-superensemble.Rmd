@@ -1,12 +1,15 @@
 ---
-title: "35-cEOF Superensamble"
+title: "35-cEOF Superensamble - `r params$season`"   
 author: "Elio Campitelli"
 output: 
    bookdown::html_document2:
          base_format: tufte::tufte_html 
          css: tabset.css
 link-citations: yes 
+params:
+   season: "SON"
 ---
+
 
 <SCRIPT language="JavaScript" SRC="tabset.js"></SCRIPT>
 
@@ -30,7 +33,8 @@ options(htmltools.dir.version = FALSE)
 
 
 # name <- tools::file_path_sans_ext(knitr::current_input())
-name <- "35-cEOF-CMIP6-superensemble"
+name <- paste0("35-cEOF-CMIP6-superensemble", params$season)
+dir.create(file.path("cache", name), showWarnings = FALSE, recursive = TRUE)
 knitr::opts_chunk$set(
    echo = FALSE,
    fig.path = paste0("fig/", name, "/"),
@@ -39,7 +43,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 41,
+   cache.extra = 42,
    cache.path = paste0("cache/", name, "/")
 )
 
@@ -157,6 +161,7 @@ map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
    map
 }
 
+dir.create(file.path("cache", name, "topo"))
 height <- GetTopography(0, 180-1.5, 10.5, -89, resolution = 1.5,
                         file.dir = file.path("cache", name, "topo")) %>% 
    rbind(GetTopography(180+1.5, 360, 10.5, -89, resolution = 1.5,
@@ -316,6 +321,8 @@ sims <- sims %>%
 
 ```{r select_merge}
 future::plan("multisession")
+dir.create(file.path("cmip", params$season), 
+           showWarnings = FALSE, recursive = TRUE)
 select_merge <- function(file_in) {
    
    unique_items <- file_in %>% 
@@ -329,7 +336,7 @@ select_merge <- function(file_in) {
    browser(expr = unique_items != 1)
    # stopifnot(unique_items == 1)
    
-   file_out <- file.path("cmip_son", basename(file_in[1]))
+   file_out <- file.path("cmip", params$season, basename(file_in[1]))
    
    if (file.exists(file_out)) {
       return(file_out)
@@ -377,7 +384,7 @@ select_merge <- function(file_in) {
          remap <- "-remapdis,r240x60" 
       }
       
-      s <- capture.output(system(paste0("cdo ", select, " -timselmean,3 -select,season=SON ",
+      s <- capture.output(system(paste0("cdo ", select, " -timselmean,3 -select,season=", toupper(params$season), " ",
                                         remap, " ", 
                                         shQuote(file), " ", 
                                         shQuote(file_out)), 
@@ -444,7 +451,7 @@ era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>%
               subset = list(lat = c(-90, 10), 
                             time = c("1979-01-01", "2014-12-31"),
                             lev = list(200, 50))) %>% 
-   DT(season(time) == "SON") %>% 
+   DT(season(time) == toupper(params$season)) %>% 
    DT(, hgt := hgt/9.8) %>% 
    DT(, lev := as.integer(lev)) %>% 
    setnames("lev", "plev") %>% 
@@ -509,12 +516,12 @@ sst_ear5 <- "DATA/reanalysis/ERA5/mon/era5sl.mon.mean.nc" %>%
               subset = list(
                  lat = c(-90, 10),
                  time = c("1979-01-01", "2014-12-31"))) %>% 
-   DT(season(time) == "SON") %>% 
    DT(, .(sst = mean(sst)), by = .(lon, lat, time = year(time))) %>% 
    DT(, model := "ERA5") %>%
    DT(, ensemble := 1L) %>% 
    DT(is.finite(sst)) 
 ```
+
 
 
 ```{r wave1_o3}
@@ -524,7 +531,7 @@ wave1_o3 <- "DATA/era5.toc.mon.mean.nc" %>%
                  latitude = c(-75, -45),
                  time = c("1979-01-01", "2014-12-31"))) %>% 
    normalise_coords() %>% 
-   DT(season(time) == "SON") %>% 
+   DT(season(time) == toupper(params$season)) %>% 
    DT(, .(toc = mean(toc)), by = .(lon, lat, time = year(time))) %>% 
    DT(, .(toc = weighted.mean(toc, w = cos(lat*pi/180), na.rm = TRUE)), 
       by = .(time, lon)) %>% 
@@ -555,7 +562,7 @@ enso <- rsoi::download_oni(use_cache = TRUE, file = "DATA/enso.csv") %>%
    as.data.table() %>% 
    .[, .(time = lubridate::as_datetime(Date), oni = ONI)] %>% 
    na.omit() %>%
-   .[season(time) == "SON"] %>%
+   .[season(time) == toupper(params$season)] %>%
    .[, .(oni = mean(oni)), by = .(time = year(time))]
 
 with_enso <-  cut(ceof_era5$eof[[1]], 2)$left %>%
@@ -606,6 +613,8 @@ ceof_era5$eof[[1]]$left[, cEOF := factor(cEOF, levels = paste0("cEOF", 1:2),
 ceof_era5$eof[[1]]$right[, cEOF :=  factor(cEOF, levels = paste0("cEOF", 1:2),
                                            ordered = TRUE)]
 ```
+
+
 
 ```{r optimise_rotation}
 
@@ -1449,8 +1458,9 @@ eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
 ```{r ceof_largo_p}
 ceof_largo_p <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, eof_proyectado(file, member, model), by = model] 
+   .[, eof_proyectado_(file, member, model), by = model] 
 ```
+
 
 (ref:correlacion-metodos-cap) Correlación entre las series temporales de cada modelo, miembro, cEOF y parte calculadas como los cEOF de toda la serie o proyectando los campos obtenidos con el período moderno. 
 
