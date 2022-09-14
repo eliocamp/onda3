@@ -9,3 +9,5 @@ for (trimestre in trimestres) {
                      output_file = paste0("35-cEOF-CMIP6-superensemble-", trimestre),
                      params = list(season = trimestre))
 }
+
+message("Listo!")

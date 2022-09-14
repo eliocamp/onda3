@@ -5,6 +5,7 @@ output:
    bookdown::html_document2:
          base_format: tufte::tufte_html 
          css: tabset.css
+         self_contained: FALSE
 link-citations: yes 
 params:
    season: "SON"

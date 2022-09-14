@@ -5,9 +5,10 @@
 .rcache
 DATA
 *_cache
-*_files
+# *_files
 papers/
-cmip_son/
+cmip/
+damip/
 cache/
 
-fig/
+
