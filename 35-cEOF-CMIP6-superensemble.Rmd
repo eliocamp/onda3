@@ -8,7 +8,7 @@ output:
          self_contained: FALSE
 link-citations: yes 
 params:
-   season: "SON"
+   season: "JJA"
 ---
 
 
