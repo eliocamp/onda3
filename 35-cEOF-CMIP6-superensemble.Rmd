@@ -1350,13 +1350,43 @@ ceofs[, eof[[1]]$sdev, by = model] %>%
 Hay dos formas de extender los cEOFS para odo el período, puedo recomputar el cEOF usando todos los datos, o puedo proyectar los campos obtenidos. 
 La primera es más natural, pero tiene el inconveniente de que la interpretación depende de que los cEOFs obtenidos seaon comparables (los campos sean iguales o similares). 
 
-```{r ceofs_larga }
+```{r ceofs_larga}
 ceofs_larga <- simulaciones %>% 
    .[variable == "zg"] %>%
    .[, .(eof = list(compute_eof(file, member, time = c(NA, "2014-12-31")) %>%
                        optimise_rotation())), 
      by = model]
 ```
+
+
+
+```{r ceofs_vieja}
+ceofs_vieja <- simulaciones %>% 
+   .[variable == "zg"] %>%
+   .[, .(eof = list(compute_eof(file, member, time = c(NA, "1910-12-31")) %>%
+                       optimise_rotation())), 
+     by = model]
+```
+
+(re:cors-periodo-cap) Correlación entre el cEOF espacial computado con el período modero y el computado con el período 1850--1910.
+
+```{r cors-periodo, fig.width=5, fig.height=6}
+rbind(
+   moderno = ceofs_vieja,
+   antiguo = ceofs, 
+   idcol = "periodo") %>% 
+   .[, eof[[1]]$right, by = .(model, periodo)] %>% 
+   .[model != "ERA5"] %>% 
+   tidyfast::dt_pivot_wider(names_from = periodo, values_from = eof) %>% 
+   .[, cor(Re(antiguo), Re(moderno)), by = .(model, cEOF)] %>% 
+   ggplot(aes(V1, model)) +
+   geom_col(aes(fill = cEOF), position = "dodge")  +
+   scale_y_discrete(NULL) +
+   scale_x_continuous("Correlación") +
+   scale_fill_brewer(palette = "Set1") 
+```
+
+
 
 ```{r eof_proyectado}
 fields <- ceofs[, eof[[1]]$right, by = model] %>% 

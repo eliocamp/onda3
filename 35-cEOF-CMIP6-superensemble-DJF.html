@@ -47,7 +47,6 @@ if (window.hljs) {
 
 
 
-<link rel="stylesheet" href="tabset.css" type="text/css" />
 
 
 
@@ -64,7 +63,6 @@ if (window.hljs) {
 
 
 
-<SCRIPT language="JavaScript" SRC="tabset.js"></SCRIPT>
 <div id="métodos" class="section level1">
 <h1><span class="header-section-number">1</span> Métodos</h1>
 <p>Dada la experiencia anterior, voy a calcular los cEOFs usando todos los miembros concatenados: el superensemble (?).</p>
@@ -326,50 +324,57 @@ Figure 2.16: Igual que la Figura <a href="#fig:enso-perf-plot">2.15</a> pero par
 <h1><span class="header-section-number">3</span> Serie temporal larga</h1>
 <p>Hay dos formas de extender los cEOFS para odo el período, puedo recomputar el cEOF usando todos los datos, o puedo proyectar los campos obtenidos.
 La primera es más natural, pero tiene el inconveniente de que la interpretación depende de que los cEOFs obtenidos seaon comparables (los campos sean iguales o similares).</p>
+<p>(re:cors-periodo-cap) Correlación entre el cEOF espacial computado con el período modero y el computado con el período 1850–1910.</p>
+<div class="figure"><span style="display:block;" id="fig:cors-periodo"></span>
+<p class="caption marginnote shownote">
+Figure 3.1: (ref:cors-periodo-cap)
+</p>
+<img src="fig/35-cEOF-CMIP6-superensembleDJF/cors-periodo-1.png" alt="(ref:cors-periodo-cap)" width="480"  />
+</div>
 
 <div class="figure"><span style="display:block;" id="fig:correlacion-metodos"></span>
 <p class="caption marginnote shownote">
-Figure 3.1: Correlación entre las series temporales de cada modelo, miembro, cEOF y parte calculadas como los cEOF de toda la serie o proyectando los campos obtenidos con el período moderno.
+Figure 3.2: Correlación entre las series temporales de cada modelo, miembro, cEOF y parte calculadas como los cEOF de toda la serie o proyectando los campos obtenidos con el período moderno.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/correlacion-metodos-1.png" alt="Correlación entre las series temporales de cada modelo, miembro, cEOF y parte calculadas como los cEOF de toda la serie o proyectando los campos obtenidos con el período moderno." width="576"  />
 </div>
-<p>Por suerte, no hace falta elegir ya que ambos métodos dan prácticamente el mismo resultado, como se ve en la Figura <a href="#fig:correlacion-metodos">3.1</a>.</p>
+<p>Por suerte, no hace falta elegir ya que ambos métodos dan prácticamente el mismo resultado, como se ve en la Figura <a href="#fig:correlacion-metodos">3.2</a>.</p>
 <p>Por las ventajas de interpretación y demás, vamos a seguir con la proyección.</p>
 <div id="series" class="section level2">
 <h2><span class="header-section-number">3.1</span> Series</h2>
 
 <div class="figure"><span style="display:block;" id="fig:tendencia"></span>
 <p class="caption marginnote shownote">
-Figure 3.2: Series temporales de anomalías estandarizadas de los cEOFs computados usando el período 1850 – 2014. Las anomalías están computadas sobre el período 1850 – 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo.
+Figure 3.3: Series temporales de anomalías estandarizadas de los cEOFs computados usando el período 1850 – 2014. Las anomalías están computadas sobre el período 1850 – 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/tendencia-1.png" alt="Series temporales de anomalías estandarizadas de los cEOFs computados usando el período 1850 – 2014. Las anomalías están computadas sobre el período 1850 – 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo." width="576"  />
 </div>
-<p>La Figura <a href="#fig:tendencia">3.2</a> muestra las series temporales de los cEOfs.
+<p>La Figura <a href="#fig:tendencia">3.3</a> muestra las series temporales de los cEOfs.
 Se ve que la parte real del cEOF1 tiene una tendencia a la alza bien clara.
 Las otras series no tienen tendencias.</p>
 <p>El cEOF2 real tiene una pequeña tendencia que se ve en la media multimodelo.</p>
 
 <div class="figure"><span style="display:block;" id="fig:tendencias-largas"></span>
 <p class="caption marginnote shownote">
-Figure 3.3: Igual que la Figura <a href="#fig:trends-1">2.7</a> pero para el período 1950 – 2014.
+Figure 3.4: Igual que la Figura <a href="#fig:trends-1">2.7</a> pero para el período 1950 – 2014.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/tendencias-largas-1.png" alt="Igual que la Figura 2.7 pero para el período 1950 – 2014." width="768"  />
 </div>
-<p>La Figura <a href="#fig:tendencias-largas">3.3</a> reproduce las Figuras <a href="#fig:trends-1">2.7</a> y <a href="#fig:trends-2">2.8</a> para el período empezando en 1950.</p>
+<p>La Figura <a href="#fig:tendencias-largas">3.4</a> reproduce las Figuras <a href="#fig:trends-1">2.7</a> y <a href="#fig:trends-2">2.8</a> para el período empezando en 1950.</p>
 
 <div class="figure"><span style="display:block;" id="fig:tendencias-roll"></span>
 <p class="caption marginnote shownote">
-Figure 3.4: Tendencias estandarizadas (con el período 1850 – 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo.
+Figure 3.5: Tendencias estandarizadas (con el período 1850 – 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/tendencias-roll-1.png" alt="Tendencias estandarizadas (con el período 1850 – 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo." width="672"  />
 </div>
-<p>La Figura <a href="#fig:tendencias-roll">3.4</a> muetra las tendencias de la media de cada modelo calculada en ventanas de 20 años.
+<p>La Figura <a href="#fig:tendencias-roll">3.5</a> muetra las tendencias de la media de cada modelo calculada en ventanas de 20 años.
 Se obseva la tendencia positiva de la parte real del cEOF1 que compienza al rededor de 1980.
 Por otro lado, también se ve que la parte real del cEOF2 tiene una pequeña tendencia.</p>
 
 <div class="figure"><span style="display:block;" id="fig:tendencia-mod"></span>
 <p class="caption marginnote shownote">
-Figure 3.5: Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra).
+Figure 3.6: Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra).
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/tendencia-mod-1.png" alt="Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra)." width="672"  />
 </div>
@@ -378,41 +383,41 @@ La amplitud del cEOF2 también aumentó ligeramente.</p>
 
 <div class="figure"><span style="display:block;" id="fig:varianza-roll"></span>
 <p class="caption marginnote shownote">
-Figure 3.6: Varianza de los índices estimadas en ventanas de 20 años.
+Figure 3.7: Varianza de los índices estimadas en ventanas de 20 años.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/varianza-roll-1.png" alt="Varianza de los índices estimadas en ventanas de 20 años." width="672"  />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:varianza-mod-roll"></span>
 <p class="caption marginnote shownote">
-Figure 3.7: Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años.
+Figure 3.8: Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/varianza-mod-roll-1.png" alt="Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años." width="672"  />
 </div>
 <div class="figure"><span style="display:block;" id="fig:unnamed-chunk-2"></span>
 <p class="caption marginnote shownote">
-Figure 3.8: (ref:unnamed-chunk-2-cap)
+Figure 3.9: (ref:unnamed-chunk-2-cap)
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/unnamed-chunk-2-1.png" alt="(ref:unnamed-chunk-2-cap)" width="672"  />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:tendencia-r2"></span>
 <p class="caption marginnote shownote">
-Figure 3.9: Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra).
+Figure 3.10: Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra).
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/tendencia-r2-1.png" alt="Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra)." width="672"  />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:fft-1l"></span>
 <p class="caption marginnote shownote">
-Figure 3.10: Igual que Figura <a href="#fig:fft-1">2.9</a> pero para el período 1850 – 2014.
+Figure 3.11: Igual que Figura <a href="#fig:fft-1">2.9</a> pero para el período 1850 – 2014.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/fft-1l-1.png" alt="Igual que Figura 2.9 pero para el período 1850 – 2014." width="864"  />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:fft-2l"></span>
 <p class="caption marginnote shownote">
-Figure 3.11: Igual que Figura <a href="#fig:fft-2">2.10</a> pero para el período 1850 – 2014.
+Figure 3.12: Igual que Figura <a href="#fig:fft-2">2.10</a> pero para el período 1850 – 2014.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleDJF/fft-2l-1.png" alt="Igual que Figura 2.10 pero para el período 1850 – 2014." width="864"  />
 </div>

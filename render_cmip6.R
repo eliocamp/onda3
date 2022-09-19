@@ -1,6 +1,6 @@
 
 
-trimestres <- c("DJF", "MAM", "JJA", "SON")
+trimestres <- c("SON", "MAM", "JJA", "DJF")
 
 
 for (trimestre in trimestres) {
