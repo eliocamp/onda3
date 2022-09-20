@@ -7,7 +7,7 @@ output:
          self_contained: FALSE
 link-citations: yes 
 params:
-   season: "JJA"
+   season: "DJF"
 ---
 
 ```{r setup, include=FALSE}
@@ -1368,7 +1368,7 @@ ceofs_vieja <- simulaciones %>%
      by = model]
 ```
 
-(re:cors-periodo-cap) Correlación entre el cEOF espacial computado con el período modero y el computado con el período 1850--1910.
+(ref:cors-periodo-cap) Correlación entre el cEOF espacial computado con el período modero y el computado con el período 1850--1910.
 
 ```{r cors-periodo, fig.width=5, fig.height=6}
 rbind(
@@ -1384,6 +1384,92 @@ rbind(
    scale_y_discrete(NULL) +
    scale_x_continuous("Correlación") +
    scale_fill_brewer(palette = "Set1") 
+```
+
+
+```{r compute_trend}
+compute_trend_ <- function(file, levs = c(200, 50)) {
+   message("Calculando ", file)
+   stopifnot(length(file) == 1)
+   
+   data <- lapply(levs, function(lev) {
+      ReadNetCDF(file, vars = c("zg"), 
+                 subset = list(lat = c(-90, 0), 
+                               plev = lev*100), 
+                 out = "array")[[1]]   
+   })
+   
+   time <- seq_along(attr(data[[1]], "dimvalues")$time)
+   
+   data <- abind::abind(data, 
+                        along = which(names(dimnames(data[[1]])) == "plev"),
+                        use.dnns = TRUE)
+   
+   r <- apply(data, c("lon", "lat", "plev"), function(a) {
+      coef(.lm.fit(cbind(1, time), a))[2]
+   })
+   
+   data.table::setDT(reshape2::melt(r)) %>% 
+      .[, plev := as.integer(plev)] %>% 
+      .[, lat := as.numeric(lat)] %>% 
+      .[, lon := as.numeric(lon)] %>% 
+      .[]
+}
+
+compute_trend <- memoise::memoise(compute_trend_, cache = cache)
+```
+
+```{r trends}
+
+trends <- simulaciones %>% 
+   .[variable == "zg"] %>% 
+   .[, compute_trend(file), by = .(model, member)]
+```
+
+```{r, results='asis'}
+glue::glue('
+<script>
+function change_tendencias(newVal){{
+  document.getElementById("tendencias").src = "{knitr::opts_chunk$get("fig.path")}tendencias-" + newVal + ".png";
+}}
+</script>
+')
+```
+
+```{r guardar-tendencias}
+folder <- knitr::opts_chunk$get("fig.path")
+for (lev in unique(trends$plev)) {
+   trends %>% 
+      .[plev == lev] %>% 
+      .[, .(estimate = mean(value)), by = .(model, lon, lat, plev)] %>% 
+      .[, estimate := Anomaly(estimate), by = .(model, plev, lat)] %>% 
+      
+      # ggperiodic::periodic(lon = c(0, 360)) %>% 
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(aes(z = estimate, fill = stat(level)), 
+                        breaks = AnchorBreaks(exclude = 0)) +
+      scale_fill_divergent_discretised(paste0(lev/100, " hPa"), 
+                                       guide = guide_coloursteps(barwidth = 20,
+                                                                       barheight = 1, 
+                                                                       frame.colour = "black")) +
+      geom_qmap(crop = c(ymax = -20)) +
+      scale_x_longitude() +
+      scale_y_latitude(limits = c(-90, NA)) +
+      coord_polar() +
+      facet_wrap(model ~ .)
+   
+   file <- glue::glue("tendencias-{lev/100}.png")
+
+   ggsave(file.path(folder, file), width = 6, height = 8, bg = "white")
+}
+
+```
+
+
+(ref:tendencias-cap) Tendencias en [50hPa](javascript:change_tendencias('50')) o [200hPa](javascript:change_tendencias('200')). 
+
+```{r tendencias, fig.width=6, fig.height=8, out.extra="id='tendencias'"}
+knitr::include_graphics(file.path(folder, "tendencias-50.png"))
 ```
 
 
