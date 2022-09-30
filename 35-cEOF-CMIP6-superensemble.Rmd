@@ -39,16 +39,21 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 42,
+   cache.extra = 45,
    cache.path = paste0("cache/", name, "/")
 )
 
 knitr::opts_hooks$set(label = function(options) {
-   if (is.null(options$fig.cap)) {
-      options$fig.cap <- paste0("(ref:", options$label, "-cap)")
+   if (is.null(options[["fig.cap"]])) {
+      options[["fig.cap"]] <- paste0("(ref:", options[["label"]], "-cap)")
+   }
+   
+   if (is.null(options[["out.extra"]])) {
+      options[["out.extra"]] <- paste0("id='", options[["label"]], "'")
    }
    options
 })
+
 
 cache <- cachem::cache_disk(file.path("cache", name, "memoise"))
 
@@ -157,14 +162,6 @@ map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
    map
 }
 
-dir.create(file.path("cache", name, "topo"))
-height <- GetTopography(0, 180-1.5, 10.5, -89, resolution = 1.5,
-                        file.dir = file.path("cache", name, "topo")) %>% 
-   rbind(GetTopography(180+1.5, 360, 10.5, -89, resolution = 1.5,
-                       file.dir = file.path("cache", name, "topo"))) %>% 
-   as.data.table()
-
-
 coord_polar <- function(ymax = -20, ...) {
    
    x <- c(seq(0, 360, length.out = 40), 
@@ -208,12 +205,24 @@ climatology <- as.Date(c("1985-01-01", "2014-12-31"))
 is.enso34 <- function(lon, lat) {
    (abs(lat) < 5) & (ConvertLongitude(lon) %between% c(-170, -120))
 }
+source("scripts/one_plot.R")
+```
+
+
+```{r height}
+dir.create(file.path("cache", name, "topo"))
+height <- GetTopography(0, 180-1.5, 10.5, -89, resolution = 1.5,
+                        file.dir = file.path("cache", name, "topo")) %>% 
+   rbind(GetTopography(180+1.5, 360, 10.5, -89, resolution = 1.5,
+                       file.dir = file.path("cache", name, "topo"))) %>% 
+   as.data.table()
 ```
 
 
 ```{r cmip_available}
 # Tuve que optimizar algunas cosas para poder parsear miles de archivos
 cmip_available <- function(..., root = cmip_root_get()) {
+   
    template <- rcmip6:::cmip6_folder_template %>% 
       gsub("\\%\\(", "{", .) %>% 
       gsub("\\)s", "}", .)
@@ -223,7 +232,6 @@ cmip_available <- function(..., root = cmip_root_get()) {
       gsub("\\}", "", .) %>% 
       strsplit("/") %>% 
       .[[1]]
-   
    
    search_null <- rep("*", length(vars)) %>% 
       setNames(vars) %>% 
@@ -244,11 +252,11 @@ cmip_available <- function(..., root = cmip_root_get()) {
    search <- search_null
    
    search <- lapply(search, globulate)
+   search$root <- root
    
    # Hay que asegurarse de correr en bash
-   command <- paste0("ls -f ", paste0(root, "/", glue::glue_data(search, template), "/model.info"))
    command <- paste0("shopt -s extglob\n ls -f ", 
-                     paste0(root, "/", glue::glue_data(search, template), "/model.info"))
+                     paste0(glue::glue_data(search, template), "/model.info"))
    script_file <- tempfile()
    writeLines(command, script_file)
    
@@ -257,7 +265,7 @@ cmip_available <- function(..., root = cmip_root_get()) {
    info <- normalizePath(info)
    
    data <- unglue::unglue_data(gsub(cmip_root_get(), "", dirname(info)),
-                               template)
+                               gsub("\\{root\\}/", "", template))
    
    
    files <- lapply(info, function(info) {
@@ -442,6 +450,11 @@ simulaciones %>%
 Voy a calcular los cEOF multimodelo como los cEOFs promedio.
 
 ```{r era5}
+Detrend2 <- function(x) {
+   y <- seq_along(x)
+   .lm.fit(cbind(1, y, y^2), x)$residuals + mean(x)
+}
+
 era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>% 
    ReadNetCDF(vars = c(hgt = "z"), 
               subset = list(lat = c(-90, 10), 
@@ -467,10 +480,31 @@ ceof_era5 <- era5 %>%
                          data = .SD, 
                          suffix = "cEOF"))), by = .(model))
 
+
+
 ceof_era5$eof[[1]]$sdev %>% 
    DT(, let(correlation = 1, 
             angle = 0)) %>% 
    invisible()
+```
+
+```{r ceof_era5_detrend}
+ceof_era5_detrend <- era5 %>% 
+   copy() %>% 
+   DT(, hgt_z := Detrend2(hgt_z), by = .(lon, lat, plev)) %>% 
+   DT(, hgt_z := hgt_z/sd(hgt_z[time %between% year(climatology)]), by = .(plev)) %>% 
+   DT(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, plev, lat)) %>% 
+   DT(, eof := hgt_cplx) %>% 
+   DT(lat %between% c(-85, -20)) %>%
+   DT(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + plev, n = 1:2, 
+                         data = .SD, 
+                         suffix = "cEOF"))), by = .(model))
+
+ceof_era5_detrend$eof[[1]]$sdev %>% 
+   DT(, let(correlation = 1, 
+            angle = 0)) %>% 
+   invisible()
+
 ```
 
 ```{r pad_longitudes}
@@ -500,7 +534,7 @@ pad_longitudes <- function(data) {
 }
 
 interpolate_to_era <- function(data, formula = eof ~ lon + lat) {
-   Interpolate(formula, x.out = unique(ref$lon), y.out = unique(ref$lat), 
+   Interpolate(formula, x.out = unique(ref_era5$lon), y.out = unique(ref_era5$lat), 
                data = pad_longitudes(data)) 
 }
 
@@ -608,17 +642,73 @@ ceof_era5$eof[[1]]$left[, cEOF := factor(cEOF, levels = paste0("cEOF", 1:2),
                                          ordered = TRUE)]
 ceof_era5$eof[[1]]$right[, cEOF :=  factor(cEOF, levels = paste0("cEOF", 1:2),
                                            ordered = TRUE)]
+ceof_era5 <- ceof_era5
 ```
 
+```{r rotation_era5_detrended}
+with_enso <-  cut(ceof_era5_detrend$eof[[1]], 2)$left %>%
+   copy() %>%
+   enso[., on = "time"] %>% 
+   na.omit() 
+
+
+with_o3 <-  cut(ceof_era5_detrend$eof[[1]], 1)$left %>%
+   copy() %>%
+   wave1_o3[., on = "time"] %>% 
+   na.omit() 
+
+
+angles <- seq(-pi, pi, by = .5*pi/180)
+rotations_cEOF2 <- lapply(angles, function(a) {
+   with_enso %>%
+      .[, hgt2 := rotate(eof, a)] %>%
+      .[, .(R = cor(Re(hgt2), oni),
+            I = cor(Im(hgt2), oni))] %>%
+      .[, rotation := a]
+}) %>%
+   rbindlist()
+
+best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
+
+
+rotations_cEOF1 <- lapply(angles, function(a) {
+   with_o3 %>%
+      .[, hgt2 := rotate(eof, a)] %>%
+      .[, .(R = cor(Re(hgt2), amplitude),
+            I = cor(Im(hgt2), amplitude))] %>%
+      .[, rotation := a]
+}) %>%
+   rbindlist()
+
+best_rotation_cEOF1 <- rotations_cEOF1[which.max(R)]$rotation
+
+
+
+ceof_era5_detrend$eof[[1]] <- rotate_eof(ceof_era5_detrend$eof[[1]],
+                                         data.table(cEOF = c("cEOF1", "cEOF2"),
+                                                    angle = c(best_rotation_cEOF1, best_rotation_cEOF2)))
+
+
+ceof_era5_detrend$eof[[1]]$left[, cEOF := factor(cEOF, levels = paste0("cEOF", 1:2),
+                                                 ordered = TRUE)]
+ceof_era5_detrend$eof[[1]]$right[, cEOF :=  factor(cEOF, levels = paste0("cEOF", 1:2),
+                                                   ordered = TRUE)]
+
+ceof_era5_detrend <- ceof_era5_detrend
+```
 
 
 ```{r optimise_rotation}
 
-ref <- ceof_era5$eof[[1]]$right %>%
+ref_era5 <- ceof_era5$eof[[1]]$right %>%
    copy() %>% 
    setnames("eof", "eof_ref")
 
-optimise_rotation <- function(eof) {
+ref_detrended <- ceof_era5_detrend$eof[[1]]$right %>%
+   copy() %>% 
+   setnames("eof", "eof_ref")
+
+optimise_rotation <- function(eof, ref = ref_era5) {
    angles <- seq(-pi, pi, by = 0.5*pi/180)
    
    joined <- eof$right %>% 
@@ -647,7 +737,7 @@ optimise_rotation <- function(eof) {
 
 
 ```{r compute_eof}
-compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31")) {
+compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31"), detrend = FALSE) {
    message("procesando ", files[1])
    
    array <- lapply(files, function(file) {
@@ -677,6 +767,19 @@ compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31")) {
    # Calcular anomalias zonales
    array <- apply(array, whichdimnot(array, "lon"), Anomaly) %>% 
       aperm(names(dimnames(array)))
+   
+   if (detrend) {
+      # Detrend
+      ensemble_mean <- rowMeans(array, dims = 4)
+      trend <- apply(ensemble_mean, c("lon", "lat", "plev"), function(x) {
+         time <- seq_along(x)
+         x - .lm.fit(cbind(1, time, time^2), x)$residuals
+      }) %>% 
+         aperm(names(dimnames(array))[-5])
+      
+      array <- sweep(array, 1:4, trend)
+   }
+   
    
    # Estandarizar
    sd <- apply(array, "plev", sd)
@@ -742,10 +845,20 @@ compute_eof <- memoise::memoise(compute_eof_, cache = cache)
 ```{r ceofs} 
 ceofs <- simulaciones %>% 
    .[variable == "zg"] %>%
-   .[, .(eof = list(compute_eof(file, member) %>% optimise_rotation())), 
+   .[, .(eof = list(compute_eof(file, member) %>%
+                       optimise_rotation())), 
      by = model]
 ceofs <- rbind(ceofs, ceof_era5)
 # rm(ceof_era5)
+```
+
+```{r ceofs_detrend}
+ceofs_detrend <- simulaciones %>% 
+   .[variable == "zg"] %>%
+   .[, .(eof = list(compute_eof(file, member, detrend = TRUE) %>%
+                       optimise_rotation(ref = ref_detrended))), 
+     by = model]
+ceofs_detrend <- rbind(ceofs_detrend, ceof_era5_detrend)
 ```
 
 
@@ -791,30 +904,9 @@ plot_ceof <- function(data, n, which_lev = 200) {
 ```
 
 
-
 # Resultados
 
-```{r interpolated}
-interpolated <- ceofs[, eof[[1]]$right, by = model] %>% 
-   copy() %>% 
-   DT(model != "ERA5") %>% 
-   DT(, interpolate_to_era(.SD),
-      by = .(model, lev, cEOF)) %>% 
-   DT(, eof_norm := eof/max(Mod(eof), na.rm = TRUE), by = .(cEOF, lev, model))
 
-
-base <- ceof_era5[, eof[[1]]$right] %>% 
-   copy() %>% 
-   setnames("eof", "base") %>%
-   setnames("plev", "lev") %>% 
-   DT(, base := base/max(Mod(base)), by = .(cEOF, lev))
-
-cor_mmm <- interpolated %>% 
-   na.omit() %>% 
-   DT(, mean(eof_norm), by = .(cEOF, lon, lat, lev)) %>% 
-   DT(base, on = .NATURAL) %>% 
-   DT(, weighted_correlation(Re(V1), Re(base), cos(lat*pi/180)), by = .(cEOF))
-```
 
 ```{r cors}
 cors <- ceofs %>% 
@@ -825,18 +917,39 @@ cors <- ceofs %>%
    DT(, label := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")"))
 ```
 
-(ref:comparacion-r2-cap) $r^2$ de los patrones espaciales de cada modelo con ERA5 para cada cEOF.
 
-```{r comparacion-r2, fig.height=6, fig.width=6}
-cors %>% 
-   DT(model != "ERA5") %>% 
-   DT(, model := reorder(model, r2, fun = mean)) %>% 
-   ggplot(aes(r2, model)) +
-   geom_col(aes(fill = cEOF), position = "dodge") +
-   scale_fill_brewer(palette = "Set1") +
-   scale_x_continuous("R^2 espacial", limits = c(0, 1)) +
-   scale_y_discrete(NULL)
+
+(ref:comparacion-r2-cap) $r^2$ de los patrones espaciales de cada modelo con ERA5 para cada cEOF. `r change_plot_links("comparacion-r2", c("Tendencioso", "Destendenciado"))`
+
+```{r comparacion-r2, fig.height=6, fig.width=6, one_figure = TRUE, cache = FALSE}
+list(
+   cors %>% 
+      DT(model != "ERA5") %>% 
+      DT(, model := reorder(model, r2, fun = mean)) %>% 
+      ggplot(aes(r2, model)) +
+      geom_col(aes(fill = cEOF), position = "dodge") +
+      scale_fill_brewer(palette = "Set1") +
+      scale_x_continuous("R^2 espacial", limits = c(0, 1)) +
+      scale_y_discrete(NULL) +
+      labs(caption = "Con tendencia"), 
+   
+   ceofs_detrend %>% 
+      DT(, eof[[1]]$sdev, by = model) %>% 
+      # DT(model != "ERA5") %>% 
+      copy() %>% 
+      DT(, r2 := correlation^2) %>% 
+      DT(, label := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")) %>% 
+      DT(model != "ERA5") %>% 
+      DT(, model := reorder(model, r2, fun = mean)) %>% 
+      ggplot(aes(r2, model)) +
+      geom_col(aes(fill = cEOF), position = "dodge") +
+      scale_fill_brewer(palette = "Set1") +
+      scale_x_continuous("R^2 espacial", limits = c(0, 1)) +
+      scale_y_discrete(NULL) +
+      labs(caption = "Sin tendencia")
+)
 ```
+
 
 La Figura\ \@ref(fig:comparacion-r2) muestra el $r^2$ de los modelos para los dos cEOFs. 
 Por alguna razón los valores del superensemble tienen menos correlación que los miembros en promedio ¯\\\_(ツ)_/¯. 
@@ -848,12 +961,23 @@ En general los patrones son bastante similares, especialmente en la estratósfer
 Sin embargo, la localización de los centros no parece estar muy bien en algunos modelos. 
 En 50 hPa IPSL-CM6A-LR, CNRM-CM6-1 y CNRM-ESM2-1 tienen la onda corrida hacia el oeste y un r^2 relativamente bajo.
 
-```{r ceofs-1-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 50 hPa."}
-plot_ceof(ceofs, 1, 50)
+(ref:ceofs-1-50-cap) Campos espaciales de cEOF1 en 50 hPa. `r change_plot_links("ceofs-1-50", c("Tendencioso", "Destendenciado"))`
+
+```{r ceofs-1-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
+list(
+   plot_ceof(ceofs, 1, 50) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend, 1, 50) + labs(caption = "Sin tendencia")
+)
 ```
 
-```{r ceofs-1-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF1 en 200 hPa."}
-plot_ceof(ceofs, 1, 200)
+
+(ref:ceofs-1-200-cap) Campos espaciales de cEOF1 en 200 hPa. `r change_plot_links("ceofs-1-200", c("Tendencioso", "Destendenciado"))`
+
+```{r ceofs-1-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
+list(
+   plot_ceof(ceofs, 1, 200) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend, 1, 200) + labs(caption = "Sin tendencia")
+)
 ```
 
 En 200 hPa la cosa es un poco más compleja por los detalles de escala más chica, pero en general parece bien. 
@@ -861,12 +985,22 @@ En 200 hPa la cosa es un poco más compleja por los detalles de escala más chic
 
 En las Figuras\ \@ref(fig:ceofs-2-50)  y \@ref(fig:ceofs-2-200) se muestran lo mismo que antes pero para el cEOF2. 
 
-```{r ceofs-2-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 50 hPa."}
-plot_ceof(ceofs, 2, 50)
+(ref:ceofs-2-50-cap) Campos espaciales de cEOF2 en 50 hPa. `r change_plot_links("ceofs-2-50", c("Tendencioso", "Destendenciado"))`
+
+```{r ceofs-2-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
+list(
+   plot_ceof(ceofs, 2, 50) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend, 2, 50) + labs(caption = "Sin tendencia")
+)
 ```
 
-```{r ceofs-2-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, fig.cap = "Campos espaciales de cEOF2 en 200 hPa."}
-plot_ceof(ceofs, 2, 200)
+(ref:ceofs-2-200-cap) Campos espaciales de cEOF2 en 200 hPa. `r change_plot_links("ceofs-2-200", c("Tendencioso", "Destendenciado"))`
+
+```{r ceofs-2-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
+list(
+   plot_ceof(ceofs, 2, 200) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend, 2, 200) + labs(caption = "Sin tendencia")
+)
 ```
 
 
@@ -874,32 +1008,76 @@ plot_ceof(ceofs, 2, 200)
 
 Finalmente, la Figura \@ref(fig:mmm) muestra los patrones promedio multimodelo para cada cEOF y cada parte. 
 
-(ref:mmm-cap) Media multimodelo (sombreado) de los campos espaciales de cada cEOF, parte y nivel. Los contornos marcan los patrones de ERA5. El $r^2$ entre ERA5 y la media multimodelo está entre paréntesis.
 
-```{r mmm, fig.width=10}
-ceof_labs <- cor_mmm %>% 
-   DT(, paste0(cEOF, "\n(", scales::percent(V1^2, 0.1), ")") %>% 
-         setNames(cEOF)
-   )
 
-interpolated %>% 
-   DT(, mean(eof_norm), by = .(cEOF, lon, lat, lev)) %>% 
-   sep_ReIm() %>% 
-   periodic_lon() %>% 
-   ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = V1), breaks = AnchorBreaks(exclude = 0)) +
-   geom_contour2(aes(z = base, linetype = factor(-sign(..level..))),
-                 data = sep_ReIm(base) %>% periodic_lon(),
-                 breaks = AnchorBreaks(exclude = 0)) +
-   scale_linetype(guide = "none") +
-   scale_fill_divergent(guide = "none") +
-   geom_qmap(crop = c(ymax = -20)) +
-   scale_x_longitude() +
-   scale_y_latitude(limits = c(-90, NA)) +
-   coord_polar() +
-   ggh4x::facet_nested(lev ~ cEOF + part, labeller = labeller(lev = AddSuffix(" hPa"),
-                                                              cEOF = ceof_labs))
+```{r plot_mmm}
+plot_mmm <- function(trends = TRUE) {
+   if (trends) {
+      ceof_cmip6 <- ceofs
+      ceof_era <- ceof_era5
+      lab <- "Con tendencia"
+   } else {
+      ceof_cmip6 <- ceofs_detrend
+      ceof_era <- ceof_era5_detrend
+      lab <- "Sin tendencia"
+   }
+   
+   interpolated <- ceof_cmip6[, eof[[1]]$right, by = model] %>% 
+      copy() %>% 
+      DT(model != "ERA5") %>% 
+      DT(, interpolate_to_era(.SD),
+         by = .(model, lev, cEOF)) %>% 
+      DT(, eof_norm := eof/max(Mod(eof), na.rm = TRUE), by = .(cEOF, lev, model))
+   
+   
+   base <- ceof_era[, eof[[1]]$right] %>% 
+      copy() %>% 
+      setnames("eof", "base") %>%
+      setnames("plev", "lev") %>% 
+      DT(, base := base/max(Mod(base)), by = .(cEOF, lev))
+   
+   cor_mmm <- interpolated %>% 
+      na.omit() %>% 
+      DT(, mean(eof_norm), by = .(cEOF, lon, lat, lev)) %>% 
+      DT(base, on = .NATURAL) %>% 
+      DT(, weighted_correlation(Re(V1), Re(base), cos(lat*pi/180)), by = .(cEOF))
+   
+   ceof_labs <- cor_mmm %>% 
+      DT(, paste0(cEOF, "\n(", scales::percent(V1^2, 0.1), ")") %>% 
+            setNames(cEOF)
+      )
+   
+   interpolated %>% 
+      DT(, mean(eof_norm), by = .(cEOF, lon, lat, lev)) %>% 
+      sep_ReIm() %>% 
+      periodic_lon() %>% 
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(aes(z = V1), breaks = AnchorBreaks(exclude = 0)) +
+      geom_contour2(aes(z = base, linetype = factor(-sign(..level..))),
+                    data = sep_ReIm(base) %>% periodic_lon(),
+                    breaks = AnchorBreaks(exclude = 0)) +
+      scale_linetype(guide = "none") +
+      scale_fill_divergent(guide = "none") +
+      geom_qmap(crop = c(ymax = -20)) +
+      scale_x_longitude() +
+      scale_y_latitude(limits = c(-90, NA)) +
+      coord_polar() +
+      facet_grid(lev ~ cEOF + part, labeller = labeller(lev = AddSuffix(" hPa"),
+                                                        cEOF = ceof_labs)) +
+      labs(caption = lab)
+}
 ```
+
+(ref:mmm-cap) Media multimodelo (sombreado) de los campos espaciales de cada cEOF, parte y nivel. Los contornos marcan los patrones de ERA5. El $r^2$ entre ERA5 y la media multimodelo está entre paréntesis. `r change_plot_links("mmm", c("Tendencioso", "Destendenciado"))`.
+
+```{r mmm, fig.width=10, one_figure = TRUE}
+list(
+   plot_mmm(TRUE),
+   plot_mmm(FALSE)
+)
+```
+
+
 
 El patrón medio multimodelo es increíblemente similar al patrón de ERA5, con niveles de $r^2$ del orden del 90%. 
 
@@ -1106,9 +1284,13 @@ enso_cmip %>%
 Finalmente, queremos evaluar si los modelos capturan correctamente la relación entre los modos y las anomalías de temperatura de la superficie del mar. 
 
 ```{r regress_sst}
-standardised <- ceofs[, eof[[1]]$left, by = model] %>%
+standardised <- rbind(
+   con = ceofs[, eof[[1]]$left, by = model],
+   sin = ceofs_detrend[, eof[[1]]$left, by = model], idcol = "tendencia"
+) %>% 
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model, ensemble, cEOF)] 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, ensemble, cEOF, tendencia)]
+
 
 regress_sst_ <- function(..model) {
    sst_files <- simulaciones %>% 
@@ -1127,7 +1309,7 @@ regress_sst_ <- function(..model) {
    })
    
    data <- rbindlist(data)
-   data[, sst := Detrend(sst), by = .(lon, lat, ensemble)]
+   data[, sst := Detrend2(sst), by = .(lon, lat, ensemble)]
    
    enso34 <- data %>% 
       .[is.enso34(lon, lat)] %>% 
@@ -1146,27 +1328,25 @@ regress_sst_ <- function(..model) {
       s %>%
          .[, hgt2 := rotate(eof, a)] %>%
          .[, .(R = cor(Re(hgt2), enso34),
-               I = cor(Im(hgt2), enso34)), by = ensemble] %>%
+               I = cor(Im(hgt2), enso34)), by = .(tendencia, ensemble)] %>%
          .[, rotation := a]
    }) %>%
       rbindlist()
    
    best_rotation_cEOF2 <- rotations_cEOF2[I > 0] %>% 
-      .[, .SD[which.min(abs(R))]$rotation, by = ensemble] %>% 
+      .[, .SD[which.min(abs(R))]$rotation, by = .(tendencia, ensemble)] %>% 
       .[, cEOF := "cEOF2"]
    
    regression <- standardised %>% 
       .[model == ..model] %>% 
       .[ensemble %in% unique(data$ensemble)] %>%
-      best_rotation_cEOF2[., on = c("ensemble", "cEOF")] %>%
+      best_rotation_cEOF2[., on = c("ensemble", "cEOF", "tendencia")] %>%
       .[cEOF == "cEOF2", eof := rotate(eof, V1)] %>% 
       .[, V1 := NULL] %>% 
       sep_ReIm(format = "wider") %>% 
-      .[, `:=`(Real = Detrend(Real), Imaginary = Detrend(Imaginary)), 
-        by = .(model, ensemble, cEOF)] %>% 
       data[., on = c("time", "ensemble"), allow.cartesian = TRUE] %>% 
       .[, FitLm(sst, Real, Imaginary, se = TRUE), 
-        by = .(lon, lat, cEOF, model)] %>% 
+        by = .(lon, lat, cEOF, model, tendencia)] %>% 
       .[term != "(Intercept)"] %>% 
       .[, model := NULL]
    
@@ -1181,16 +1361,16 @@ regress_sst <- memoise::memoise(regress_sst_, cache = cache)
 
 ```{r sst_regression}
 sst_regression <- simulaciones %>% 
-   # .[model %in% "IPSL-CM6A-LR"] %>%
    .[, regress_sst(model[1]), by = .(model)]
 ```
 
 
 ```{r plot_sst_regression}
-plot_sst_regression <- function(which_ceof) {
+plot_sst_regression <- function(sst_regression, which_ceof, which_tendencia = "con") {
    which_ceof <- paste0("cEOF", which_ceof)
    sst_regression %>% 
       .[cEOF == which_ceof] %>% 
+      .[tendencia == which_tendencia] %>% 
       copy() %>% 
       .[!is.na(estimate)] %>% 
       .[, p.val := Pvaluate(estimate, std.error, df, "fdr"), 
@@ -1198,7 +1378,7 @@ plot_sst_regression <- function(which_ceof) {
       .[, estimate := estimate/sd(estimate), by = .(model)] %>%
       .[, enso := mean(estimate[is.enso34(lon, lat) & term == "Imaginary"]), 
         by = .(cEOF, model)] %>%
-      .[, model := reorder(model, -enso)] %>%
+      # .[, model := reorder(model, -enso)] %>%
       # .[model == "CESM2"] %>%
       ggplot(aes(lon, lat)) +
       geom_contour_fill(aes(z = estimate),
@@ -1220,20 +1400,28 @@ plot_sst_regression <- function(which_ceof) {
 }
 ```
 
-(ref:sst-1-cap) Regresión de cEOF1 con la SST para la parte real e imaginaria. 
+(ref:sst-1-cap) Regresión de cEOF1 con la SST para la parte real e imaginaria. `r change_plot_links("sst-1", c("Tendencioso", "Destendenciado"))` 
 
 La Figura \@ref(fig:sst-1) muetra la regresión para el cEOF1. 
 Todos los modelos tienne valores de regresión altos y significativos en casi todo el globo. 
 Esto no es consistente con lo observado en ERA5, en donde no hay relación entre el cEOF1 y las SSTs. 
 
-```{r sst-1, fig.height=20, fig.width=7}
-plot_sst_regression(1)
+```{r sst-1, fig.height=20, fig.width=7, one_figure = TRUE}
+list(
+   plot_sst_regression(sst_regression, 1, "con") + labs(caption = "Con tendencia"),
+   plot_sst_regression(sst_regression, 1, "sin") + labs(caption = "Sin tendencia")
+)
+
 ```
 
-(ref:sst-2-cap) Igual que Figura \@ref(fig:sst-1) pero para el cEOF2.
+(ref:sst-2-cap) Igual que Figura \@ref(fig:sst-1) pero para el cEOF2. `r change_plot_links("sst-2", c("Tendencioso", "Destendenciado"))` 
 
-```{r sst-2, fig.height=20, fig.width=7}
-plot_sst_regression(2)
+```{r sst-2, fig.height=20, fig.width=7, one_figure = TRUE}
+list(
+   plot_sst_regression(sst_regression, 2, "con") + labs(caption = "Con tendencia"),
+   plot_sst_regression(sst_regression, 2, "sin") + labs(caption = "Sin tendencia")
+)
+
 ```
 
 La Figura \@ref(fig:sst-2) muestra lo mismo para el cEOF2. 
@@ -1245,12 +1433,13 @@ La Figura \@ref(fig:sst-mmm) muestra el promedio multimodelo de estas regresione
 
 (ref:sst-mmm-cap) Promedio multimodelo de las regresiones de las figuras \@ref(fig:sst-1) y \@ref(fig:sst-2). 
 
-```{r sst-mmm, fig.width=9, fig.height=4}
+```{r sst-mmm, fig.width=9, fig.height=6.5}
 sst_regression %>% 
    copy() %>% 
-   .[, .(estimate = mean(estimate)), by = .(lon, lat, cEOF, model, term)] %>% 
-   .[, estimate := estimate/sd(estimate), by = .(model, cEOF)] %>%
-   .[, .(estimate = mean(estimate)), by = .(term, lon, lat, cEOF)] %>% 
+   na.omit() %>% 
+   .[, .(estimate = mean(estimate)), by = .(lon, lat, cEOF, model, term, tendencia)] %>% 
+   .[, estimate := estimate/sd(estimate), by = .(model, cEOF, tendencia)] %>%
+   .[, .(estimate = mean(estimate)), by = .(term, lon, lat, cEOF, tendencia)] %>% 
    ggplot(aes(lon, lat)) +
    geom_contour_fill(aes(z = estimate), breaks = AnchorBreaks(binwidth = 0.5, exclude = 0)) +
    
@@ -1262,7 +1451,9 @@ sst_regression %>%
                  size = 0.2, breaks = 0) +
    scale_y_latitude() +
    scale_x_longitude() +
-   facet_grid(cEOF ~ term) +
+   facet_grid(cEOF + tendencia ~ term, 
+              labeller = labeller(tendencia = c(con = "Tendencioso", 
+                                                sin = "Destendenciado"))) +
    coord_quickmap()
 ```
 
@@ -1423,7 +1614,9 @@ compute_trend <- memoise::memoise(compute_trend_, cache = cache)
 
 trends <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, compute_trend(file), by = .(model, member)]
+   .[, compute_trend(file), by = .(model, member)] %>% 
+   .[, lev := plev/100] %>% 
+   .[, plev := NULL]
 ```
 
 ```{r, results='asis'}
@@ -1436,30 +1629,32 @@ function change_tendencias(newVal){{
 ')
 ```
 
+
+
 ```{r guardar-tendencias}
 folder <- knitr::opts_chunk$get("fig.path")
-for (lev in unique(trends$plev)) {
+for (this_lev in unique(trends$lev)) {
    trends %>% 
-      .[plev == lev] %>% 
-      .[, .(estimate = mean(value)), by = .(model, lon, lat, plev)] %>% 
-      .[, estimate := Anomaly(estimate), by = .(model, plev, lat)] %>% 
+      .[lev == this_lev] %>% 
+      .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
+      .[, estimate := Anomaly(estimate), by = .(model, lev, lat)] %>% 
       
       # ggperiodic::periodic(lon = c(0, 360)) %>% 
       ggplot(aes(lon, lat)) +
       geom_contour_fill(aes(z = estimate, fill = stat(level)), 
                         breaks = AnchorBreaks(exclude = 0)) +
-      scale_fill_divergent_discretised(paste0(lev/100, " hPa"), 
+      scale_fill_divergent_discretised(paste0(this_lev, " hPa"), 
                                        guide = guide_coloursteps(barwidth = 20,
-                                                                       barheight = 1, 
-                                                                       frame.colour = "black")) +
+                                                                 barheight = 1, 
+                                                                 frame.colour = "black")) +
       geom_qmap(crop = c(ymax = -20)) +
       scale_x_longitude() +
       scale_y_latitude(limits = c(-90, NA)) +
       coord_polar() +
       facet_wrap(model ~ .)
    
-   file <- glue::glue("tendencias-{lev/100}.png")
-
+   file <- glue::glue("tendencias-{this_lev/100}.png")
+   
    ggsave(file.path(folder, file), width = 6, height = 8, bg = "white")
 }
 
@@ -1472,6 +1667,78 @@ for (lev in unique(trends$plev)) {
 knitr::include_graphics(file.path(folder, "tendencias-50.png"))
 ```
 
+```{r}
+trends %>% 
+   .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
+   .[, interpolate_to_era(.SD, estimate ~ lon + lat), 
+     by = .(model, lev)] %>% 
+   
+   .[, .(estimate = mean(estimate)), by = .(lon, lat, lev)] %>% 
+   .[, estimate := Anomaly(estimate), by = .(lat, lev)] %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = estimate, fill = stat(level)), 
+                     breaks = AnchorBreaks(exclude = 0)) +
+   scale_fill_divergent_discretised(guide = guide_coloursteps(barwidth = 20,
+                                                              barheight = 1, 
+                                                              frame.colour = "black")) +
+   geom_qmap(crop = c(ymax = -20)) +
+   scale_x_longitude() +
+   scale_y_latitude(limits = c(-90, NA)) +
+   coord_polar() +
+   facet_wrap(lev~.)
+
+```
+
+
+```{r}
+cor_rotations <- function(z, y, res = 0.5, 
+                          angles = seq(0, pi, by = res*pi/180)) {
+   
+   correlations <- vapply(angles, function(angle) {
+      z <- rotate(z, angle)
+      cor(Re(z), y)
+   }, numeric(1))
+   
+   list(angle = angles, 
+        correlation = correlations)
+}
+
+
+```
+
+```{r}
+correlation_trends <- trends %>% 
+   copy() %>% 
+   .[, value := Anomaly(value), by = .(lat, lev, model, member)] %>% 
+   # .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
+   .[ceofs[, eof[[1]]$right, by = model][model != "ERA5"], 
+     on = c("model", "lon", "lat", "lev"),
+     allow.cartesian = TRUE] %>%
+   .[, cor_rotations(eof, value, res = 1), by = .(lev, model, cEOF, member)]
+```
+
+
+```{r, fig.height=8, fig.width=7}
+correlation_trends %>% 
+   .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
+   .[, angle := NULL] %>% 
+   # .[, .(estimate = mean(correlation)), by = .(lev, model, cEOF)] %>% 
+   ggplot(aes(correlation, model)) +
+   geom_violin(aes(color = cEOF)) +
+   # geom_col(aes(fill = cEOF), position = "dodge") +
+   facet_wrap(~lev) +
+   scale_x_continuous(NULL, limits = c(0, 1)) +
+   scale_y_discrete(NULL)
+```
+
+```{r}
+correlation_trends %>% 
+   .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
+   .[, angle := NULL] %>% 
+   tidyfast::dt_pivot_wider(names_from = cEOF, values_from = correlation) %>%
+   .[, cor(cEOF1, cEOF2), by = .(model, lev)] %>% 
+   .[order(-V1)]
+```
 
 
 ```{r eof_proyectado}
@@ -1570,7 +1837,7 @@ eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
 ```{r ceof_largo_p}
 ceof_largo_p <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, eof_proyectado_(file, member, model), by = model] 
+   .[, eof_proyectado(file, member, model), by = model] 
 ```
 
 
