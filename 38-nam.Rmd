@@ -1,0 +1,308 @@
+---
+title: "NAM"
+author: "Elio"
+date: "10/27/2022"
+output: 
+   html_document:
+      code_folding: "hide"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	cache = TRUE
+)
+library(metR)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(ggperiodic)
+here <- here::here
+
+source(here("scripts", "helperfun.R"))
+source(here("scripts", "data_locations.R"))
+
+hemisphere <- function(lat) {
+   factor(ifelse(lat < 0, "sh", "nh"), levels = c("nh", "sh"),
+          labels = c("Hemisferio norte", 
+                     "Hemisferio sur"), 
+          ordered = TRUE)
+}
+
+sink <- capture.output(sf::sf_use_s2(FALSE))
+geom_qmap <- function(subset = identity,
+                      crop = NULL,
+                      color = "gray50", size = 0.3,
+                      fill = NA, wrap = c(0, 360), weighting = 0.7,
+                      keep = 0.015, ...) {
+   lon <- lat <- group <- NULL
+   data <- map_simple(wrap = wrap, keep  = keep, weighting = weighting)
+   
+   if (!is.null(crop)) {
+      bbox <- sf::st_bbox(data)
+      
+      for (n in names(crop)) {
+         bbox[[n]] <- crop[[n]]
+      }
+      
+      data <- suppressWarnings(suppressMessages(sf::st_crop(data, bbox)))
+   }
+   
+   
+   subset <- purrr::as_mapper(subset)
+   data <- subset(data)
+   
+   ggplot2::geom_sf(data = data,
+                    inherit.aes = FALSE,
+                    color = color,
+                    size = size,
+                    fill = fill,
+                    ...)
+   
+}
+
+map_simple <- function(wrap = c(0, 360), keep = 0.015, weighting = 0.7) {
+   map <- maps::map("world", fill = TRUE,
+                    col = "transparent", plot = FALSE, wrap = wrap)
+   map <- sf::st_as_sf(map)
+   if (keep != 1) {
+      map <- rmapshaper::ms_simplify(map, keep = keep, weighting = weighting)
+   }
+   
+   
+   map
+}
+
+
+coord_polar <- function(ymax = 20, ...) {
+   
+   x <- c(seq(0, 360, length.out = 40), 
+          seq(360, 0, length.out = 40), 
+          0)
+   y <- c(rep(ymax, length.out = 40), 
+          rep(-60, length.out = 40), 
+          ymax)
+   
+   cbind(x, y) %>% 
+      list() %>% 
+      sf::st_polygon() %>% 
+      sf::st_sfc(crs = "+proj=latlong") -> white
+   
+   list(
+      geom_sf(data = white, inherit.aes = FALSE, 
+              fill = "white", 
+              colour = "white", size = 2),
+      coord_sf(ylim = c(ymax, 90), 
+               lims_method = "box",
+               crs = "+proj=laea +lat_0=90",
+               default_crs = "+proj=longlat",
+               label_axes =  "----", ...)
+   )
+}
+
+```
+
+
+```{r hgt}
+hgt <- ReadNetCDF(ERA5(), 
+                  subset = list(time = c("1979-01-01", "2000-12-01"),
+                                lev = 1000, 
+                                lat = c(90, 20)),
+                  vars = c(hgt = "z")) %>% 
+   .[, hgt := hgt/9.8] %>% 
+   .[, hgt_a := hgt - mean(hgt), by = .(lon, lat, month(time))]
+```
+
+
+```{r nam}
+nam <- hgt %>% 
+   .[, hgt_a := hgt_a*sqrt(cos(lat*pi/180))] %>% 
+   EOF(hgt_a ~ time | lon + lat, n = 1, data = .)
+```
+
+The Northern Annular Mode is the leading EOF of NH circulation. 
+Here, shown as the leading EOF of monthly geopotential height anomalies between 1979 and 2000 at 1000 hPa, following the [CPC methodology](https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_ao_index/ao.loading.shtml).
+
+```{r plot-nam}
+nam$right %>% 
+   ggperiodic::periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = hgt_a)) +
+   # scale_x_longitude(xwrap = c(-180, 360)) +
+   # scale_y_latitude(limits = c(20, 90)) +
+   scale_fill_divergent() +
+   geom_qmap() +
+   coord_polar() 
+```
+
+
+It's not really all that "annular".
+It's actually a positive anomaly over the Artic and two negative anomalies over the northern Atlantic and Northern Pacific (or viceversa depending on the sign).
+
+The question is, are the hihger latitude anomalies co-ocurring? 
+In other words, is this an hemispheric pattern or is it two relatiely independend patterns --the Atlantic and Pacific anomalies-- that are mixed into a single EOF? 
+
+
+
+```{r lon_eofs}
+lon_width <- 90
+lon_halfwidth <- lon_width/2
+
+hgt2 <- qwrap(hgt, lon = c(0, 360) ~ c(-lon_halfwidth, 360 + lon_halfwidth)) 
+
+lon_eofs <- lapply(unique(hgt$lon), function(base_lon) {
+   hgt2 %>% 
+      .[lon %between% (base_lon + c(-lon_halfwidth, lon_halfwidth))] %>% 
+      .[, .(eof = list(EOF(hgt_a ~ time | lon + lat, n = 1, data = .)))] %>% 
+      .[, base_lon := base_lon] %>% 
+      .[]
+}) %>% 
+   rbindlist()
+
+
+lons <- lon_eofs$base_lon
+l <- 2
+
+for (l in seq_along(lons)[-1]) {
+   cor <- lon_eofs[base_lon %in% lons[seq(l-1, l)]] %>% 
+      .[, eof[[1]]$left, by = base_lon] %>% 
+      .[, cor(hgt_a[base_lon == lons[l-1]], hgt_a[base_lon == lons[l]])]
+   
+   correction <- sign(cor)
+   
+   lon_eofs[base_lon == lons[l], eof[[1]]$left[, hgt_a := hgt_a*correction]] 
+   lon_eofs[base_lon == lons[l], eof[[1]]$right[, hgt_a := hgt_a*correction]] 
+   
+}
+
+```
+
+
+To look into this question I compute the leading EOF of these sama data, but using overlapping 90 degree segments centered at all longitudes. 
+This results into `r length(lons)` local EOFS, one at each longitude. 
+If the NAM is an hemispheric phenomena, then all these indices should be farily well correlated with each other. 
+On the other hand, it it was a mix of differnet local modes, then we would expect to see a lack of correlation between separated lontiudes. 
+
+```{r geom_nam} 
+geom_nam <- function() {
+   geom_contour2(data = nam$right %>% periodic(lon = c(0, 360)),
+                 aes(z = hgt_a, linetype = factor(-sign(..level..)))) 
+}
+```
+
+The next figure shows the result of ploting the central part of each local EOF. 
+The result fits the NAM pattern really well. 
+The straight lines separate the hemisphere into two sections whose importance will be dicussed below.
+
+```{r plot-lon-eofs}
+#| fig.cap: Leading EOF computed at 90degree chunks centered at each longitude (shaded) and leading EOF computed using the whole domain (contours). The black lines at 145E and 110W divide the hemisphere into two segments based on the cross-correlation shown in the next figure. 
+
+lon_eofs[, eof[[1]]$right, by = .(base_lon)] %>% 
+   # .[, .(hgt = mean(hgt)), by = .(lon = base_lon, lat, PC)] %>% 
+   .[base_lon == lon] %>%
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = hgt_a)) +
+   annotate("segment", x = c(145, 360 - 100), xend =  c(145, 360 - 100),
+            y = c(20, 20), yend = c(89, 89)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent(NULL) +
+   geom_qmap() +
+   geom_nam() +
+   coord_polar() 
+```
+
+
+Now, I compute the crosscorrelation between all pairs of indices, which is shown in the next figure.
+
+```{r plot-cor}
+#| fig.cap: Cross-coreltion between the time series of each local EOF. 
+ 
+lon_eofs[, eof[[1]]$left, by = .(lon = base_lon)] %>% 
+   .[, widyr::pairwise_cor(.SD, lon, time, hgt_a), by = PC] %>% 
+   # ggperiodic::qwrap(item1 = c(0, 360) ~ c(0, 360+180)) %>%
+   ggplot(aes(item1, item2)) +
+   geom_contour_fill(aes(z = correlation), na.fill = TRUE) +
+   # geom_raster(aes(fill = correlation)) +
+   scale_fill_divergent("Correlation", limits = c(-1, 1)) +
+   scale_x_longitude() +
+   scale_y_longitude() +
+   geom_vline(xintercept = c(145, 360 - 100)) +
+   coord_equal()
+```
+
+There are two celarly delineated sections that have high correlation among each other. 
+The local EOFs that lay between 145E and 100W (black lines in the two previous figures) are extremely well correlated among themselves, but the correlation drops sharply when going outside that area. 
+On the other had, local EOFs outside that section are highly correlated among themselves, especially between 100W and 0 degrees. 
+
+This strongly suggest that these are two relatively decoupled local modes insted of a global mode. 
+
+The next figure shows the correlation between geopotential height anomalies at 1000 hPa and two local EOFs seleted to be representative of the two highly cross-correlated sections. 
+
+```{r plot-field-cor} 
+#| fig.cap: Correlation between 1000 hPa geopotential height and the local EOF centered at 190E and 60W (makred with black lines) (shaded) and NAM (contours).
+
+select <- c(190, 300)
+lon_eofs[, eof[[1]]$left, by = .(lon = base_lon)] %>% 
+   .[lon %in% select] %>% 
+   setnames(c("lon", "hgt_a"), c("index", "eof")) %>% 
+   .[] %>% 
+   # tidyfast::dt_pivot_wider(names_from = index, values_from = eof) %>% 
+   hgt[., on = "time", allow.cartesian = TRUE] %>% 
+   .[, cor(hgt_a, eof), by = .(lon, lat, index)] %>% 
+   # .[, FitLm(hgt_a, `10`, `190`), by = .(lon, lat)] %>% 
+   # .[term != "(Intercept)"] %>% 
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = V1)) +
+   # annotate("segment", x = c(145, 360 - 100), xend =  c(145, 360 - 100),
+   #          y = c(20, 20), yend = c(89, 89)) +
+   geom_segment(data = data.table(x = select, xend = select, 
+                                  y = 20, yend = 90, index = select),
+                aes(x = x, xend = xend, y = y, yend = yend)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent("Cor") +
+   geom_qmap() +
+   geom_contour2(data = nam$right %>% ggperiodic::periodic(lon = c(0, 360)),
+                 aes(z = hgt_a, linetype = factor(-sign(..level..)))) +
+   coord_polar() +
+   facet_wrap(~index)
+```
+
+One of the local EOFs is associated with a negative anomaly in the northern Pacific which is co-located with the corresponding negative NAM anomaly.
+Notably, it is **not** associated with significant anomalies in the northern Atlantic area. 
+
+Conversely, the other local EOF is associated with the NAM anomalies in the northern Atlantic but **not** with the NAM anomaly in the northern Pacific. 
+
+This, again, is highly suggestive that these are two separeted modes which are relatively independent and not co-ocurring. 
+
+
+For a further example of how disparate these modes can be, the next figure shows the correlation between each local EOF and the ONI index, showing that the Atlantic EOF is moderatedly correlated with ENSO, but not the local EOFs outside of it.
+
+```{r plot-ensocor}
+#| fig.cap: Correlation between each local EOF and the Oceanic Niño Index (ONI). The horizontal dashed line marks the correlatino between the NAM and the ONI.
+enso <- rsoi::download_oni(TRUE) %>% 
+   as.data.table() %>% 
+   .[, .(time = as.POSIXct(Date), oni = ONI)]
+
+all_correlation <- nam$left %>% 
+   enso[., on = "time"] %>% 
+   na.omit() %>% 
+   .[, cor(oni, hgt_a)]
+
+lon_eofs[, eof[[1]]$left, by = .(lon = base_lon)] %>% 
+   enso[., on = "time"] %>% 
+   na.omit() %>% 
+   .[, cor(hgt_a, oni), by = .(lon)] %>% 
+   ggplot(aes(lon, V1)) +
+   geom_line() +
+   geom_hline(yintercept = all_correlation, linetype = 2) +
+   geom_vline(xintercept = c(145, 360 - 100)) + 
+   scale_x_longitude() 
+```
+
+
