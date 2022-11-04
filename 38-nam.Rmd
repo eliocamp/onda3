@@ -127,11 +127,12 @@ nam <- hgt %>%
    # copy() %>% 
    .[, hgt_a := hgt_a*sqrt(cos(lat*pi/180))] %>% 
    .[, .(eof = list(EOF(hgt_a ~ time | lon + lat, n = 1, data = .SD))), by = lev]
+
 ```
 
 
 The Northern Annular Mode is the leading EOF of NH circulation. 
-Here, shown as the leading EOF of monthly geopotential height anomalies between 1979 and 2000 at 1000 hPa, following the [CPC methodology](https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_ao_index/ao.loading.shtml). 
+Here, shown as the leading EOF of monthly geopotential height anomalies between 1979 and 2000 at 1000 hPa, following the [CPC methodology](https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_ao_index/ao.loading.shtml). I will also compute the leading EOF at 200 hPa and 50 hPa to get a sense of how this changes vertically. 
 
 ```{r plot-nam, fig.height = 4, fig.width=9}
 #| fig.cap: Leading EOF of monthly geopotential anomalies north of 20º at each level.
@@ -324,7 +325,7 @@ Higher levels are not as clustered.
 
 Local EOFs at 200 hPa show some vestigial elements of the correlation structure at 1000 hPa but is not as clear. What it is clearer is the lack of correlation between the Pacific and Eurasian sectors. 
 
-Local EOFs at 50 hPa seem to be well correlated along the whole hemisphere. The minimum correlation is between North America and European local EOFs, but even those are a very respectable 0.4. This suggests a more robust hemispheric mode. 
+Local EOFs at 50 hPa seem to be well correlated along the whole hemisphere. The minimum correlation is between North America and European local EOFs, but even those are a very respectable 0.4. This suggests a more robust hemispheric mode that could easily earn the "Northern Annular Mode" designation. 
 
 This regionalisation of the local EOFs at 1000 hPa is broadly applicable to all trimesters, as shown in the next figure. 
 
@@ -351,27 +352,32 @@ lon_eofs[, eof[[1]]$left, by = .(lon = base_lon, lev)] %>%
 
 The next figure shows the correlation between geopotential height anomalies at 1000 hPa and these regional EOFs defined as the mean index of the local EOFs belonging to that region. 
 
-```{r plot-field-cor, fig.height = 5, fig.width=9} 
-#| fig.cap: Correlation between 1000 hPa geopotential height and the regional EOF index computed as the mean indices of local EOFs belonging to that region (shaded) and NAM (contours).
+```{r plot-field-cor, fig.height = 9, fig.width=9} 
+#| fig.cap: Correlation between 1000 hPa regional EOF indices computed as the mean indices of local EOFs at 1000 hPa belonging to that region and geopotential height at different levels (shaded) and the NAM pattern (contours). (i.e. the 50 hPa level is the correlation between 50 hPa geopotential height and the 1000 hPa regional EOF, **not** the 50 hPa regional EOF.)
 
 # Hard coded :'(
 sections2 <- sections[lev == 1000] %>% 
    # .[-1] %>%
    .[, name := c("Atlantic", "Eurasian", "Pacific", "Atlantic")] %>% 
    melt(id.vars = c("lev", "name")) %>% 
-   .[-c(1, .N)]
+   .[-c(1, .N)] %>% 
+   .[, lev := NULL]
 
+hgt[, hgt_a := hgt - mean(hgt), by = .(lon, lat, lev, month(time))]
 
-lon_eofs[, eof[[1]]$left, by = .(lon = base_lon, lev)] %>% 
+cors <- lon_eofs[, eof[[1]]$left, by = .(lon = base_lon, lev)] %>% 
    .[lev == 1000] %>% 
    divisions[., on = c("lon", "lev")] %>% 
    section_label[., on= "group"] %>% 
-   .[, .(eof = mean(hgt_a)), by = .(time, name, lev)] %>% 
+   .[, .(eof = mean(hgt_a)), by = .(time, name)] %>% 
    # setnames(c("lon", "hgt_a"), c("index", "eof")) %>% 
    .[] %>% 
    # tidyfast::dt_pivot_wider(names_from = index, values_from = eof) %>% 
-   hgt[., on = c("time", "lev"), allow.cartesian = TRUE] %>% 
-   .[, cor(hgt_a, eof), by = .(lon, lat, lev, name)] %>% 
+   hgt[., on = c("time"), allow.cartesian = TRUE] %>% 
+   .[, cor(hgt_a, eof), by = .(lon, lat, lev, name)] 
+
+cors %>% 
+   # .[lev == 1000] %>% 
    # .[, FitLm(hgt_a, `10`, `190`), by = .(lon, lat)] %>% 
    # .[term != "(Intercept)"] %>% 
    periodic(lon = c(0, 360)) %>% 
@@ -385,21 +391,24 @@ lon_eofs[, eof[[1]]$left, by = .(lon = base_lon, lev)] %>%
    geom_qmap() +
    geom_nam(levs = 1000) +
    coord_polar() +
-   facet_wrap(~name)  +
+   facet_grid(lev~name, labeller = labeller(lev = lev.lab))  +
    theme(legend.position = "bottom")
 ```
 
-
-Each regional EOFs is associated with geopotential anomalies only in their respective regions and there is little to no correlation outside each region. 
+Looking first at the relationship at 1000 hPa (i.e. the same level as the computed index), each regional EOFs is associated with geopotential anomalies only in their respective regions and there is little to no correlation outside each region. 
 Interestingly, each seem to map relatively well to the corresponding features of the NAM pattern, shown in contours.
 
 The Atlantic EOF shows negative anomalies in the northern Atlantic and positive anomalies in the polar regions,  which are co-located with the corresponding NAM anomalies. Notably, it is **not** associated with significant anomalies in the northern Pacific. The polar anomalies do not extent so much to the south in the Eurasian sector. 
-
 Conversely, the Pacific EOF is associated with negative anomalies in the North Pacific and some (but weak) positive anomalies in the polar regions. Again, these are co-located with the corresponding NAM anomalies but lack the anomalies in the northern Pacific. There is an extra area of negative anomalies east of North America which fall outside the Pacific sector and doesn't have correspondence in the NAM pattern. 
 
 Finally the Eurasian EOF is associated with positive anomalies in high latitudes, centred in the Kara and Barents seas which corresponds to an area of positive anomalies in the NAM pattern that is not fully explained by the anomalies associated with the Atlantic EOF. At higher latitudes, it's associated with negative anomalies over Europe. 
-
 This further suggest the independent nature of these three (or two) different modes of variability that are mixed in the NAM. 
+
+The relationship between the regional 1000 hPa EOFs and geopotential height at 200 hPa follows a similar story but with smoother patterns. The correlation pattern with the Pacific region EOF shows a more evident wave train at this level, which probably betrais that the PNA is probably responsible of this regional EOF.
+
+At 50 hPa, the correlations with the 1000 hPa regional indices are basically zonally symmetrical for the Atlantic and Eurasian regional EOFs, but much less so the the Pacific regional EOF, which has two negative correlations over the Pacific and over Europe and very weak positive correlations over the Arctic.
+
+This suggests that the leading EOF at the lower stratosphere, which is a proper annular mode, is not associated with an annular mode in the troposphere, but with the regional Atlantic and Eurasian modes (remmebering that the latter is not as well defined as the former).
 
 For a further example of how disparate these modes can be, the next figure shows the correlation between each local EOF and the ONI index, showing that the Atlantic EOF is moderately correlated with ENSO, but not the local EOFs outside of this region.
 
