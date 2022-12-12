@@ -39,7 +39,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 45,
+   cache.extra = 41,
    cache.path = paste0("cache/", name, "/")
 )
 
@@ -773,7 +773,7 @@ compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31"), de
       ensemble_mean <- rowMeans(array, dims = 4)
       trend <- apply(ensemble_mean, c("lon", "lat", "plev"), function(x) {
          time <- seq_along(x)
-         x - .lm.fit(cbind(1, time, time^2), x)$residuals
+         x - .lm.fit(cbind(1, time, time^2), x)$residuals - mean(x)
       }) %>% 
          aperm(names(dimnames(array))[-5])
       
@@ -850,9 +850,11 @@ ceofs <- simulaciones %>%
      by = model]
 ceofs <- rbind(ceofs, ceof_era5)
 # rm(ceof_era5)
+
 ```
 
 ```{r ceofs_detrend}
+
 ceofs_detrend <- simulaciones %>% 
    .[variable == "zg"] %>%
    .[, .(eof = list(compute_eof(file, member, detrend = TRUE) %>%
@@ -1668,24 +1670,24 @@ knitr::include_graphics(file.path(folder, "tendencias-50.png"))
 ```
 
 ```{r}
-trends %>% 
-   .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
-   .[, interpolate_to_era(.SD, estimate ~ lon + lat), 
-     by = .(model, lev)] %>% 
-   
-   .[, .(estimate = mean(estimate)), by = .(lon, lat, lev)] %>% 
-   .[, estimate := Anomaly(estimate), by = .(lat, lev)] %>% 
-   ggplot(aes(lon, lat)) +
-   geom_contour_fill(aes(z = estimate, fill = stat(level)), 
-                     breaks = AnchorBreaks(exclude = 0)) +
-   scale_fill_divergent_discretised(guide = guide_coloursteps(barwidth = 20,
-                                                              barheight = 1, 
-                                                              frame.colour = "black")) +
-   geom_qmap(crop = c(ymax = -20)) +
-   scale_x_longitude() +
-   scale_y_latitude(limits = c(-90, NA)) +
-   coord_polar() +
-   facet_wrap(lev~.)
+# trends %>% 
+#    .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
+#    .[, interpolate_to_era(.SD, estimate ~ lon + lat), 
+#      by = .(model, lev)] %>% 
+#    
+#    .[, .(estimate = mean(estimate)), by = .(lon, lat, lev)] %>% 
+#    .[, estimate := Anomaly(estimate), by = .(lat, lev)] %>% 
+#    ggplot(aes(lon, lat)) +
+#    geom_contour_fill(aes(z = estimate, fill = stat(level)), 
+#                      breaks = AnchorBreaks(exclude = 0)) +
+#    scale_fill_divergent_discretised(guide = guide_coloursteps(barwidth = 20,
+#                                                               barheight = 1, 
+#                                                               frame.colour = "black")) +
+#    geom_qmap(crop = c(ymax = -20)) +
+#    scale_x_longitude() +
+#    scale_y_latitude(limits = c(-90, NA)) +
+#    coord_polar() +
+#    facet_wrap(lev~.)
 
 ```
 
@@ -1719,25 +1721,25 @@ correlation_trends <- trends %>%
 
 
 ```{r, fig.height=8, fig.width=7}
-correlation_trends %>% 
-   .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
-   .[, angle := NULL] %>% 
-   # .[, .(estimate = mean(correlation)), by = .(lev, model, cEOF)] %>% 
-   ggplot(aes(correlation, model)) +
-   geom_violin(aes(color = cEOF)) +
-   # geom_col(aes(fill = cEOF), position = "dodge") +
-   facet_wrap(~lev) +
-   scale_x_continuous(NULL, limits = c(0, 1)) +
-   scale_y_discrete(NULL)
+# correlation_trends %>% 
+#    .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
+#    .[, angle := NULL] %>% 
+#    # .[, .(estimate = mean(correlation)), by = .(lev, model, cEOF)] %>% 
+#    ggplot(aes(correlation, model)) +
+#    geom_violin(aes(color = cEOF)) +
+#    # geom_col(aes(fill = cEOF), position = "dodge") +
+#    facet_wrap(~lev) +
+#    scale_x_continuous(NULL, limits = c(0, 1)) +
+#    scale_y_discrete(NULL)
 ```
 
 ```{r}
-correlation_trends %>% 
-   .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
-   .[, angle := NULL] %>% 
-   tidyfast::dt_pivot_wider(names_from = cEOF, values_from = correlation) %>%
-   .[, cor(cEOF1, cEOF2), by = .(model, lev)] %>% 
-   .[order(-V1)]
+# correlation_trends %>% 
+#    .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
+#    .[, angle := NULL] %>% 
+#    tidyfast::dt_pivot_wider(names_from = cEOF, values_from = correlation) %>%
+#    .[, cor(cEOF1, cEOF2), by = .(model, lev)] %>% 
+#    .[order(-V1)]
 ```
 
 
@@ -2022,6 +2024,37 @@ ceof_largo_p %>%
 ```
 
 
+```{r}
+# ceof_largo_p %>%
+#    copy() %>% 
+#    .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
+#    .[time >= 1950] %>% 
+#    .[, FitLm(Mod(eof), time = time/10, se = TRUE), 
+#      by = .(model, cEOF, ensemble)] %>% 
+#    .[term == "time"] %>%
+#    # cors[., on = c("model", "cEOF")] %>% 
+#    # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
+#    # .[, model := reorder(model, correlation)] %>% 
+#    ggplot(aes(model, estimate)) +
+#    geom_hline(yintercept = 0, color = "gray50") +
+#    geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model)],
+#              aes(y = 0,
+#                  height = 2*m,
+#                  width = 0.5),
+#              alpha = 0.2,
+#              position = position_dodge(.8)) +
+#    geom_point(alpha = 0) +
+#    geom_boxplot(width = 0.5,
+#                 position = position_dodge(.8),
+#                 fill = NA,
+#                 data = ~.x[!startsWith(as.character(model), "ERA5")]) +
+#    ggforce::geom_sina(alpha = 0.5) +
+#    scale_x_discrete(NULL) +
+#    scale_color_brewer(palette = "Set1") +
+#    coord_flip()  +
+#    facet_wrap(cEOF~ ., scale = "free_x")
+```
+
 (ref:varianza-mod-roll-cap) Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años. 
 
 ```{r varianza-mod-roll, fig.height=5, fig.width=7}
@@ -2047,36 +2080,6 @@ ceof_largo_p %>%
 ```
 
 
-```{r}
-ceof_largo_p %>%
-   copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
-   .[time >= 1950] %>% 
-   .[, FitLm(Mod(eof), time = time/10, se = TRUE), 
-     by = .(model, cEOF, ensemble)] %>% 
-   .[term == "time"] %>%
-   # cors[., on = c("model", "cEOF")] %>% 
-   # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
-   # .[, model := reorder(model, correlation)] %>% 
-   ggplot(aes(model, estimate)) +
-   geom_hline(yintercept = 0, color = "gray50") +
-   geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model)],
-             aes(y = 0,
-                 height = 2*m,
-                 width = 0.5),
-             alpha = 0.2,
-             position = position_dodge(.8)) +
-   geom_point(alpha = 0) +
-   geom_boxplot(width = 0.5,
-                position = position_dodge(.8),
-                fill = NA,
-                data = ~.x[!startsWith(as.character(model), "ERA5")]) +
-   ggforce::geom_sina(alpha = 0.5) +
-   scale_x_discrete(NULL) +
-   scale_color_brewer(palette = "Set1") +
-   coord_flip()  +
-   facet_wrap(cEOF~ ., scale = "free_x")
-```
 
 
 (ref:tendencia-r2-cap) Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra).
