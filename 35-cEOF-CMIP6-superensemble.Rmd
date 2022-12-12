@@ -433,12 +433,17 @@ Dada la experiencia anterior, voy a calcular los cEOFs usando todos los miembros
 
 Algunos detalles:
 
-- Medias estacionales de SON  
+- Medias estacionales de `r params$season`  
 - Estandarizo cada nivel usando el desvio estándard de la climatología `r paste0(year(climatology), collapse = " -- ")`  
 - Me quedo sólo con una inicialización, física y forzante por modelo.  
 - Me quedo sólo con modelos con más de 5 miembros. 
+- Tendencias: Calculo ambos casos.
+- "Tendencioso": No le quito la tendencia
+- "Destendenciado": le quito la tendencia en cada punto usando un ajuste cuadrático con el tiempo. 
 
 En la Tabla \@ref(tab:descripcion) se listan todos los modelos y la cantidad de miembros de cada uno. 
+
+
 
 ```{r descripcion}
 simulaciones %>% 
@@ -546,7 +551,9 @@ sst_ear5 <- "DATA/reanalysis/ERA5/mon/era5sl.mon.mean.nc" %>%
               subset = list(
                  lat = c(-90, 10),
                  time = c("1979-01-01", "2014-12-31"))) %>% 
+   DT(season(time) == params$season) %>% 
    DT(, .(sst = mean(sst)), by = .(lon, lat, time = year(time))) %>% 
+   DT(, sst_a := sst - mean(sst), by = .(lon, lat)) %>% 
    DT(, model := "ERA5") %>%
    DT(, ensemble := 1L) %>% 
    DT(is.finite(sst)) 
@@ -1201,20 +1208,27 @@ plot_fft(1)
 
 Para el cEOF1, no hay mucha señal. Algunos miembros tienen señales altas pero en el promedio es básicamente chato, coincidente con ERA5.
 
-(ref:fft-2-cap) Igual que Figura \@ref(fig:fft-1) pero para el cEOF2. En recuadro negro, modelos que tienen un período importante cerca de 3 años en la parte imaginaria del cEOF2.
+(ref:fft-2-cap) Igual que Figura \@ref(fig:fft-1) pero para el cEOF2. En recuadro negro, modelos que tienen un período importante cerca de 3 años en la parte imaginaria del cEOF2 (sólo para `r params$season`).
 
 ```{r fft-2, fig.height=10, fig.width=10}
-con_picos <- data.table(
-   model = c("FGOALS-g3", "MIROC6", "GISS-E2-1-G", "CESM2", "CNRM-ESM2-1", "CNRM-CM6-1")
-)
 
+rect <- NULL
+if (params$season == "SON") {
+   con_picos <- data.table(
+      model = c("FGOALS-g3", "MIROC6", "GISS-E2-1-G", 
+                "CESM2", "CNRM-ESM2-1", "CNRM-CM6-1")
+   )
+   
+   rect <- geom_rect(data = ~.x[con_picos, on = "model"] %>% 
+                        .[, model := reorder(model, -correlation)],
+                     inherit.aes = FALSE,
+                     xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
+                     fill = NA, color = "#7e8087") 
+}
 
 plot_fft(2) +
-   geom_rect(data = ~.x[con_picos, on = "model"] %>% 
-                .[, model := reorder(model, -correlation)],
-             inherit.aes = FALSE,
-             xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
-             fill = NA, color = "#7e8087") 
+   rect
+
 ```
 
 Para el cEOF2, algunos modelos tiene una señal consistente de ~3 años en la parte imaginaria, también consistente con ERA5. 
@@ -1258,6 +1272,14 @@ enso_cmip <- enso %>%
 
 labs <- cors[cEOF == "cEOF2"] %>% 
    .[, setNames(label, model)]
+rect <- NULL
+if (params$season == "SON") {
+   rect <- geom_rect(data = ~.x[con_picos, on = "model"] %>% 
+                        .[, model := reorder(model, -correlation)],
+                     inherit.aes = FALSE,
+                     xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
+                     fill = NA, color = "#7e8087") 
+} 
 
 enso_cmip %>% 
    .[order(time)] %>% 
@@ -1273,11 +1295,8 @@ enso_cmip %>%
    scale_y_continuous("Spectrum")  +
    scale_alpha_identity() +
    facet_wrap(model ~ ., labeller = labeller(model = labs)) +
-   geom_rect(data = ~.x[con_picos, on = "model"] %>% 
-                .[, model := reorder(model, -correlation)],
-             inherit.aes = FALSE,
-             xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
-             fill = NA, color = "#7e8087") 
+   rect
+
 ```
 
 
@@ -1460,6 +1479,22 @@ sst_regression %>%
 ```
 
 
+```{r}
+
+rbind(
+   tendencioso = ceof_era5[, eof[[1]]$left, by = .(model)],
+   destendenciado = ceof_era5_detrend[, eof[[1]]$left, by = .(model)], 
+   idcol = "tendencia") %>% 
+   sep_ReIm(eof) %>% 
+   .[sst_ear5, on = c("time", "model"), allow.cartesian = TRUE] %>% 
+   .[, .(estimate = cor(eof, sst_a)), by = .(lon, lat, cEOF, part)]
+
+
+
+```
+
+
+
 ```{r download-enso_perf}
 enso_perf_file <- "DATA/enso_perf.csv"
 
@@ -1506,10 +1541,10 @@ enso_teleconnections <- fread(enso_teleconnections_file)
 ceofs[, eof[[1]]$sdev, by = model] %>% 
    .[model != "ERA5"] %>% 
    enso_perf[., on = "model"] %>% 
-   .[, picos := model %in% con_picos$model] %>% 
+   # .[, picos := model %in% con_picos$model] %>% 
    .[!is.na(metric)] %>% 
    ggplot(aes(correlation, value)) +
-   geom_point(aes(color = picos)) +
+   geom_point() +
    geom_smooth(method = "lm") +
    scale_y_continuous(NULL) +
    facet_grid(metric ~ cEOF, scales = "free") +
@@ -1525,10 +1560,10 @@ ceofs[, eof[[1]]$sdev, by = model] %>%
 ceofs[, eof[[1]]$sdev, by = model] %>% 
    .[model != "ERA5"] %>% 
    enso_teleconnections[., on = "model"] %>% 
-   .[, picos := model %in% con_picos$model] %>% 
+   # .[, picos := model %in% con_picos$model] %>% 
    .[!is.na(metric)] %>% 
    ggplot(aes(correlation, value)) +
-   geom_point(aes(color = picos)) +
+   geom_point() +
    geom_smooth(method = "lm") +
    scale_y_continuous(NULL) +
    facet_grid(metric ~ cEOF, scales = "free") +
@@ -1542,6 +1577,8 @@ ceofs[, eof[[1]]$sdev, by = model] %>%
 
 Hay dos formas de extender los cEOFS para odo el período, puedo recomputar el cEOF usando todos los datos, o puedo proyectar los campos obtenidos. 
 La primera es más natural, pero tiene el inconveniente de que la interpretación depende de que los cEOFs obtenidos seaon comparables (los campos sean iguales o similares). 
+
+En esta sección trabajo todo con tendecia. 
 
 ```{r ceofs_larga}
 ceofs_larga <- simulaciones %>% 
@@ -1613,7 +1650,6 @@ compute_trend <- memoise::memoise(compute_trend_, cache = cache)
 ```
 
 ```{r trends}
-
 trends <- simulaciones %>% 
    .[variable == "zg"] %>% 
    .[, compute_trend(file), by = .(model, member)] %>% 
@@ -1663,33 +1699,6 @@ for (this_lev in unique(trends$lev)) {
 ```
 
 
-(ref:tendencias-cap) Tendencias en [50hPa](javascript:change_tendencias('50')) o [200hPa](javascript:change_tendencias('200')). 
-
-```{r tendencias, fig.width=6, fig.height=8, out.extra="id='tendencias'"}
-knitr::include_graphics(file.path(folder, "tendencias-50.png"))
-```
-
-```{r}
-# trends %>% 
-#    .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
-#    .[, interpolate_to_era(.SD, estimate ~ lon + lat), 
-#      by = .(model, lev)] %>% 
-#    
-#    .[, .(estimate = mean(estimate)), by = .(lon, lat, lev)] %>% 
-#    .[, estimate := Anomaly(estimate), by = .(lat, lev)] %>% 
-#    ggplot(aes(lon, lat)) +
-#    geom_contour_fill(aes(z = estimate, fill = stat(level)), 
-#                      breaks = AnchorBreaks(exclude = 0)) +
-#    scale_fill_divergent_discretised(guide = guide_coloursteps(barwidth = 20,
-#                                                               barheight = 1, 
-#                                                               frame.colour = "black")) +
-#    geom_qmap(crop = c(ymax = -20)) +
-#    scale_x_longitude() +
-#    scale_y_latitude(limits = c(-90, NA)) +
-#    coord_polar() +
-#    facet_wrap(lev~.)
-
-```
 
 
 ```{r}
@@ -2097,6 +2106,13 @@ ceof_largo_p %>%
    facet_wrap(. ~ cEOF, scales = "free_y")
 ```
 
+
+
+(ref:tendencias-cap) Tendencias en [50hPa](javascript:change_tendencias('50')) o [200hPa](javascript:change_tendencias('200')). 
+
+```{r tendencias, fig.width=6, fig.height=8, out.extra="id='tendencias'"}
+knitr::include_graphics(file.path(folder, "tendencias-50.png"))
+```
 
 
 ```{r fft2}
