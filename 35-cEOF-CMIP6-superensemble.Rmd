@@ -7,7 +7,7 @@ output:
          self_contained: FALSE
 link-citations: yes 
 params:
-   season: "DJF"
+   season: "SON"
 ---
 
 ```{r setup, include=FALSE}
@@ -39,7 +39,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 44,
+   cache.extra = 41,
    cache.path = paste0("cache/", name, "/")
 )
 
