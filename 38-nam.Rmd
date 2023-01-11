@@ -130,6 +130,14 @@ nam <- hgt %>%
 
 ```
 
+```{r reof}
+reof <- hgt %>% 
+   .[, .(eof = list(EOF(hgt_a ~ time | lon + lat, n = 1:10, 
+                        data = .SD, rotate = TRUE))),
+     by = lev]
+
+```
+
 
 The Northern Annular Mode is the leading EOF of NH circulation. 
 Here, shown as the leading EOF of monthly geopotential height anomalies between 1979 and 2000 at 1000 hPa, following the [CPC methodology](https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_ao_index/ao.loading.shtml). I will also compute the leading EOF at 200 hPa and 50 hPa to get a sense of how this changes vertically. 
@@ -199,10 +207,15 @@ If the NAM is an hemispheric phenomena, then all these indices should be fairly 
 On the other hand, if the NAM is a mix of different local modes, then we would expect to see a lack of correlation between separated longitudes. 
 
 ```{r geom_nam} 
-geom_nam <- function(levs = nam$lev) {
-   geom_contour2(data = nam[, eof[[1]]$right, by = lev] %>% 
-                    .[lev %in% levs] %>% 
-                    periodic(lon = c(0, 360)),
+geom_nam <- function(levs = nam$lev, PC = TRUE) {
+   data <- nam[, eof[[1]]$right, by = lev] %>% 
+      .[lev %in% levs] %>% 
+      periodic(lon = c(0, 360))
+   
+   if (!PC) {
+      data[, PC := NULL]
+   }
+   geom_contour2(data = data,
                  aes(z = hgt_a, linetype = factor(-sign(..level..))), 
                  breaks = AnchorBreaks(0, exclude = 0))
 }
@@ -403,13 +416,36 @@ The Atlantic EOF shows negative anomalies in the northern Atlantic and positive 
 Conversely, the Pacific EOF is associated with negative anomalies in the North Pacific and some (but weak) positive anomalies in the polar regions. Again, these are co-located with the corresponding NAM anomalies but lack the anomalies in the northern Pacific. There is an extra area of negative anomalies east of North America which fall outside the Pacific sector and doesn't have correspondence in the NAM pattern. 
 
 Finally the Eurasian EOF is associated with positive anomalies in high latitudes, centred in the Kara and Barents seas which corresponds to an area of positive anomalies in the NAM pattern that is not fully explained by the anomalies associated with the Atlantic EOF. At higher latitudes, it's associated with negative anomalies over Europe. 
-This further suggest the independent nature of these three (or two, if one doesn't believe the robustness of the Eurasian EOF) different modes of variability that are mixed whithin the NAM. 
+This further suggest the independent nature of these three (or two, if one doesn't believe the robustness of the Eurasian EOF) different modes of variability that are mixed within the NAM. 
 
-The relationship between the regional 1000 hPa EOFs and geopotential height at 200 hPa follows a similar story but with smoother patterns. The correlation pattern with the Pacific region EOF shows a more evident wave train at this level, which probably betrais that the PNA is probably responsible of this regional EOF.
+The relationship between the regional 1000 hPa EOFs and geopotential height at 200 hPa follows a similar story but with smoother patterns. The correlation pattern with the Pacific region EOF shows a more evident wave train at this level, which probably betrays that the PNA is probably responsible of this regional EOF.
 
 At 50 hPa, the correlations with the 1000 hPa regional EOFs are basically zonally symmetrical for the Atlantic and Eurasian regional EOFs, but much less so the the Pacific regional EOF, which has two negative correlations over the Pacific and over Europe and very weak positive correlations over the Arctic.
 
-This suggests that the leading EOF at the lower stratosphere, which is a proper annular mode, is not associated with an annular mode in the troposphere, but with the regional Atlantic and Eurasian modes (remmebering that the latter is not as well defined as the former).
+This suggests that the leading EOF at the lower stratosphere, which is a proper annular mode, is not associated with an annular mode in the troposphere, but with the regional Atlantic and Eurasian modes (remembering that the latter is not as well defined as the former).
+
+
+## Rotated
+
+
+```{r}
+reof %>% 
+   .[, cut(eof[[1]], 1:4)$right, by  = .(lev)] %>% 
+   .[lev == 1000] %>% 
+   periodic(lon = c(0, 360)) %>% 
+   ggplot(aes(lon, lat)) +
+   geom_contour_fill(aes(z = hgt_a), breaks = AnchorBreaks(0, exclude = 0)) +
+   # annotate("segment", x = c(145, 360 - 100), xend =  c(145, 360 - 100),
+   #          y = c(20, 20), yend = c(89, 89)) +
+   scale_x_longitude() +
+   scale_y_latitude() +
+   scale_fill_divergent(NULL, guide = "none") +
+   geom_qmap() +
+   geom_nam(lev = 1000, PC = FALSE) +
+   coord_polar()  +
+   facet_wrap(.~PC, labeller = labeller(lev = lev.lab))
+```
+
 
 For a further example of how disparate these modes can be, the next figure shows the correlation between each local EOF and the ONI index, showing that the Atlantic EOF is moderately correlated with ENSO, but not the local EOFs outside of this region.
 
