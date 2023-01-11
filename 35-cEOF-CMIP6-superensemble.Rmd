@@ -39,7 +39,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 41,
+   cache.extra = 44,
    cache.path = paste0("cache/", name, "/")
 )
 
@@ -469,7 +469,7 @@ era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>%
    DT(, hgt := hgt/9.8) %>% 
    DT(, lev := as.integer(lev)) %>% 
    setnames("lev", "plev") %>% 
-   DT(, .(hgt = mean(hgt)), by = .(lon, lat, plev, time = as.integer(year(time)))) %>% 
+   DT(, .(hgt = mean(hgt)), by = .(lon, lat, plev, time = as.integer(year(seasonally(time))))) %>% 
    DT(, model := "ERA5") %>%
    DT(, member := 1L) %>% 
    DT(is.finite(hgt)) %>% 
@@ -552,7 +552,7 @@ sst_ear5 <- "DATA/reanalysis/ERA5/mon/era5sl.mon.mean.nc" %>%
                  lat = c(-90, 10),
                  time = c("1979-01-01", "2014-12-31"))) %>% 
    DT(season(time) == params$season) %>% 
-   DT(, .(sst = mean(sst)), by = .(lon, lat, time = year(time))) %>% 
+   DT(, .(sst = mean(sst)), by = .(lon, lat, time = year(seasonally(time)))) %>% 
    DT(, sst_a := sst - mean(sst), by = .(lon, lat)) %>% 
    DT(, model := "ERA5") %>%
    DT(, ensemble := 1L) %>% 
@@ -569,7 +569,7 @@ wave1_o3 <- "DATA/era5.toc.mon.mean.nc" %>%
                  time = c("1979-01-01", "2014-12-31"))) %>% 
    normalise_coords() %>% 
    DT(season(time) == toupper(params$season)) %>% 
-   DT(, .(toc = mean(toc)), by = .(lon, lat, time = year(time))) %>% 
+   DT(, .(toc = mean(toc)), by = .(lon, lat, time = year(seasonally(time)))) %>% 
    DT(, .(toc = weighted.mean(toc, w = cos(lat*pi/180), na.rm = TRUE)), 
       by = .(time, lon)) %>% 
    DT(, FitWave(toc, 1), by = .(time)) %>% 
@@ -600,7 +600,7 @@ enso <- rsoi::download_oni(use_cache = TRUE, file = "DATA/enso.csv") %>%
    .[, .(time = lubridate::as_datetime(Date), oni = ONI)] %>% 
    na.omit() %>%
    .[season(time) == toupper(params$season)] %>%
-   .[, .(oni = mean(oni)), by = .(time = year(time))]
+   .[, .(oni = mean(oni)), by = .(time = year(seasonally(time)))]
 
 with_enso <-  cut(ceof_era5$eof[[1]], 2)$left %>%
    copy() %>%
