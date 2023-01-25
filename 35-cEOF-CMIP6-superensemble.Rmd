@@ -7,7 +7,8 @@ output:
          self_contained: FALSE
 link-citations: yes 
 params:
-   season: "SON"
+   season: "MAM"
+   cache.extra: 42
 ---
 
 ```{r setup, include=FALSE}
@@ -39,7 +40,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = 41,
+   cache.extra = params$cache.extra,
    cache.path = paste0("cache/", name, "/")
 )
 
@@ -278,7 +279,7 @@ cmip_available <- function(..., root = cmip_root_get()) {
 ```
 
 
-```{r sims}
+```{r sims_cmip6}
 cmip_root_set("/shera/datos/CMIP/")
 sims <- cmip_available(mip_era = "CMIP6", 
                        activity_drs = "CMIP",
@@ -323,29 +324,65 @@ sims <- sims %>%
 ```
 
 
-```{r select_merge}
+```{r sims_damip}
+experiments <- c("hist-GHG", "hist-stratO3", "hist-nat")
+sims_damip <- cmip_available(mip_era = "CMIP6", 
+                             activity_drs = "DAMIP",
+                             experiment_id = experiments,
+                             # source_id = unique(simulaciones$model),
+                             table_id = c("Amon"),
+                             variable_id = c("zg")) %>% 
+   as.data.table() %>% 
+   .[, version := as.numeric(version)] %>% 
+   .[, c("ensemble", "init", "physics", "forcing") := as.list(unglue::unglue_data(member_id, "r{ensemble}i{init}p{physics}f{forcing}", convert = TRUE))] %>% 
+   .[, ensemble := interaction(ensemble, init, physics, forcing)]
+```
+
+
+```{r}
+
+scale_color_experiments <- function() {
+   scale_color_manual(values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
+                         setNames(c("historical", "hist-GHG", "hist-stratO3", "hist-nat")))   
+}
+
+
+scale_fill_experiments <- function() {
+   scale_fill_manual(values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
+                         setNames(c("historical", "hist-GHG", "hist-stratO3", "hist-nat")))   
+}
+
+```
+
+```{r}
+sims <- rbind(sims, sims_damip)
+```
+
+
+```{r}
 future::plan("multisession")
+```
+
+```{r select_merge}
 dir.create(file.path("cmip", params$season), 
            showWarnings = FALSE, recursive = TRUE)
 select_merge <- function(file_in) {
    
    unique_items <- file_in %>% 
       basename() %>% 
-      unglue::unglue_data("{variable}_{mean}_{model}_historical_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc") %>% 
+      unglue::unglue_data("{variable}_{mean}_{model}_{experiment}_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc") %>% 
       as.data.table() %>% 
       .[, ":="(start_date = NULL, end_date = NULL)] %>% 
-      unique() %>% 
-      nrow()
+      unique() 
+
+   stopifnot(nrow(unique_items) == 1)
    
-   browser(expr = unique_items != 1)
-   # stopifnot(unique_items == 1)
    
    file_out <- file.path("cmip", params$season, basename(file_in[1]))
    
    if (file.exists(file_out)) {
       return(file_out)
    }
-   
    # Hay algunos archivos mal bajados. 
    nulos <- file.size(file_in) == 0
    if (any(nulos)) {
@@ -412,7 +449,6 @@ select_merge <- function(file_in) {
 }
 ```
 
-
 ```{r merge}
 files <- sims$files %>% 
    vapply(select_merge, character(1))
@@ -421,10 +457,12 @@ files <- sims$files %>%
 ```{r simulaciones}
 simulaciones <- na.omit(files) %>% 
    basename() %>% 
-   unglue::unglue_data("{variable}_{mean}_{model}_historical_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc", convert = TRUE) %>% 
+   unglue::unglue_data("{variable}_{mean}_{model}_{experiment}_r{member}i{init}p{physics}f{forcing}_{grid}_{start_date}-{end_date}.nc", 
+                       convert = TRUE) %>% 
    as.data.table() %>% 
    DT(, file := na.omit(files)) %>% 
-   DT(order(variable, model, member))
+   DT(order(variable, model, member)) %>% 
+   .[, member := interaction(member, init, physics, forcing)]
 ```
 
 # Métodos
@@ -447,9 +485,9 @@ En la Tabla \@ref(tab:descripcion) se listan todos los modelos y la cantidad de 
 
 ```{r descripcion}
 simulaciones %>% 
-   .[, .(miembros = .N), by = .(model)] %>% 
-   .[order(-miembros)] %>% 
-   knitr::kable(caption = "Modelos disponibles.", col.names = c("Modelo", "# de miembros"))
+   .[, .(miembros = .N), by = .(model, experiment)] %>% 
+   .[order(-experiment, -miembros)] %>% 
+   knitr::kable(caption = "Modelos disponibles.", col.names = c("Modelo", "Experimento", "# de miembros"))
 ```
 
 Voy a calcular los cEOF multimodelo como los cEOFs promedio.
@@ -471,6 +509,7 @@ era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>%
    setnames("lev", "plev") %>% 
    DT(, .(hgt = mean(hgt)), by = .(lon, lat, plev, time = as.integer(year(seasonally(time))))) %>% 
    DT(, model := "ERA5") %>%
+   DT(, experiment := "reanalysis") %>% 
    DT(, member := 1L) %>% 
    DT(is.finite(hgt)) %>% 
    DT(, hgt_z := hgt - mean(hgt), by = .(time, lat, plev)) 
@@ -483,7 +522,7 @@ ceof_era5 <- era5 %>%
    DT(lat %between% c(-85, -20)) %>%
    DT(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + plev, n = 1:2, 
                          data = .SD, 
-                         suffix = "cEOF"))), by = .(model))
+                         suffix = "cEOF"))), by = .(experiment, model))
 
 
 
@@ -503,7 +542,7 @@ ceof_era5_detrend <- era5 %>%
    DT(lat %between% c(-85, -20)) %>%
    DT(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + plev, n = 1:2, 
                          data = .SD, 
-                         suffix = "cEOF"))), by = .(model))
+                         suffix = "cEOF"))), by = .(experiment, model))
 
 ceof_era5_detrend$eof[[1]]$sdev %>% 
    DT(, let(correlation = 1, 
@@ -854,11 +893,15 @@ ceofs <- simulaciones %>%
    .[variable == "zg"] %>%
    .[, .(eof = list(compute_eof(file, member) %>%
                        optimise_rotation())), 
-     by = model]
+     by = .(experiment, model)]
 ceofs <- rbind(ceofs, ceof_era5)
 # rm(ceof_era5)
-
 ```
+
+```{r save-ceofs}
+saveRDS(ceofs, file.path("cmip", params$season, "cmip6_ceofs.Rds"))
+```
+
 
 ```{r ceofs_detrend}
 
@@ -866,7 +909,7 @@ ceofs_detrend <- simulaciones %>%
    .[variable == "zg"] %>%
    .[, .(eof = list(compute_eof(file, member, detrend = TRUE) %>%
                        optimise_rotation(ref = ref_detrended))), 
-     by = model]
+     by = .(experiment, model)]
 ceofs_detrend <- rbind(ceofs_detrend, ceof_era5_detrend)
 ```
 
@@ -919,7 +962,7 @@ plot_ceof <- function(data, n, which_lev = 200) {
 
 ```{r cors}
 cors <- ceofs %>% 
-   DT(, eof[[1]]$sdev, by = model) %>% 
+   DT(, eof[[1]]$sdev, by = .(experiment, model)) %>% 
    # DT(model != "ERA5") %>% 
    copy() %>% 
    DT(, r2 := correlation^2) %>% 
@@ -933,6 +976,7 @@ cors <- ceofs %>%
 ```{r comparacion-r2, fig.height=6, fig.width=6, one_figure = TRUE, cache = FALSE}
 list(
    cors %>% 
+      DT(experiment == "historical") %>% 
       DT(model != "ERA5") %>% 
       DT(, model := reorder(model, r2, fun = mean)) %>% 
       ggplot(aes(r2, model)) +
@@ -943,6 +987,7 @@ list(
       labs(caption = "Con tendencia"), 
    
    ceofs_detrend %>% 
+      DT(experiment == "historical") %>% 
       DT(, eof[[1]]$sdev, by = model) %>% 
       # DT(model != "ERA5") %>% 
       copy() %>% 
@@ -974,8 +1019,8 @@ En 50 hPa IPSL-CM6A-LR, CNRM-CM6-1 y CNRM-ESM2-1 tienen la onda corrida hacia el
 
 ```{r ceofs-1-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
 list(
-   plot_ceof(ceofs, 1, 50) + labs(caption = "Con tendencia"),
-   plot_ceof(ceofs_detrend, 1, 50) + labs(caption = "Sin tendencia")
+   plot_ceof(ceofs[experiment == "historical"], 1, 50) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend[experiment == "historical"], 1, 50) + labs(caption = "Sin tendencia")
 )
 ```
 
@@ -984,8 +1029,8 @@ list(
 
 ```{r ceofs-1-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
 list(
-   plot_ceof(ceofs, 1, 200) + labs(caption = "Con tendencia"),
-   plot_ceof(ceofs_detrend, 1, 200) + labs(caption = "Sin tendencia")
+   plot_ceof(ceofs[experiment == "historical"], 1, 200) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend[experiment == "historical"], 1, 200) + labs(caption = "Sin tendencia")
 )
 ```
 
@@ -998,8 +1043,8 @@ En las Figuras\ \@ref(fig:ceofs-2-50)  y \@ref(fig:ceofs-2-200) se muestran lo m
 
 ```{r ceofs-2-50, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
 list(
-   plot_ceof(ceofs, 2, 50) + labs(caption = "Con tendencia"),
-   plot_ceof(ceofs_detrend, 2, 50) + labs(caption = "Sin tendencia")
+   plot_ceof(ceofs[experiment == "historical"], 2, 50) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend[experiment == "historical"], 2, 50) + labs(caption = "Sin tendencia")
 )
 ```
 
@@ -1007,8 +1052,8 @@ list(
 
 ```{r ceofs-2-200, fig.width=10, fig.height=10.5, fig.fullwidth = TRUE, one_figure = TRUE}
 list(
-   plot_ceof(ceofs, 2, 200) + labs(caption = "Con tendencia"),
-   plot_ceof(ceofs_detrend, 2, 200) + labs(caption = "Sin tendencia")
+   plot_ceof(ceofs[experiment == "historical"], 2, 200) + labs(caption = "Con tendencia"),
+   plot_ceof(ceofs_detrend[experiment == "historical"], 2, 200) + labs(caption = "Sin tendencia")
 )
 ```
 
@@ -1020,23 +1065,23 @@ Finalmente, la Figura \@ref(fig:mmm) muestra los patrones promedio multimodelo p
 
 
 ```{r plot_mmm}
-plot_mmm <- function(trends = TRUE) {
+plot_mmm <- function(trends = TRUE, experiments = "historical") {
    if (trends) {
-      ceof_cmip6 <- ceofs
+      ceof_cmip6 <- ceofs[experiment %in% experiments]
       ceof_era <- ceof_era5
       lab <- "Con tendencia"
    } else {
-      ceof_cmip6 <- ceofs_detrend
+      ceof_cmip6 <- ceofs_detrend[experiment %in% experiments]
       ceof_era <- ceof_era5_detrend
       lab <- "Sin tendencia"
    }
    
-   interpolated <- ceof_cmip6[, eof[[1]]$right, by = model] %>% 
+   interpolated <- ceof_cmip6[, eof[[1]]$right, by = .(experiment, model)] %>% 
       copy() %>% 
       DT(model != "ERA5") %>% 
       DT(, interpolate_to_era(.SD),
-         by = .(model, lev, cEOF)) %>% 
-      DT(, eof_norm := eof/max(Mod(eof), na.rm = TRUE), by = .(cEOF, lev, model))
+         by = .(model, experiment, lev, cEOF)) %>% 
+      DT(, eof_norm := eof/max(Mod(eof), na.rm = TRUE), by = .(cEOF, lev, model, experiment))
    
    
    base <- ceof_era[, eof[[1]]$right] %>% 
@@ -1047,9 +1092,10 @@ plot_mmm <- function(trends = TRUE) {
    
    cor_mmm <- interpolated %>% 
       na.omit() %>% 
-      DT(, mean(eof_norm), by = .(cEOF, lon, lat, lev)) %>% 
+      DT(, mean(eof_norm), by = .(cEOF, experiment, lon, lat, lev)) %>% 
       DT(base, on = .NATURAL) %>% 
-      DT(, weighted_correlation(Re(V1), Re(base), cos(lat*pi/180)), by = .(cEOF))
+      DT(, weighted_correlation(Re(V1), Re(base), cos(lat*pi/180)), 
+         by = .(cEOF, experiment))
    
    ceof_labs <- cor_mmm %>% 
       DT(, paste0(cEOF, "\n(", scales::percent(V1^2, 0.1), ")") %>% 
@@ -1057,7 +1103,7 @@ plot_mmm <- function(trends = TRUE) {
       )
    
    interpolated %>% 
-      DT(, mean(eof_norm), by = .(cEOF, lon, lat, lev)) %>% 
+      DT(, mean(eof_norm), by = .(cEOF, experiment, lon, lat, lev)) %>% 
       sep_ReIm() %>% 
       periodic_lon() %>% 
       ggplot(aes(lon, lat)) +
@@ -1071,8 +1117,9 @@ plot_mmm <- function(trends = TRUE) {
       scale_x_longitude() +
       scale_y_latitude(limits = c(-90, NA)) +
       coord_polar() +
-      facet_grid(lev ~ cEOF + part, labeller = labeller(lev = AddSuffix(" hPa"),
-                                                        cEOF = ceof_labs)) +
+      facet_grid(experiment + lev ~ cEOF + part, 
+                 labeller = labeller(lev = AddSuffix(" hPa"),
+                                     cEOF = ceof_labs)) +
       labs(caption = lab)
 }
 ```
@@ -1097,42 +1144,53 @@ En base a esto y a la metodología usada en la literatura, propongo que un próx
 Para analizar las propiedades de los modos de cada modelo uso las series temporales propias de cada modelo. 
 
 ```{r plot_trends, fig.height = 12, fig.width=8}
-plot_trends <- function(which_eof) {
+plot_trends <- function(which_eof, experiments = "historical") {
    which_eof <- paste0("cEOF", which_eof)
    models <- cors[cEOF == which_eof] %>% 
+      .[experiment %in% experiments] %>% 
       .[order(correlation)] %>% 
       .[, model]
    
-   ceofs[, eof[[1]]$left, by = model] %>% 
+   ceofs %>% 
+      .[experiment %in% experiments] %>% 
+      .[, eof[[1]]$left, by = .(experiment, model)] %>% 
       .[cEOF == which_eof] %>%
       copy() %>% 
-      .[, eof := eof/sd(Mod(eof)), by = .(model)] %>% 
+      .[, eof := eof/sd(Mod(eof)), by = .(experiment, model)] %>% 
       sep_ReIm() %>% 
       .[, FitLm(eof, time = time/10, se = TRUE), 
-        by = .(model, cEOF, ensemble, part)] %>% 
+        by = .(model, cEOF, ensemble, part, experiment)] %>% 
       .[term == "time"] %>%
-      cors[., on = c("model", "cEOF")] %>% 
+      .[, p.value := Pvaluate(estimate, std.error, df, "fdr"), 
+        by = .(model, experiment)] %>% 
+      cors[., on = c("model", "experiment", "cEOF")] %>% 
       .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
       .[, model := reorder(model, correlation)] %>% 
       ggplot(aes(model, estimate)) +
       geom_hline(yintercept = 0, color = "gray50") +
-      geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model, part)],
-                aes(y = 0,
-                    height = 2*m,
-                    width = 0.5,
-                    group = part),
-                alpha = 0.2,
-                position = position_dodge(.8)) +
+      # geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model, part)],
+      #           aes(y = 0,
+      #               height = 2*m,
+      #               width = 0.5,
+      #               group = part),
+      #           alpha = 0.2,
+      #           position = position_dodge(.8)) +
       geom_point(alpha = 0) +
       geom_boxplot(aes(color = part), width = 0.5,
                    position = position_dodge(.8),
                    fill = NA,
                    data = ~.x[!startsWith(as.character(model), "ERA5")]) +
-      ggforce::geom_sina(aes(color = part), alpha = 0.5) +
+      ggforce::geom_sina(aes(color = part, 
+                             shape = p.value < 0.05),
+                         alpha = 1) +
       scale_color_brewer(NULL, palette = "Set1") +
       scale_x_discrete(NULL) +
       scale_y_continuous("Tendencia") +
       coord_flip()  +
+      scale_shape_manual(values = c("TRUE" = 19,
+                                    "FALSE" = 1), 
+                         guide = "none") +
+      facet_wrap(~part) +
       NULL
 }
 ```
@@ -1140,7 +1198,7 @@ plot_trends <- function(which_eof) {
 Las Figuras\ \@ref(fig:trends-1) y \@ref(fig:trends-1) muestran las tendencias lineales de cada cEOF. 
 El recurado gris marca la región aproximada de insignificancia estadística al 5% ($\pm$ 2 errores estándar) y la conclusión es que no hay tendencias significativas. 
 
-(ref:trends-1-cap) Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. El área gris marca la región aproximada de insignificancia estadística usando $\pm$ 2 errores estándares, tomando el error estándar promedio de las estimaciones de cada modelo. 
+(ref:trends-1-cap) Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. Los puntos vacíos y llenos tienen un p-valor mayor y menor a 0.05, respectivamente.
 
 ```{r trends-1, fig.height = 12, fig.width=8}
 plot_trends(1)
@@ -1154,12 +1212,13 @@ plot_trends(2)
 
 
 ```{r fft}
-fft <- ceofs[, eof[[1]]$left, by = model] %>% 
+fft <- ceofs %>% 
+   .[, eof[[1]]$left, by = .(experiment, model)] %>% 
    sep_ReIm() %>% 
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>%
+   .[, eof := eof/sd(Mod(eof)), by = .(model, experiment, cEOF)] %>%
    .[order(time)] %>% 
-   .[, fftspectrum(eof, c(3, 5), B = 0), by = .(model, ensemble, cEOF, part)]
+   .[, fftspectrum(eof, c(3, 5), B = 0), by = .(model, experiment, ensemble, cEOF, part)]
 ```
 
 ```{r alpha_from_n}
@@ -1169,17 +1228,19 @@ alpha_from_n <- function(n, max_alpha = 0.99) {
 ```
 
 ```{r plot_fft} 
-plot_fft <- function(which_ceof) {
+plot_fft <- function(which_ceof, experiments = "historical") {
    which_ceof <- paste0("cEOF", which_ceof)
    
    labs <- cors[cEOF == which_ceof] %>% 
+      .[experiment %in% experiments] %>% 
       .[, setNames(label, model)]
    
    
    fft %>% 
       .[cEOF == which_ceof] %>% 
+      .[experiment %in% experiments] %>% 
       # .[, .(spec = mean(spec)), by = .(freq, part, model, cEOF)] %>% 
-      cors[., on = c("model", "cEOF")] %>% 
+      cors[., on = c("model", "experiment", "cEOF")] %>% 
       .[, model := reorder(model, -correlation)] %>% 
       .[, ensembleN := uniqueN(ensemble), by = model] %>% 
       ggplot(aes(1/freq, spec)) +
@@ -1255,11 +1316,11 @@ compute_enso <- function(file) {
 
 enso_cmip <- simulaciones %>% 
    .[variable == "tos"] %>%
-   .[, compute_enso(file), by = .(model, member)] 
+   .[, compute_enso(file), by = .(model, experiment, member)] 
 
 enso_cmip <- enso %>% 
    copy() %>% 
-   .[, `:=`(model = "ERA5", member = 1)] %>% 
+   .[, `:=`(model = "ERA5", member = 1, experiment = "reanalysis")] %>% 
    setnames("oni", "enso34") %>% 
    rbind(enso_cmip)
 
@@ -1271,6 +1332,7 @@ enso_cmip <- enso %>%
 ```{r ensofft, fig.height=8, fig.width=9}
 
 labs <- cors[cEOF == "cEOF2"] %>% 
+   .[experiment == "historical"] %>% 
    .[, setNames(label, model)]
 rect <- NULL
 if (params$season == "SON") {
@@ -1282,9 +1344,11 @@ if (params$season == "SON") {
 } 
 
 enso_cmip %>% 
+   .[experiment == "historical"] %>% 
    .[order(time)] %>% 
    .[, fftspectrum(enso34, c(3, 5), B = 0), by = .(model, member)] %>% 
-   .[cors[cEOF == "cEOF2"], on = c("model")] %>% 
+   .[cors[cEOF == "cEOF2" & experiment == "historical"], 
+     on = c("model")] %>% 
    .[, model := reorder(model, -correlation)] %>% 
    .[, ensembleN := uniqueN(member), by = model] %>% 
    ggplot(aes(1/freq, spec)) +
@@ -1306,9 +1370,11 @@ Finalmente, queremos evaluar si los modelos capturan correctamente la relación 
 
 ```{r regress_sst}
 standardised <- rbind(
-   con = ceofs[, eof[[1]]$left, by = model],
-   sin = ceofs_detrend[, eof[[1]]$left, by = model], idcol = "tendencia"
+   con = ceofs[, eof[[1]]$left, by = .(experiment, model)],
+   sin = ceofs_detrend[, eof[[1]]$left, by = .(experiment, model)],
+   idcol = "tendencia"
 ) %>% 
+   .[experiment == "historical"] %>% 
    copy() %>% 
    .[, eof := eof/sd(Mod(eof)), by = .(model, ensemble, cEOF, tendencia)]
 
@@ -1382,7 +1448,8 @@ regress_sst <- memoise::memoise(regress_sst_, cache = cache)
 
 ```{r sst_regression}
 sst_regression <- simulaciones %>% 
-   .[, regress_sst(model[1]), by = .(model)]
+   .[experiment == "historical"] %>% 
+   .[, regress_sst(model[1]), by = .(model, experiment)]
 ```
 
 
@@ -1480,98 +1547,20 @@ sst_regression %>%
 
 
 ```{r}
-
-rbind(
-   tendencioso = ceof_era5[, eof[[1]]$left, by = .(model)],
-   destendenciado = ceof_era5_detrend[, eof[[1]]$left, by = .(model)], 
-   idcol = "tendencia") %>% 
-   sep_ReIm(eof) %>% 
-   .[sst_ear5, on = c("time", "model"), allow.cartesian = TRUE] %>% 
-   .[, .(estimate = cor(eof, sst_a)), by = .(lon, lat, cEOF, part)]
+# 
+# rbind(
+#    tendencioso = ceof_era5[, eof[[1]]$left, by = .(model)],
+#    destendenciado = ceof_era5_detrend[, eof[[1]]$left, by = .(model)], 
+#    idcol = "tendencia") %>% 
+#    sep_ReIm(eof) %>% 
+#    .[sst_ear5, on = c("time", "model"), allow.cartesian = TRUE] %>% 
+#    .[, .(estimate = cor(eof, sst_a)), by = .(lon, lat, cEOF, part)]
 
 
 
 ```
 
 
-
-```{r download-enso_perf}
-enso_perf_file <- "DATA/enso_perf.csv"
-
-if (!file.exists(enso_perf_file)) {
-   file <- tempfile()
-   url <- "https://pcmdi.llnl.gov/pmp-preliminary-results/interactive_plot/portrait_plot/enso_metric/raw_values/ENSO_perf_normalizedValue_v20210723_v20201122.xlsx"
-   
-   download.file(url, file, mode = "wb")
-   data <- readxl::read_excel(file)   
-   colnames(data)[1] <- "model" 
-   setDT(data)
-   data <- data[startsWith(model, "*")]
-   data[, model := gsub("\\* ", "", model)]
-   data <- data[!startsWith(model, "(")]
-   data <- melt(data, id.var = "model", variable.name = "metric")
-   fwrite(data, enso_perf_file)
-}
-
-enso_teleconnections_file <- "DATA/enso_teleconnections.csv"
-
-if (!file.exists(enso_teleconnections_file)) {
-   file <- tempfile()
-   url <- "https://pcmdi.llnl.gov/pmp-preliminary-results/interactive_plot/portrait_plot/enso_metric/raw_values/ENSO_tel_normalizedValue_v20210723_v20201122.xlsx"
-   
-   download.file(url, file, mode = "wb")
-   data <- readxl::read_excel(file)   
-   colnames(data)[1] <- "model" 
-   setDT(data)
-   data <- data[startsWith(model, "*")]
-   data[, model := gsub("\\* ", "", model)]
-   data <- data[!startsWith(model, "(")]
-   data <- melt(data, id.var = "model", variable.name = "metric")
-   fwrite(data, enso_teleconnections_file)
-}
-
-enso_perf <- fread(enso_perf_file)
-enso_teleconnections <- fread(enso_teleconnections_file)
-```
-
-
-(ref:enso-perf-plot-cap) Relación entre la correlación espacial de cada cEOF de cada modelo con ERA5 y valores normalizados de las métricas de performance de ENSO según [Planton et al. 2021](https://pcmdi.llnl.gov/pmp-preliminary-results/interactive_plot/portrait_plot/enso_metric/enso_metrics_interactive_portrait_plots_v20210723.html).
-
-```{r enso-perf-plot, fig.height=12, fig.width = 6}
-ceofs[, eof[[1]]$sdev, by = model] %>% 
-   .[model != "ERA5"] %>% 
-   enso_perf[., on = "model"] %>% 
-   # .[, picos := model %in% con_picos$model] %>% 
-   .[!is.na(metric)] %>% 
-   ggplot(aes(correlation, value)) +
-   geom_point() +
-   geom_smooth(method = "lm") +
-   scale_y_continuous(NULL) +
-   facet_grid(metric ~ cEOF, scales = "free") +
-   theme(strip.text.y = element_text(angle = 0, size = rel(0.8)), 
-         panel.background = element_rect(fill = "#f1f1f1", 
-                                         color = "#f1f1f1"), 
-         panel.ontop = FALSE) 
-```
-
-(ref:enso-teleconnections-plot-cap) Igual que la Figura \@ref(fig:enso-perf-plot) pero para las métricas de teleconexiones de ENSO. 
-
-```{r enso-teleconnections-plot, fig.height=12, fig.width = 6}
-ceofs[, eof[[1]]$sdev, by = model] %>% 
-   .[model != "ERA5"] %>% 
-   enso_teleconnections[., on = "model"] %>% 
-   # .[, picos := model %in% con_picos$model] %>% 
-   .[!is.na(metric)] %>% 
-   ggplot(aes(correlation, value)) +
-   geom_point() +
-   geom_smooth(method = "lm") +
-   scale_y_continuous(NULL) +
-   facet_grid(metric ~ cEOF, scales = "free") +
-   theme(strip.text.y = element_text(angle = 0, size = rel(0.8)), 
-         panel.background = element_rect(fill = "#f1f1f1", 
-                                         color = "#f1f1f1"), 
-         panel.ontop = FALSE) 
-```
 
 # Serie temporal larga 
 
@@ -1585,7 +1574,7 @@ ceofs_larga <- simulaciones %>%
    .[variable == "zg"] %>%
    .[, .(eof = list(compute_eof(file, member, time = c(NA, "2014-12-31")) %>%
                        optimise_rotation())), 
-     by = model]
+     by = .(experiment, model)]
 ```
 
 
@@ -1595,7 +1584,7 @@ ceofs_vieja <- simulaciones %>%
    .[variable == "zg"] %>%
    .[, .(eof = list(compute_eof(file, member, time = c(NA, "1910-12-31")) %>%
                        optimise_rotation())), 
-     by = model]
+     by = .(experiment, model)]
 ```
 
 (ref:cors-periodo-cap) Correlación entre el cEOF espacial computado con el período modero y el computado con el período 1850--1910.
@@ -1605,6 +1594,7 @@ rbind(
    moderno = ceofs_vieja,
    antiguo = ceofs, 
    idcol = "periodo") %>% 
+   .[experiment == "historical"] %>% 
    .[, eof[[1]]$right, by = .(model, periodo)] %>% 
    .[model != "ERA5"] %>% 
    tidyfast::dt_pivot_wider(names_from = periodo, values_from = eof) %>% 
@@ -1620,6 +1610,7 @@ rbind(
 ```{r compute_trend}
 compute_trend_ <- function(file, levs = c(200, 50)) {
    message("Calculando ", file)
+   
    stopifnot(length(file) == 1)
    
    data <- lapply(levs, function(lev) {
@@ -1652,7 +1643,7 @@ compute_trend <- memoise::memoise(compute_trend_, cache = cache)
 ```{r trends}
 trends <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, compute_trend(file), by = .(model, member)] %>% 
+   .[, compute_trend(file), by = .(model, experiment, member)] %>% 
    .[, lev := plev/100] %>% 
    .[, plev := NULL]
 ```
@@ -1673,6 +1664,7 @@ function change_tendencias(newVal){{
 folder <- knitr::opts_chunk$get("fig.path")
 for (this_lev in unique(trends$lev)) {
    trends %>% 
+      .[experiment == "historical"] %>% 
       .[lev == this_lev] %>% 
       .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
       .[, estimate := Anomaly(estimate), by = .(model, lev, lat)] %>% 
@@ -1720,12 +1712,12 @@ cor_rotations <- function(z, y, res = 0.5,
 ```{r}
 correlation_trends <- trends %>% 
    copy() %>% 
-   .[, value := Anomaly(value), by = .(lat, lev, model, member)] %>% 
+   .[, value := Anomaly(value), by = .(lat, lev, model, member, experiment)] %>% 
    # .[, .(estimate = mean(value)), by = .(model, lon, lat, lev)] %>% 
-   .[ceofs[, eof[[1]]$right, by = model][model != "ERA5"], 
-     on = c("model", "lon", "lat", "lev"),
+   .[ceofs[, eof[[1]]$right, by = .(experiment, model)][model != "ERA5"], 
+     on = c("model", "lon", "lat", "lev", "experiment"),
      allow.cartesian = TRUE] %>%
-   .[, cor_rotations(eof, value, res = 1), by = .(lev, model, cEOF, member)]
+   .[, cor_rotations(eof, value, res = 1), by = .(lev, model, cEOF, member, experiment)]
 ```
 
 
@@ -1753,11 +1745,11 @@ correlation_trends <- trends %>%
 
 
 ```{r eof_proyectado}
-fields <- ceofs[, eof[[1]]$right, by = model] %>% 
+fields <- ceofs[, eof[[1]]$right, by = .(experiment, model)] %>% 
    sep_ReIm()
 
-setorder(fields, model, part, cEOF, -lev, lat, lon)
-# a <- simulaciones %>% 
+setorder(fields, experiment, model, part, cEOF, -lev, lat, lon)
+# a <- <- %>% 
 #         .[variable == "zg"] %>% .[model == unique(model)[3]]
 # files <- a$file
 # member <- a$member
@@ -1848,18 +1840,23 @@ eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
 ```{r ceof_largo_p}
 ceof_largo_p <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, eof_proyectado(file, member, model), by = model] 
+   .[, eof_proyectado(file, member, model), by = .(experiment, model)] 
+```
+
+```{r}
+saveRDS(ceof_largo_p, file.path("cmip", params$season, "cmip6_ceofs_largo_p.Rds"))
 ```
 
 
 (ref:correlacion-metodos-cap) Correlación entre las series temporales de cada modelo, miembro, cEOF y parte calculadas como los cEOF de toda la serie o proyectando los campos obtenidos con el período moderno. 
 
 ```{r correlacion-metodos, fig.height=5, fig.width=6}
-ceofs_larga[, eof[[1]]$left, by = model] %>% 
+ceofs_larga[, eof[[1]]$left, by = .(experiment, model)] %>% 
    copy() %>% 
    .[, r2 := NA] %>% 
    rbind(eof = ., 
          proyectado = ceof_largo_p, idcol = "metodo") %>% 
+   .[experiment == "historical"] %>% 
    sep_ReIm() %>% 
    copy() %>% 
    dcast(model + time + ensemble + cEOF + part ~ metodo, value.var = "eof") %>% 
@@ -1891,11 +1888,12 @@ scale_eof <- function(eof, baseline) {
 ```{r tendencia, fig.width=6, fig.height=4}
 ceof_largo_p %>% 
    sep_ReIm() %>% 
-   .[, eof := scale_eof(eof, time <= 1900), by = .(model, part, ensemble, cEOF)] %>%
+   .[experiment == "historical"] %>% 
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, experiment, part, ensemble, cEOF)] %>%
    # .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
    #                  scale = sd(eof[time <= 1900])),
    #   by = .(model, part, cEOF)] %>% 
-   .[, .(eof = mean(eof)), by = .(model, time, part, cEOF)] %>% 
+   .[, .(eof = mean(eof)), by = .(model, experiment, time, part, cEOF)] %>% 
    
    ggplot(aes(time, eof)) +
    geom_line(aes(group = model), alpha = 0.1) +
@@ -1904,7 +1902,7 @@ ceof_largo_p %>%
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
    coord_cartesian(ylim = c(-1.5, 1.5)) +
-   facet_grid(part ~ cEOF)
+   facet_grid(experiment + part ~ cEOF)
 ```
 
 La Figura \@ref(fig:tendencia) muestra las series temporales de los cEOfs. 
@@ -1913,40 +1911,110 @@ Las otras series no tienen tendencias.
 
 El cEOF2 real tiene una pequeña tendencia que se ve en la media multimodelo. 
 
+
+(ref:series-largas-cap) Campos espaciales de cEOF1 en 50 hPa. `r change_plot_links("series-largas", c("Todos los modelos", "Sólo modelos con todos los experimentos"))`
+
+```{r series-largas, one_figure = TRUE}
+list(
+   ceof_largo_p %>% 
+      sep_ReIm() %>% 
+      # .[experiment == "historical"] %>% 
+      .[, eof := scale_eof(eof, time <= 1900), by = .(model, experiment, part, ensemble, cEOF)] %>%
+      # .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
+      #                  scale = sd(eof[time <= 1900])),
+      #   by = .(model, part, cEOF)] %>% 
+      .[, .(eof = mean(eof)), by = .(model, experiment, time, part, cEOF)] %>% 
+      
+      ggplot(aes(time, eof)) +
+      # geom_line(aes(group = model), alpha = 0.1) +
+      geom_line(aes(color = experiment), alpha = 0.5,
+                data = ~.x[, .(eof = mean(eof)), 
+                           by = .(time, experiment, cEOF, part)]) +
+      geom_smooth(aes(color = experiment), 
+                  data = ~.x[, .(eof = mean(eof)), 
+                             by = .(time, experiment, part, cEOF)]) +
+      scale_x_continuous(NULL) +
+      scale_y_continuous(NULL) +
+      coord_cartesian(ylim = c(-1.5, 1.5)) +
+      scale_color_experiments() +
+      facet_grid(part ~ cEOF),
+   
+   ceof_largo_p %>% 
+      .[, .SD[all(c("historical", experiments) %in% experiment)], by = model] %>% 
+      sep_ReIm() %>% 
+      # .[experiment == "historical"] %>% 
+      .[, eof := scale_eof(eof, time <= 1900), 
+        by = .(model, experiment, part, ensemble, cEOF)] %>%
+      # .[, eof := scale(eof, center = mean(eof[time <= 1900]), 
+      #                  scale = sd(eof[time <= 1900])),
+      #   by = .(model, part, cEOF)] %>% 
+      .[, .(eof = mean(eof)), 
+        by = .(model, experiment, time, part, cEOF)] %>% 
+      
+      ggplot(aes(time, eof)) +
+      # geom_line(aes(group = model), alpha = 0.1) +
+      geom_line(aes(color = experiment), alpha = 0.5,
+                data = ~.x[, .(eof = mean(eof)), 
+                           by = .(time, experiment, cEOF, part)]) +
+      geom_smooth(aes(color = experiment), 
+                  data = ~.x[, .(eof = mean(eof)), 
+                             by = .(time, experiment, part, cEOF)]) +
+      scale_x_continuous(NULL) +
+      scale_y_continuous(NULL) +
+      scale_color_experiments() +
+      coord_cartesian(ylim = c(-1.5, 1.5)) +
+      facet_grid(part ~ cEOF)
+)
+
+```
+
+
+
 (ref:tendencias-largas-cap) Igual que la Figura \@ref(fig:trends-1) pero para el período 1950 -- 2014. 
 
 ```{r tendencias-largas, fig.height = 12, fig.width=8}
 ceof_largo_p %>%
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
+   .[cEOF == "cEOF1"] %>%
+   .[, eof := eof/sd(Mod(eof)), by = .(model, experiment, cEOF)] %>% 
    .[time >= 1950] %>% 
    sep_ReIm() %>% 
    .[, FitLm(eof, time = time/10, se = TRUE), 
-     by = .(model, cEOF, ensemble, part)] %>% 
+     by = .(model, experiment, cEOF, ensemble, part)] %>% 
    .[term == "time"] %>%
-   # cors[., on = c("model", "cEOF")] %>% 
+   .[, p.value := Pvaluate(estimate, std.error, df, "fdr"), 
+     by = .(model, experiment)] %>% 
+   # cors[., on = c("model", "experiment", "cEOF")] %>% 
    # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
    # .[, model := reorder(model, correlation)] %>% 
    ggplot(aes(model, estimate)) +
    geom_hline(yintercept = 0, color = "gray50") +
-   geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model, part)],
-             aes(y = 0,
-                 height = 2*m,
-                 width = 0.5,
-                 group = part),
-             alpha = 0.2,
-             position = position_dodge(.8)) +
+   # geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model, part)],
+   #           aes(y = 0,
+   #               height = 2*m,
+   #               width = 0.5,
+   #               group = part),
+   #           alpha = 0.2,
+   #           position = position_dodge(.8)) +
    geom_point(alpha = 0) +
    geom_boxplot(aes(color = part), width = 0.5,
                 position = position_dodge(.8),
                 fill = NA,
                 data = ~.x[!startsWith(as.character(model), "ERA5")]) +
-   ggforce::geom_sina(aes(color = part), alpha = 0.5) +
+   ggforce::geom_sina(aes(color = part, 
+                          shape = p.value < 0.05),
+                      alpha = 1) +
+   scale_color_brewer(NULL, palette = "Set1") +
    scale_x_discrete(NULL) +
-   scale_color_brewer(palette = "Set1") +
+   scale_y_continuous("Tendencia") +
    coord_flip()  +
-   facet_wrap(cEOF~ ., scale = "free_x")
+   scale_shape_manual(values = c("TRUE" = 19,
+                                 "FALSE" = 1), 
+                      guide = "none") +
+   facet_grid(experiment ~ part, scales = "free_y") +
+   NULL
 ```
+
 
 La Figura \@ref(fig:tendencias-largas) reproduce las Figuras \@ref(fig:trends-1) y \@ref(fig:trends-2) para el período empezando en 1950. 
 
@@ -1957,21 +2025,25 @@ La Figura \@ref(fig:tendencias-largas) reproduce las Figuras \@ref(fig:trends-1)
 ```{r tendencias-roll, fig.height=5, fig.width=7}
 ceof_largo_p %>%
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
+   .[, eof := eof/sd(Mod(eof)), by = .(model, experiment, cEOF)] %>% 
    sep_ReIm() %>% 
-   .[, .(eof = mean(eof)), by = .(model, time, part, cEOF)] %>%
+   .[, .(eof = mean(eof)), by = .(model, experiment, time, part, cEOF)] %>%
    rbind(., 
-         .[, .(eof = mean(eof), model = "MMM"), by = .(time, part, cEOF)]) %>% 
+         .[, .(eof = mean(eof), model = "MMM"), by = .(time, experiment, part, cEOF)]) %>% 
    .[order(time)] %>% 
    .[, trend := roll::roll_lm(time, eof, width = 20)$coefficients[, 2],
-     by = .(cEOF, part, model)] %>% 
+     by = .(cEOF, part, model, experiment)] %>% 
    .[!is.na(trend)] %>% 
    ggplot(aes(time, trend)) +
    geom_hline(yintercept = 0, size = 0.1) +
-   geom_line(aes(group = model, alpha = model == "MMM")) +
+   geom_line(aes(color = experiment,
+                 group = interaction(model, experiment), 
+                 alpha = model == "MMM")) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
-   scale_alpha_manual(NULL, values = c("TRUE" = 1, "FALSE" = 0.1), 
+   scale_color_experiments() +
+   scale_alpha_manual(NULL, 
+                      values = c("TRUE" = 1, "FALSE" = 0.1), 
                       guide = "none") +
    facet_grid(part ~ cEOF)
 ```
@@ -1987,20 +2059,24 @@ Por otro lado, también se ve que la parte real del cEOF2 tiene una pequeña ten
 ```{r tendencia-mod, fig.height=4, fig.width=7}
 ceof_largo_p %>% 
    copy() %>% 
-   .[, eof := scale_eof(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, experiment, ensemble, cEOF)] %>%
    # .[, eof := Anomaly(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
    
-   .[, .(eof = mean(Mod(eof))), by = .(model, time, cEOF)] %>% 
+   .[, .(eof = mean(Mod(eof))), by = .(model, experiment, time, cEOF)] %>% 
    # .[, eof := eof/sd(eof[time <= 1900]), by = .(model, cEOF)] %>%
    .[, mean := mean(eof), by = .(time, cEOF)] %>% 
    .[, eof := eof - mean(eof[time <= 1900]) + mean(mean[time <= 1900]), 
-     by = .(model, cEOF)] %>% 
+     by = .(model, experiment, cEOF)] %>% 
    ggplot(aes(time, eof)) +
-   geom_line(aes(group = model), alpha = 0.1) +
-   geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
-   geom_smooth(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF)]) +
+   geom_line(aes(group = interaction(experiment, model), 
+                 color = experiment), alpha = 0.1) +
+   geom_line(aes(color = experiment),
+             data = ~.x[, .(eof = mean(eof)), by = .(time, experiment, cEOF)]) +
+   geom_smooth(aes(color = experiment), 
+               data = ~.x[, .(eof = mean(eof)), by = .(time, experiment, cEOF)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
+   scale_color_experiments() +
    facet_wrap(. ~ cEOF, scales = "free_y")
 ```
 
@@ -2012,23 +2088,26 @@ La amplitud del cEOF2 también aumentó ligeramente.
 ```{r varianza-roll,  fig.height=5, fig.width=7}
 ceof_largo_p %>%
    copy() %>% 
-   .[, eof := scale_eof(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, experiment, ensemble, cEOF)] %>%
    sep_ReIm() %>%
    .[order(time)] %>% 
    .[, var := roll::roll_var(eof, width = 20),
-     by = .(cEOF, part, model, ensemble)] %>%
+     by = .(cEOF, part, model, experiment, ensemble)] %>%
    .[!is.na(var)] %>%
-   .[, .(var = mean(var)), by = .(model, time, cEOF, part)] %>% 
+   .[, .(var = mean(var)), by = .(model, experiment, time, cEOF, part)] %>% 
    .[, mean := mean(var), by = .(time, cEOF)] %>% 
    .[, var := var - mean(var[time <= 1900]) + mean(mean[time <= 1900]), 
-     by = .(model, cEOF)] %>% 
+     by = .(model, experiment, cEOF)] %>% 
    ggplot(aes(time, var)) +
    # geom_hline(yintercept = 0, size = 0.1) +
-   geom_line(aes(group = model), alpha = 0.1) +
-   geom_line(data = ~.x[, .(var = mean(var)), by = .(time, cEOF, part)]) +
+   geom_line(aes(group = interaction(experiment, model), 
+                 color = experiment), alpha = 0.1) +
+   geom_line(aes(color = experiment), 
+             data = ~.x[, .(var = mean(var)), by = .(time, experiment, cEOF, part)]) +
    # geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, part, cEOF)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
+   scale_color_experiments() +
    facet_grid(part ~ cEOF)
 ```
 
@@ -2069,22 +2148,25 @@ ceof_largo_p %>%
 ```{r varianza-mod-roll, fig.height=5, fig.width=7}
 ceof_largo_p %>%
    copy() %>% 
-   .[, eof := scale_eof(eof, time <= 1900), by = .(model, ensemble, cEOF)] %>%
+   .[, eof := scale_eof(eof, time <= 1900), by = .(model, experiment, ensemble, cEOF)] %>%
    .[order(time)] %>% 
    .[, var := roll::roll_sd(Mod(eof), width = 20),
-     by = .(cEOF, model, ensemble)] %>%
+     by = .(cEOF, model, experiment, ensemble)] %>%
    .[!is.na(var)] %>%
-   .[, .(var = mean(var)), by = .(model, time, cEOF)] %>% 
+   .[, .(var = mean(var)), by = .(model, experiment, time, cEOF)] %>% 
    .[, mean := mean(var), by = .(time, cEOF)] %>% 
    .[, var := var - mean(var[time <= 1900]) + mean(mean[time <= 1900]), 
-     by = .(model, cEOF)] %>% 
+     by = .(model, experiment, cEOF)] %>% 
    ggplot(aes(time, var)) +
    # geom_hline(yintercept = 0, size = 0.1) +
-   geom_line(aes(group = model), alpha = 0.1) +
-   geom_line(data = ~.x[, .(var = mean(var)), by = .(time, cEOF)]) +
+   geom_line(aes(group = interaction(experiment, model), 
+                 color = experiment), alpha = 0.1) +
+   geom_line(aes(color = experiment), 
+             data = ~.x[, .(var = mean(var)), by = .(time, experiment, cEOF)]) +
    # geom_smooth(data = ~.x[, .(var = mean(var)), by = .(time, cEOF)], span = 0.5) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
+   scale_color_experiments() +
    facet_grid(. ~ cEOF)
 ```
 
@@ -2095,13 +2177,17 @@ ceof_largo_p %>%
 
 ```{r tendencia-r2, fig.height=4, fig.width=7}
 ceof_largo_p %>% 
-   .[, .(r2 = mean(r2)), by = .(model, time, cEOF)] %>% 
+   .[, .(r2 = mean(r2)), by = .(model, experiment, time, cEOF)] %>% 
    ggplot(aes(time, r2)) +
-   geom_line(aes(group = model), alpha = 0.1) +
-   geom_line(data = ~.x[, .(r2 = mean(r2)), by = .(time, cEOF)]) +
+   geom_line(aes(group = interaction(experiment, model), 
+                 color = experiment), alpha = 0.1) +
+   geom_line(aes(color = experiment), 
+             data = ~.x[, .(r2 = mean(r2)),
+                        by = .(time, experiment, cEOF)]) +
    # geom_smooth(data = ~.x[, .(r2 = mean(r2)), by = .(time, cEOF)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
+   scale_color_experiments() +
    # coord_cartesian(ylim = c(0, 1)) +
    facet_wrap(. ~ cEOF, scales = "free_y")
 ```
@@ -2116,12 +2202,12 @@ knitr::include_graphics(file.path(folder, "tendencias-50.png"))
 
 
 ```{r fft2}
-fft <- ceofs_larga[, eof[[1]]$left, by = model] %>% 
+fft <- ceofs_larga[, eof[[1]]$left, by = .(experiment, model)] %>% 
    sep_ReIm() %>% 
    copy() %>% 
-   .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>%
+   .[, eof := eof/sd(Mod(eof)), by = .(model, experiment, cEOF)] %>%
    .[order(time)] %>% 
-   .[, fftspectrum(eof, c(3, 5), B = 0), by = .(model, ensemble, cEOF, part)]
+   .[, fftspectrum(eof, c(3, 5), B = 0), by = .(model, experiment, ensemble, cEOF, part)]
 ```
 
 
