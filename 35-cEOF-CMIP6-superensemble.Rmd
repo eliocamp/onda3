@@ -1144,14 +1144,14 @@ En base a esto y a la metodología usada en la literatura, propongo que un próx
 Para analizar las propiedades de los modos de cada modelo uso las series temporales propias de cada modelo. 
 
 ```{r plot_trends, fig.height = 12, fig.width=8}
-plot_trends <- function(which_eof, experiments = "historical") {
+plot_trends <- function(data, which_eof, experiments = "historical") {
    which_eof <- paste0("cEOF", which_eof)
    models <- cors[cEOF == which_eof] %>% 
       .[experiment %in% experiments] %>% 
       .[order(correlation)] %>% 
       .[, model]
    
-   ceofs %>% 
+   data %>% 
       .[experiment %in% experiments] %>% 
       .[, eof[[1]]$left, by = .(experiment, model)] %>% 
       .[cEOF == which_eof] %>%
@@ -1201,13 +1201,13 @@ El recurado gris marca la región aproximada de insignificancia estadística al 
 (ref:trends-1-cap) Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. Los puntos vacíos y llenos tienen un p-valor mayor y menor a 0.05, respectivamente.
 
 ```{r trends-1, fig.height = 12, fig.width=8}
-plot_trends(1)
+plot_trends(ceofs, 1)
 ```
 
 (ref:trends-2-cap) Igual que la Figura \@ref(fig:trends-1) pero para el cEOF2.
 
 ```{r trends-2, fig.height = 12, fig.width=8}
-plot_trends(2)
+plot_trends(ceofs, 2)
 ```
 
 
