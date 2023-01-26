@@ -60,10 +60,11 @@ if (window.hljs) {
 
 <h1 class="title toc-ignore">35-cEOF Superensamble - JJA</h1>
 <h4 class="author">Elio Campitelli</h4>
+<h4 class="date">2023-01-26 10:08:13</h4>
 
 
 
-<div id="métodos" class="section level1" number="1">
+<div id="métodos" class="section level1">
 <h1><span class="header-section-number">1</span> Métodos</h1>
 <p>Dada la experiencia anterior, voy a calcular los cEOFs usando todos los miembros concatenados: el superensemble (?).</p>
 <p>Algunos detalles:</p>
@@ -86,91 +87,286 @@ if (window.hljs) {
 <thead>
 <tr class="header">
 <th align="left">Modelo</th>
+<th align="left">Experimento</th>
 <th align="right"># de miembros</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td align="left">MIROC6</td>
+<td align="left">historical</td>
 <td align="right">100</td>
 </tr>
 <tr class="even">
 <td align="left">ACCESS-ESM1-5</td>
+<td align="left">historical</td>
 <td align="right">80</td>
 </tr>
 <tr class="odd">
 <td align="left">IPSL-CM6A-LR</td>
+<td align="left">historical</td>
 <td align="right">66</td>
 </tr>
 <tr class="even">
 <td align="left">CNRM-CM6-1</td>
+<td align="left">historical</td>
 <td align="right">60</td>
 </tr>
 <tr class="odd">
 <td align="left">MPI-ESM1-2-LR</td>
+<td align="left">historical</td>
 <td align="right">60</td>
 </tr>
 <tr class="even">
 <td align="left">NorCPM1</td>
+<td align="left">historical</td>
 <td align="right">60</td>
 </tr>
 <tr class="odd">
 <td align="left">CanESM5</td>
+<td align="left">historical</td>
 <td align="right">50</td>
 </tr>
 <tr class="even">
 <td align="left">UKESM1-0-LL</td>
+<td align="left">historical</td>
 <td align="right">30</td>
 </tr>
 <tr class="odd">
 <td align="left">GISS-E2-1-G</td>
+<td align="left">historical</td>
 <td align="right">24</td>
 </tr>
 <tr class="even">
 <td align="left">CESM2</td>
+<td align="left">historical</td>
 <td align="right">22</td>
 </tr>
 <tr class="odd">
 <td align="left">CNRM-ESM2-1</td>
+<td align="left">historical</td>
 <td align="right">21</td>
 </tr>
 <tr class="even">
 <td align="left">INM-CM5-0</td>
+<td align="left">historical</td>
 <td align="right">20</td>
 </tr>
 <tr class="odd">
 <td align="left">MPI-ESM1-2-HR</td>
+<td align="left">historical</td>
 <td align="right">20</td>
 </tr>
 <tr class="even">
 <td align="left">FGOALS-g3</td>
+<td align="left">historical</td>
 <td align="right">12</td>
 </tr>
 <tr class="odd">
 <td align="left">ACCESS-CM2</td>
+<td align="left">historical</td>
 <td align="right">10</td>
 </tr>
 <tr class="even">
 <td align="left">AWI-CM-1-1-MR</td>
+<td align="left">historical</td>
 <td align="right">10</td>
 </tr>
 <tr class="odd">
 <td align="left">E3SM-1-0</td>
+<td align="left">historical</td>
 <td align="right">10</td>
 </tr>
 <tr class="even">
 <td align="left">HadGEM3-GC31-LL</td>
+<td align="left">historical</td>
 <td align="right">10</td>
 </tr>
 <tr class="odd">
 <td align="left">NESM3</td>
+<td align="left">historical</td>
 <td align="right">10</td>
+</tr>
+<tr class="even">
+<td align="left">CanESM5</td>
+<td align="left">hist-stratO3</td>
+<td align="right">10</td>
+</tr>
+<tr class="odd">
+<td align="left">IPSL-CM6A-LR</td>
+<td align="left">hist-stratO3</td>
+<td align="right">10</td>
+</tr>
+<tr class="even">
+<td align="left">MIROC6</td>
+<td align="left">hist-stratO3</td>
+<td align="right">10</td>
+</tr>
+<tr class="odd">
+<td align="left">GISS-E2-1-G</td>
+<td align="left">hist-stratO3</td>
+<td align="right">5</td>
+</tr>
+<tr class="even">
+<td align="left">MRI-ESM2-0</td>
+<td align="left">hist-stratO3</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">CanESM5</td>
+<td align="left">hist-nat</td>
+<td align="right">50</td>
+</tr>
+<tr class="even">
+<td align="left">MIROC6</td>
+<td align="left">hist-nat</td>
+<td align="right">50</td>
+</tr>
+<tr class="odd">
+<td align="left">GISS-E2-1-G</td>
+<td align="left">hist-nat</td>
+<td align="right">20</td>
+</tr>
+<tr class="even">
+<td align="left">CNRM-CM6-1</td>
+<td align="left">hist-nat</td>
+<td align="right">10</td>
+</tr>
+<tr class="odd">
+<td align="left">HadGEM3-GC31-LL</td>
+<td align="left">hist-nat</td>
+<td align="right">10</td>
+</tr>
+<tr class="even">
+<td align="left">IPSL-CM6A-LR</td>
+<td align="left">hist-nat</td>
+<td align="right">10</td>
+</tr>
+<tr class="odd">
+<td align="left">MRI-ESM2-0</td>
+<td align="left">hist-nat</td>
+<td align="right">5</td>
+</tr>
+<tr class="even">
+<td align="left">ACCESS-CM2</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">ACCESS-ESM1-5</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">BCC-CSM2-MR</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">CESM2</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">FGOALS-g3</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">GFDL-CM4</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">GFDL-ESM4</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">NorESM2-LM</td>
+<td align="left">hist-nat</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">CanESM5</td>
+<td align="left">hist-GHG</td>
+<td align="right">50</td>
+</tr>
+<tr class="odd">
+<td align="left">MIROC6</td>
+<td align="left">hist-GHG</td>
+<td align="right">50</td>
+</tr>
+<tr class="even">
+<td align="left">CNRM-CM6-1</td>
+<td align="left">hist-GHG</td>
+<td align="right">10</td>
+</tr>
+<tr class="odd">
+<td align="left">GISS-E2-1-G</td>
+<td align="left">hist-GHG</td>
+<td align="right">10</td>
+</tr>
+<tr class="even">
+<td align="left">IPSL-CM6A-LR</td>
+<td align="left">hist-GHG</td>
+<td align="right">10</td>
+</tr>
+<tr class="odd">
+<td align="left">HadGEM3-GC31-LL</td>
+<td align="left">hist-GHG</td>
+<td align="right">5</td>
+</tr>
+<tr class="even">
+<td align="left">MRI-ESM2-0</td>
+<td align="left">hist-GHG</td>
+<td align="right">5</td>
+</tr>
+<tr class="odd">
+<td align="left">ACCESS-CM2</td>
+<td align="left">hist-GHG</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">ACCESS-ESM1-5</td>
+<td align="left">hist-GHG</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">BCC-CSM2-MR</td>
+<td align="left">hist-GHG</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">CESM2</td>
+<td align="left">hist-GHG</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">E3SM-1-0</td>
+<td align="left">hist-GHG</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">FGOALS-g3</td>
+<td align="left">hist-GHG</td>
+<td align="right">3</td>
+</tr>
+<tr class="odd">
+<td align="left">NorESM2-LM</td>
+<td align="left">hist-GHG</td>
+<td align="right">3</td>
+</tr>
+<tr class="even">
+<td align="left">GFDL-ESM4</td>
+<td align="left">hist-GHG</td>
+<td align="right">1</td>
 </tr>
 </tbody>
 </table>
 <p>Voy a calcular los cEOF multimodelo como los cEOFs promedio.</p>
 </div>
-<div id="resultados" class="section level1" number="2">
+<div id="resultados" class="section level1">
 <h1><span class="header-section-number">2</span> Resultados</h1>
 
 <div class="figure"><span style="display:block;" id="fig:comparacion-r2-1"></span>
@@ -186,7 +382,7 @@ function change_comparacion_r2(newVal){
 </script>
 <p>La Figura <a href="#fig:comparacion-r2"><strong>??</strong></a> muestra el <span class="math inline">\(r^2\)</span> de los modelos para los dos cEOFs.
 Por alguna razón los valores del superensemble tienen menos correlación que los miembros en promedio ¯\_(ツ)_/¯.</p>
-<div id="parte-espacial" class="section level2" number="2.1">
+<div id="parte-espacial" class="section level2">
 <h2><span class="header-section-number">2.1</span> Parte espacial</h2>
 <p>Las Figuras <a href="#fig:ceofs-1-50"><strong>??</strong></a> y <a href="#fig:ceofs-1-200"><strong>??</strong></a> muestan el cEOF1 en 50 hPa y 200 hPa respectivamente.
 En general los patrones son bastante similares, especialmente en la estratósfera, donde e patrón es de mayor escala y entonces hay menos chances de cosas que fallen.
@@ -242,7 +438,7 @@ function change_ceofs_2_200(newVal){
   document.getElementById("ceofs-2-200").src = "fig/35-cEOF-CMIP6-superensembleJJA//ceofs-2-200-" + newVal + ".png";
 }
 </script>
-<div id="media-multimodelo" class="section level3" number="2.1.1">
+<div id="media-multimodelo" class="section level3">
 <h3><span class="header-section-number">2.1.1</span> Media multimodelo</h3>
 <p>Finalmente, la Figura <a href="#fig:mmm"><strong>??</strong></a> muestra los patrones promedio multimodelo para cada cEOF y cada parte.</p>
 
@@ -261,7 +457,7 @@ function change_mmm(newVal){
 <p>En base a esto y a la metodología usada en la literatura, propongo que un próximo paso para evaluación de atribución o tendencias futuras use este patrón promedio para obtener las series temporales en vez de los propios de cada modelo.</p>
 </div>
 </div>
-<div id="parte-temporal" class="section level2" number="2.2">
+<div id="parte-temporal" class="section level2">
 <h2><span class="header-section-number">2.2</span> Parte temporal</h2>
 <p>Para analizar las propiedades de los modos de cada modelo uso las series temporales propias de cada modelo.</p>
 <p>Las Figuras <a href="#fig:trends-1">2.7</a> y <a href="#fig:trends-1">2.7</a> muestran las tendencias lineales de cada cEOF.
@@ -269,9 +465,9 @@ El recurado gris marca la región aproximada de insignificancia estadística al 
 
 <div class="figure"><span style="display:block;" id="fig:trends-1"></span>
 <p class="caption marginnote shownote">
-Figure 2.7: Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. El área gris marca la región aproximada de insignificancia estadística usando <span class="math inline">\(\pm\)</span> 2 errores estándares, tomando el error estándar promedio de las estimaciones de cada modelo.
+Figure 2.7: Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. Los puntos vacíos y llenos tienen un p-valor mayor y menor a 0.05, respectivamente.
 </p>
-<img src="fig/35-cEOF-CMIP6-superensembleJJA/trends-1-1.png" alt="Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. El área gris marca la región aproximada de insignificancia estadística usando \(\pm\) 2 errores estándares, tomando el error estándar promedio de las estimaciones de cada modelo." width="768" id='trends-1' />
+<img src="fig/35-cEOF-CMIP6-superensembleJJA/trends-1-1.png" alt="Tendencias durante todo el período (en desvíos estándares por década) para la parte real e imaginaria del cEOF1 de cada miembro de cada modelo. Los puntos vacíos y llenos tienen un p-valor mayor y menor a 0.05, respectivamente." width="768" id='trends-1' />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:trends-2"></span>
@@ -309,7 +505,7 @@ Figure 2.11: Espectros de Fourier para los índices ENSO34 de cada modelo. En l�
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/ensofft-1.png" alt="Espectros de Fourier para los índices ENSO34 de cada modelo. En línea obscura es el espectro promedio de todos los miembros, que se muestran en líneas translúcidas. En recuadro negro, los mismos modelos recuadrados en la Figura 2.10." width="864" id='ensofft' />
 </div>
 </div>
-<div id="sst" class="section level2" number="2.3">
+<div id="sst" class="section level2">
 <h2><span class="header-section-number">2.3</span> SST</h2>
 <p>Finalmente, queremos evaluar si los modelos capturan correctamente la relación entre los modos y las anomalías de temperatura de la superficie del mar.</p>
 
@@ -351,36 +547,9 @@ Figure 2.14: Promedio multimodelo de las regresiones de las figuras <a href="#fi
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/sst-mmm-1.png" alt="Promedio multimodelo de las regresiones de las figuras ?? y ??." width="864" id='sst-mmm' />
 </div>
-<pre><code>##          lon   lat  cEOF      part    estimate
-##        &lt;num&gt; &lt;num&gt; &lt;ord&gt;     &lt;ord&gt;       &lt;num&gt;
-##     1:  52.5  10.0 cEOF1      Real  0.17242926
-##     2:  52.5  10.0 cEOF1 Imaginary  0.03311457
-##     3:  52.5  10.0 cEOF2      Real  0.17848201
-##     4:  52.5  10.0 cEOF2 Imaginary -0.03711575
-##     5:  55.0  10.0 cEOF1      Real  0.10746607
-##    ---                                        
-## 16524: 322.5 -77.5 cEOF2 Imaginary  0.06641957
-## 16525: 325.0 -77.5 cEOF1      Real  0.03418044
-## 16526: 325.0 -77.5 cEOF1 Imaginary -0.20437635
-## 16527: 325.0 -77.5 cEOF2      Real  0.25562851
-## 16528: 325.0 -77.5 cEOF2 Imaginary  0.06641957</code></pre>
-
-<div class="figure"><span style="display:block;" id="fig:enso-perf-plot"></span>
-<p class="caption marginnote shownote">
-Figure 2.15: Relación entre la correlación espacial de cada cEOF de cada modelo con ERA5 y valores normalizados de las métricas de performance de ENSO según <a href="https://pcmdi.llnl.gov/pmp-preliminary-results/interactive_plot/portrait_plot/enso_metric/enso_metrics_interactive_portrait_plots_v20210723.html">Planton et al. 2021</a>.
-</p>
-<img src="fig/35-cEOF-CMIP6-superensembleJJA/enso-perf-plot-1.png" alt="Relación entre la correlación espacial de cada cEOF de cada modelo con ERA5 y valores normalizados de las métricas de performance de ENSO según Planton et al. 2021." width="576" id='enso-perf-plot' />
-</div>
-
-<div class="figure"><span style="display:block;" id="fig:enso-teleconnections-plot"></span>
-<p class="caption marginnote shownote">
-Figure 2.16: Igual que la Figura <a href="#fig:enso-perf-plot">2.15</a> pero para las métricas de teleconexiones de ENSO.
-</p>
-<img src="fig/35-cEOF-CMIP6-superensembleJJA/enso-teleconnections-plot-1.png" alt="Igual que la Figura 2.15 pero para las métricas de teleconexiones de ENSO." width="576" id='enso-teleconnections-plot' />
 </div>
 </div>
-</div>
-<div id="serie-temporal-larga" class="section level1" number="3">
+<div id="serie-temporal-larga" class="section level1">
 <h1><span class="header-section-number">3</span> Serie temporal larga</h1>
 <p>Hay dos formas de extender los cEOFS para odo el período, puedo recomputar el cEOF usando todos los datos, o puedo proyectar los campos obtenidos.
 La primera es más natural, pero tiene el inconveniente de que la interpretación depende de que los cEOFs obtenidos seaon comparables (los campos sean iguales o similares).</p>
@@ -406,41 +575,54 @@ Figure 3.2: Correlación entre las series temporales de cada modelo, miembro, cE
 </div>
 <p>Por suerte, no hace falta elegir ya que ambos métodos dan prácticamente el mismo resultado, como se ve en la Figura <a href="#fig:correlacion-metodos">3.2</a>.</p>
 <p>Por las ventajas de interpretación y demás, vamos a seguir con la proyección.</p>
-<div id="series" class="section level2" number="3.1">
+<div id="series" class="section level2">
 <h2><span class="header-section-number">3.1</span> Series</h2>
 
 <div class="figure"><span style="display:block;" id="fig:tendencia"></span>
 <p class="caption marginnote shownote">
-Figure 3.3: Series temporales de anomalías estandarizadas de los cEOFs computados usando el período 1850 – 2014. Las anomalías están computadas sobre el período 1850 – 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo.
+Figure 3.3: Series temporales de anomalías estandarizadas de los cEOFs computados usando el período 1850 – 1969. Las anomalías están computadas sobre el período 1850 – 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo.
 </p>
-<img src="fig/35-cEOF-CMIP6-superensembleJJA/tendencia-1.png" alt="Series temporales de anomalías estandarizadas de los cEOFs computados usando el período 1850 – 2014. Las anomalías están computadas sobre el período 1850 – 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo." width="576" id='tendencia' />
+<img src="fig/35-cEOF-CMIP6-superensembleJJA/tendencia-1.png" alt="Series temporales de anomalías estandarizadas de los cEOFs computados usando el período 1850 – 1969. Las anomalías están computadas sobre el período 1850 – 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo." width="576" id='tendencia' />
 </div>
 <p>La Figura <a href="#fig:tendencia">3.3</a> muestra las series temporales de los cEOfs.
 Se ve que la parte real del cEOF1 tiene una tendencia a la alza bien clara.
 Las otras series no tienen tendencias.</p>
 <p>El cEOF2 real tiene una pequeña tendencia que se ve en la media multimodelo.</p>
 
+<p>Campos espaciales de cEOF1 en 50 hPa. <a href="javascript:change_series_largas('1')">Todos los modelos</a>, <a href="javascript:change_series_largas('2')">Sólo modelos con todos los experimentos</a></p>
+<div class="figure"><span style="display:block;" id="fig:series-largas-1"></span>
+<p class="caption marginnote shownote">
+Figure 3.4: Igual que la Figura <a href="#fig:tendencia">3.3</a> pero para todos los
+</p>
+<img src="fig/35-cEOF-CMIP6-superensembleJJA/series-largas-1.png" alt="Igual que la Figura 3.3 pero para todos los" width="672" id='series-largas' />
+</div>
+<script>
+function change_series_largas(newVal){
+  document.getElementById("series-largas").src = "fig/35-cEOF-CMIP6-superensembleJJA//series-largas-" + newVal + ".png";
+}
+</script>
+
 <div class="figure"><span style="display:block;" id="fig:tendencias-largas"></span>
 <p class="caption marginnote shownote">
-Figure 3.4: Igual que la Figura <a href="#fig:trends-1">2.7</a> pero para el período 1950 – 2014.
+Figure 3.5: Igual que la Figura <a href="#fig:trends-1">2.7</a> pero para el período 1950 – 2014.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/tendencias-largas-1.png" alt="Igual que la Figura 2.7 pero para el período 1950 – 2014." width="768" id='tendencias-largas' />
 </div>
-<p>La Figura <a href="#fig:tendencias-largas">3.4</a> reproduce las Figuras <a href="#fig:trends-1">2.7</a> y <a href="#fig:trends-2">2.8</a> para el período empezando en 1950.</p>
+<p>La Figura <a href="#fig:tendencias-largas">3.5</a> reproduce las Figuras <a href="#fig:trends-1">2.7</a> y <a href="#fig:trends-2">2.8</a> para el período empezando en 1950.</p>
 
 <div class="figure"><span style="display:block;" id="fig:tendencias-roll"></span>
 <p class="caption marginnote shownote">
-Figure 3.5: Tendencias estandarizadas (con el período 1850 – 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo.
+Figure 3.6: Tendencias estandarizadas (con el período 1850 – 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/tendencias-roll-1.png" alt="Tendencias estandarizadas (con el período 1850 – 1900 como base) estimadas en ventanas de 20 años. En líneas translúcidas las tendencias calculadas con el cEOF medio de cada modelo y en línea negra la tendencia de la media multimodelo." width="672" id='tendencias-roll' />
 </div>
-<p>La Figura <a href="#fig:tendencias-roll">3.5</a> muetra las tendencias de la media de cada modelo calculada en ventanas de 20 años.
+<p>La Figura <a href="#fig:tendencias-roll">3.6</a> muetra las tendencias de la media de cada modelo calculada en ventanas de 20 años.
 Se obseva la tendencia positiva de la parte real del cEOF1 que compienza al rededor de 1980.
 Por otro lado, también se ve que la parte real del cEOF2 tiene una pequeña tendencia.</p>
 
 <div class="figure"><span style="display:block;" id="fig:tendencia-mod"></span>
 <p class="caption marginnote shownote">
-Figure 3.6: Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra).
+Figure 3.7: Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra).
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/tendencia-mod-1.png" alt="Amplitud promedio de cada modo en cada modelo (líneas translúcidas) y la amplitud media multimodelo (línea negra)." width="672" id='tendencia-mod' />
 </div>
@@ -449,42 +631,42 @@ La amplitud del cEOF2 también aumentó ligeramente.</p>
 
 <div class="figure"><span style="display:block;" id="fig:varianza-roll"></span>
 <p class="caption marginnote shownote">
-Figure 3.7: Varianza de los índices estimadas en ventanas de 20 años.
+Figure 3.8: Varianza de los índices estimadas en ventanas de 20 años.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/varianza-roll-1.png" alt="Varianza de los índices estimadas en ventanas de 20 años." width="672" id='varianza-roll' />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:varianza-mod-roll"></span>
 <p class="caption marginnote shownote">
-Figure 3.8: Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años.
+Figure 3.9: Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/varianza-mod-roll-1.png" alt="Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años." width="672" id='varianza-mod-roll' />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:tendencia-r2"></span>
 <p class="caption marginnote shownote">
-Figure 3.9: Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra).
+Figure 3.10: Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra).
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/tendencia-r2-1.png" alt="Varianza explicada por cada modo en cada modelo (líneas translúcidas) y la varianza explicada media multimodelo (línea negra)." width="672" id='tendencia-r2' />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:tendencias"></span>
 <p class="caption marginnote shownote">
-Figure 3.10: Tendencias en <a href="javascript:change_tendencias(&#39;50&#39;)">50hPa</a> o <a href="javascript:change_tendencias(&#39;200&#39;)">200hPa</a>.
+Figure 3.11: Tendencias en <a href="javascript:change_tendencias(&#39;50&#39;)">50hPa</a> o <a href="javascript:change_tendencias(&#39;200&#39;)">200hPa</a>.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/tendencias-50.png" alt="Tendencias en 50hPa o 200hPa." width="900" id='tendencias' />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:fft-1l"></span>
 <p class="caption marginnote shownote">
-Figure 3.11: Igual que Figura <a href="#fig:fft-1">2.9</a> pero para el período 1850 – 2014.
+Figure 3.12: Igual que Figura <a href="#fig:fft-1">2.9</a> pero para el período 1850 – 2014.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/fft-1l-1.png" alt="Igual que Figura 2.9 pero para el período 1850 – 2014." width="864" id='fft-1l' />
 </div>
 
 <div class="figure"><span style="display:block;" id="fig:fft-2l"></span>
 <p class="caption marginnote shownote">
-Figure 3.12: Igual que Figura <a href="#fig:fft-2">2.10</a> pero para el período 1850 – 2014.
+Figure 3.13: Igual que Figura <a href="#fig:fft-2">2.10</a> pero para el período 1850 – 2014.
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleJJA/fft-2l-1.png" alt="Igual que Figura 2.10 pero para el período 1850 – 2014." width="864" id='fft-2l' />
 </div>
