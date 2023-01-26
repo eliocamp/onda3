@@ -1,14 +1,15 @@
 ---
 title: "35-cEOF Superensamble - `r params$season`"   
 author: "Elio Campitelli"
+date:  "`r Sys.time()`"
 output: 
    bookdown::html_document2:
          base_format: tufte::tufte_html 
          self_contained: FALSE
 link-citations: yes 
 params:
-   season: "MAM"
-   cache.extra: 42
+   season: "DJF"
+   cache.extra: "DJF"
 ---
 
 ```{r setup, include=FALSE}
@@ -338,8 +339,7 @@ sims_damip <- cmip_available(mip_era = "CMIP6",
    .[, ensemble := interaction(ensemble, init, physics, forcing)]
 ```
 
-
-```{r}
+```{r scale_color_experiments}
 
 scale_color_experiments <- function() {
    scale_color_manual(values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
@@ -349,21 +349,17 @@ scale_color_experiments <- function() {
 
 scale_fill_experiments <- function() {
    scale_fill_manual(values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
-                         setNames(c("historical", "hist-GHG", "hist-stratO3", "hist-nat")))   
+                        setNames(c("historical", "hist-GHG", "hist-stratO3", "hist-nat")))   
 }
 
 ```
 
-```{r}
+```{r sims}
 sims <- rbind(sims, sims_damip)
 ```
 
-
-```{r}
-future::plan("multisession")
-```
-
 ```{r select_merge}
+future::plan("multisession")
 dir.create(file.path("cmip", params$season), 
            showWarnings = FALSE, recursive = TRUE)
 select_merge <- function(file_in) {
@@ -374,7 +370,7 @@ select_merge <- function(file_in) {
       as.data.table() %>% 
       .[, ":="(start_date = NULL, end_date = NULL)] %>% 
       unique() 
-
+   
    stopifnot(nrow(unique_items) == 1)
    
    
@@ -646,13 +642,6 @@ with_enso <-  cut(ceof_era5$eof[[1]], 2)$left %>%
    enso[., on = "time"] %>% 
    na.omit() 
 
-
-with_o3 <-  cut(ceof_era5$eof[[1]], 1)$left %>%
-   copy() %>%
-   wave1_o3[., on = "time"] %>% 
-   na.omit() 
-
-
 angles <- seq(-pi, pi, by = .5*pi/180)
 rotations_cEOF2 <- lapply(angles, function(a) {
    with_enso %>%
@@ -663,8 +652,14 @@ rotations_cEOF2 <- lapply(angles, function(a) {
 }) %>%
    rbindlist()
 
+rm(with_enso)
+
 best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
 
+with_o3 <-  cut(ceof_era5$eof[[1]], 1)$left %>%
+   copy() %>%
+   wave1_o3[., on = "time"] %>% 
+   na.omit() 
 
 rotations_cEOF1 <- lapply(angles, function(a) {
    with_o3 %>%
@@ -674,6 +669,8 @@ rotations_cEOF1 <- lapply(angles, function(a) {
       .[, rotation := a]
 }) %>%
    rbindlist()
+
+rm(with_o3)
 
 best_rotation_cEOF1 <- rotations_cEOF1[which.max(R)]$rotation
 
@@ -697,13 +694,6 @@ with_enso <-  cut(ceof_era5_detrend$eof[[1]], 2)$left %>%
    enso[., on = "time"] %>% 
    na.omit() 
 
-
-with_o3 <-  cut(ceof_era5_detrend$eof[[1]], 1)$left %>%
-   copy() %>%
-   wave1_o3[., on = "time"] %>% 
-   na.omit() 
-
-
 angles <- seq(-pi, pi, by = .5*pi/180)
 rotations_cEOF2 <- lapply(angles, function(a) {
    with_enso %>%
@@ -713,9 +703,15 @@ rotations_cEOF2 <- lapply(angles, function(a) {
       .[, rotation := a]
 }) %>%
    rbindlist()
+rm(with_enso)
 
 best_rotation_cEOF2 <- rotations_cEOF2[I > 0][which.min(abs(R))]$rotation
 
+
+with_o3 <-  cut(ceof_era5_detrend$eof[[1]], 1)$left %>%
+   copy() %>%
+   wave1_o3[., on = "time"] %>% 
+   na.omit() 
 
 rotations_cEOF1 <- lapply(angles, function(a) {
    with_o3 %>%
@@ -725,6 +721,8 @@ rotations_cEOF1 <- lapply(angles, function(a) {
       .[, rotation := a]
 }) %>%
    rbindlist()
+
+rm(with_o3)
 
 best_rotation_cEOF1 <- rotations_cEOF1[which.max(R)]$rotation
 
@@ -889,25 +887,27 @@ compute_eof <- memoise::memoise(compute_eof_, cache = cache)
 
 
 ```{r ceofs} 
+times <- seq(as.Date("1979-01-01"), as.Date("2014-11-01"), by = "1 month") 
+times <- range(seasonally(times[season(times) == params$season]))
+
 ceofs <- simulaciones %>% 
    .[variable == "zg"] %>%
-   .[, .(eof = list(compute_eof(file, member) %>%
+   .[, .(eof = list(compute_eof(file, member, time = times) %>%
                        optimise_rotation())), 
      by = .(experiment, model)]
 ceofs <- rbind(ceofs, ceof_era5)
 # rm(ceof_era5)
 ```
 
-```{r save-ceofs}
+```{r save-ceofs, cache = FALSE}
 saveRDS(ceofs, file.path("cmip", params$season, "cmip6_ceofs.Rds"))
 ```
 
 
 ```{r ceofs_detrend}
-
 ceofs_detrend <- simulaciones %>% 
    .[variable == "zg"] %>%
-   .[, .(eof = list(compute_eof(file, member, detrend = TRUE) %>%
+   .[, .(eof = list(compute_eof(file, member, time = times, detrend = TRUE) %>%
                        optimise_rotation(ref = ref_detrended))), 
      by = .(experiment, model)]
 ceofs_detrend <- rbind(ceofs_detrend, ceof_era5_detrend)
@@ -1546,21 +1546,6 @@ sst_regression %>%
 ```
 
 
-```{r}
-# 
-# rbind(
-#    tendencioso = ceof_era5[, eof[[1]]$left, by = .(model)],
-#    destendenciado = ceof_era5_detrend[, eof[[1]]$left, by = .(model)], 
-#    idcol = "tendencia") %>% 
-#    sep_ReIm(eof) %>% 
-#    .[sst_ear5, on = c("time", "model"), allow.cartesian = TRUE] %>% 
-#    .[, .(estimate = cor(eof, sst_a)), by = .(lon, lat, cEOF, part)]
-
-
-
-```
-
-
 
 # Serie temporal larga 
 
@@ -1570,9 +1555,10 @@ La primera es más natural, pero tiene el inconveniente de que la interpretació
 En esta sección trabajo todo con tendecia. 
 
 ```{r ceofs_larga}
+
 ceofs_larga <- simulaciones %>% 
    .[variable == "zg"] %>%
-   .[, .(eof = list(compute_eof(file, member, time = c(NA, "2014-12-31")) %>%
+   .[, .(eof = list(compute_eof(file, member, time = c(NA, times[2])) %>%
                        optimise_rotation())), 
      by = .(experiment, model)]
 ```
@@ -1582,7 +1568,7 @@ ceofs_larga <- simulaciones %>%
 ```{r ceofs_vieja}
 ceofs_vieja <- simulaciones %>% 
    .[variable == "zg"] %>%
-   .[, .(eof = list(compute_eof(file, member, time = c(NA, "1910-12-31")) %>%
+   .[, .(eof = list(compute_eof(file, member, time = c(NA, times[2])) %>%
                        optimise_rotation())), 
      by = .(experiment, model)]
 ```
@@ -1648,7 +1634,7 @@ trends <- simulaciones %>%
    .[, plev := NULL]
 ```
 
-```{r, results='asis'}
+```{r script-tendencias, results='asis'}
 glue::glue('
 <script>
 function change_tendencias(newVal){{
@@ -1693,7 +1679,7 @@ for (this_lev in unique(trends$lev)) {
 
 
 
-```{r}
+```{r cor_rotations}
 cor_rotations <- function(z, y, res = 0.5, 
                           angles = seq(0, pi, by = res*pi/180)) {
    
@@ -1709,7 +1695,7 @@ cor_rotations <- function(z, y, res = 0.5,
 
 ```
 
-```{r}
+```{r correlation_trends}
 correlation_trends <- trends %>% 
    copy() %>% 
    .[, value := Anomaly(value), by = .(lat, lev, model, member, experiment)] %>% 
@@ -1718,29 +1704,6 @@ correlation_trends <- trends %>%
      on = c("model", "lon", "lat", "lev", "experiment"),
      allow.cartesian = TRUE] %>%
    .[, cor_rotations(eof, value, res = 1), by = .(lev, model, cEOF, member, experiment)]
-```
-
-
-```{r, fig.height=8, fig.width=7}
-# correlation_trends %>% 
-#    .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
-#    .[, angle := NULL] %>% 
-#    # .[, .(estimate = mean(correlation)), by = .(lev, model, cEOF)] %>% 
-#    ggplot(aes(correlation, model)) +
-#    geom_violin(aes(color = cEOF)) +
-#    # geom_col(aes(fill = cEOF), position = "dodge") +
-#    facet_wrap(~lev) +
-#    scale_x_continuous(NULL, limits = c(0, 1)) +
-#    scale_y_discrete(NULL)
-```
-
-```{r}
-# correlation_trends %>% 
-#    .[, .SD[which.max(correlation)], by = .(lev, model, cEOF, member)] %>% 
-#    .[, angle := NULL] %>% 
-#    tidyfast::dt_pivot_wider(names_from = cEOF, values_from = correlation) %>%
-#    .[, cor(cEOF1, cEOF2), by = .(model, lev)] %>% 
-#    .[order(-V1)]
 ```
 
 
@@ -1840,10 +1803,11 @@ eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
 ```{r ceof_largo_p}
 ceof_largo_p <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, eof_proyectado(file, member, model), by = .(experiment, model)] 
+   .[, eof_proyectado(file, member, model, time = c(NA, times[2])), 
+     by = .(experiment, model)] 
 ```
 
-```{r}
+```{r save-ceof_largo_p, cache = FALSE}
 saveRDS(ceof_largo_p, file.path("cmip", params$season, "cmip6_ceofs_largo_p.Rds"))
 ```
 
@@ -1877,7 +1841,7 @@ Por las ventajas de interpretación y demás, vamos a seguir con la proyección.
 (ref:tendencia-cap) Series temporales de anomalías estandarizadas de los cEOFs computados usando el período `r paste0(range(ceofs_larga[1, eof[[1]]$left]$time), collapse = " -- ")`. Las anomalías están computadas sobre el período 1850 -- 1900. En líneas translúcidas, las series promedio de cada modelo. En línea oscura, la media multimodelo. La línea azul es un loess smooth de la media multimodelo. 
 
 
-```{r}
+```{r scale_eof}
 scale_eof <- function(eof, baseline) {
    scale(eof, center = mean(eof[baseline]), 
          scale = sd(Mod(eof[baseline])))
@@ -1912,7 +1876,9 @@ Las otras series no tienen tendencias.
 El cEOF2 real tiene una pequeña tendencia que se ve en la media multimodelo. 
 
 
-(ref:series-largas-cap) Campos espaciales de cEOF1 en 50 hPa. `r change_plot_links("series-largas", c("Todos los modelos", "Sólo modelos con todos los experimentos"))`
+(ref:series-largas-cap) Igual que la Figura \@ref(fig:tendencia) pero para todos los 
+
+Campos espaciales de cEOF1 en 50 hPa. `r change_plot_links("series-largas", c("Todos los modelos", "Sólo modelos con todos los experimentos"))`
 
 ```{r series-largas, one_figure = TRUE}
 list(
@@ -1929,7 +1895,7 @@ list(
       # geom_line(aes(group = model), alpha = 0.1) +
       geom_line(aes(color = experiment), alpha = 0.5,
                 data = ~.x[, .(eof = mean(eof)), 
-                           by = .(time, experiment, cEOF, part)]) +
+                           by = .(time, model, experiment, cEOF, part)]) +
       geom_smooth(aes(color = experiment), 
                   data = ~.x[, .(eof = mean(eof)), 
                              by = .(time, experiment, part, cEOF)]) +
@@ -2112,36 +2078,6 @@ ceof_largo_p %>%
 ```
 
 
-```{r}
-# ceof_largo_p %>%
-#    copy() %>% 
-#    .[, eof := eof/sd(Mod(eof)), by = .(model, cEOF)] %>% 
-#    .[time >= 1950] %>% 
-#    .[, FitLm(Mod(eof), time = time/10, se = TRUE), 
-#      by = .(model, cEOF, ensemble)] %>% 
-#    .[term == "time"] %>%
-#    # cors[., on = c("model", "cEOF")] %>% 
-#    # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
-#    # .[, model := reorder(model, correlation)] %>% 
-#    ggplot(aes(model, estimate)) +
-#    geom_hline(yintercept = 0, color = "gray50") +
-#    geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model)],
-#              aes(y = 0,
-#                  height = 2*m,
-#                  width = 0.5),
-#              alpha = 0.2,
-#              position = position_dodge(.8)) +
-#    geom_point(alpha = 0) +
-#    geom_boxplot(width = 0.5,
-#                 position = position_dodge(.8),
-#                 fill = NA,
-#                 data = ~.x[!startsWith(as.character(model), "ERA5")]) +
-#    ggforce::geom_sina(alpha = 0.5) +
-#    scale_x_discrete(NULL) +
-#    scale_color_brewer(palette = "Set1") +
-#    coord_flip()  +
-#    facet_wrap(cEOF~ ., scale = "free_x")
-```
 
 (ref:varianza-mod-roll-cap) Desvío estándard del módulo de los cEOFs estimada en ventanas de 20 años. 
 
