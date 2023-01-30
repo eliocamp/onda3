@@ -8,8 +8,8 @@ output:
          self_contained: FALSE
 link-citations: yes 
 params:
-   season: "DJF"
-   cache.extra: "DJF"
+   season: "SON"
+   cache.extra: "SON"
 ---
 
 ```{r setup, include=FALSE}
@@ -41,7 +41,7 @@ knitr::opts_chunk$set(
    message = FALSE,
    cache = TRUE, 
    cache.lazy = FALSE,
-   cache.extra = params$cache.extra,
+   cache.extra = paste0(params$cache.extra, 42),
    cache.path = paste0("cache/", name, "/")
 )
 
@@ -326,10 +326,10 @@ sims <- sims %>%
 
 
 ```{r sims_damip}
-experiments <- c("hist-GHG", "hist-stratO3", "hist-nat")
+damip_experiments <- c("hist-GHG", "hist-stratO3", "hist-nat")
 sims_damip <- cmip_available(mip_era = "CMIP6", 
                              activity_drs = "DAMIP",
-                             experiment_id = experiments,
+                             experiment_id = damip_experiments,
                              # source_id = unique(simulaciones$model),
                              table_id = c("Amon"),
                              variable_id = c("zg")) %>% 
@@ -341,15 +341,19 @@ sims_damip <- cmip_available(mip_era = "CMIP6",
 
 ```{r scale_color_experiments}
 
-scale_color_experiments <- function() {
-   scale_color_manual(values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
-                         setNames(c("historical", "hist-GHG", "hist-stratO3", "hist-nat")))   
+experiments <- c("historical", damip_experiments)
+
+scale_color_experiments <- function(...) {
+   scale_color_manual(..., name = NULL, 
+                      values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
+                         setNames(experiments))   
 }
 
 
-scale_fill_experiments <- function() {
-   scale_fill_manual(values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
-                        setNames(c("historical", "hist-GHG", "hist-stratO3", "hist-nat")))   
+scale_fill_experiments <- function(...) {
+   scale_fill_manual(..., name = NULL, 
+                     values = RColorBrewer::brewer.pal(4, "Dark2") %>% 
+                        setNames(experiments))   
 }
 
 ```
@@ -458,7 +462,8 @@ simulaciones <- na.omit(files) %>%
    as.data.table() %>% 
    DT(, file := na.omit(files)) %>% 
    DT(order(variable, model, member)) %>% 
-   .[, member := interaction(member, init, physics, forcing)]
+   .[, member := interaction(member, init, physics, forcing)] %>% 
+   .[, experiment := factor(experiment, levels = experiments)]
 ```
 
 # Métodos
@@ -1558,7 +1563,7 @@ En esta sección trabajo todo con tendecia.
 
 ceofs_larga <- simulaciones %>% 
    .[variable == "zg"] %>%
-   .[, .(eof = list(compute_eof(file, member, time = c(NA, times[2])) %>%
+   .[, .(eof = list(compute_eof(file, member, time = c(NA_Date_, times[2])) %>%
                        optimise_rotation())), 
      by = .(experiment, model)]
 ```
@@ -1568,7 +1573,7 @@ ceofs_larga <- simulaciones %>%
 ```{r ceofs_vieja}
 ceofs_vieja <- simulaciones %>% 
    .[variable == "zg"] %>%
-   .[, .(eof = list(compute_eof(file, member, time = c(NA, times[2])) %>%
+   .[, .(eof = list(compute_eof(file, member, time = c(NA_Date_, times[2])) %>%
                        optimise_rotation())), 
      by = .(experiment, model)]
 ```
@@ -1718,7 +1723,7 @@ setorder(fields, experiment, model, part, cEOF, -lev, lat, lon)
 # member <- a$member
 # model <- a$model
 
-eof_proyectado_ <- function(files, member, ..model, time = c(NA, "2014-12-31")) {
+eof_proyectado_ <- function(files, member, ..model, time = c(NA_Date_, "2014-12-31")) {
    message("procesando ", files[1])
    
    array <- lapply(files, function(file) {
@@ -1795,6 +1800,7 @@ eof_proyectado_ <- function(files, member, ..model, time = c(NA, "2014-12-31")) 
       .[, time := NULL] %>% 
       setnames("time_date", "time") %>% 
       .[]
+   
 }
 
 eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
@@ -1803,7 +1809,7 @@ eof_proyectado <- memoise::memoise(eof_proyectado_, cache = cache)
 ```{r ceof_largo_p}
 ceof_largo_p <- simulaciones %>% 
    .[variable == "zg"] %>% 
-   .[, eof_proyectado(file, member, model, time = c(NA, times[2])), 
+   .[, eof_proyectado(file, member, model, time = c(NA_Date_, times[2])), 
      by = .(experiment, model)] 
 ```
 
@@ -1895,18 +1901,18 @@ list(
       # geom_line(aes(group = model), alpha = 0.1) +
       geom_line(aes(color = experiment), alpha = 0.5,
                 data = ~.x[, .(eof = mean(eof)), 
-                           by = .(time, model, experiment, cEOF, part)]) +
+                           by = .(time, experiment, cEOF, part)]) +
       geom_smooth(aes(color = experiment), 
                   data = ~.x[, .(eof = mean(eof)), 
                              by = .(time, experiment, part, cEOF)]) +
       scale_x_continuous(NULL) +
       scale_y_continuous(NULL) +
-      coord_cartesian(ylim = c(-1.5, 1.5)) +
+      # coord_cartesian(ylim = c(-1.5, 1.5)) +
       scale_color_experiments() +
       facet_grid(part ~ cEOF),
    
    ceof_largo_p %>% 
-      .[, .SD[all(c("historical", experiments) %in% experiment)], by = model] %>% 
+      .[, .SD[all(experiments %in% experiment)], by = model] %>% 
       sep_ReIm() %>% 
       # .[experiment == "historical"] %>% 
       .[, eof := scale_eof(eof, time <= 1900), 
@@ -1928,13 +1934,11 @@ list(
       scale_x_continuous(NULL) +
       scale_y_continuous(NULL) +
       scale_color_experiments() +
-      coord_cartesian(ylim = c(-1.5, 1.5)) +
+      # coord_cartesian(ylim = c(-1.5, 1.5)) +
       facet_grid(part ~ cEOF)
 )
 
 ```
-
-
 
 (ref:tendencias-largas-cap) Igual que la Figura \@ref(fig:trends-1) pero para el período 1950 -- 2014. 
 
@@ -1948,7 +1952,7 @@ ceof_largo_p %>%
    .[, FitLm(eof, time = time/10, se = TRUE), 
      by = .(model, experiment, cEOF, ensemble, part)] %>% 
    .[term == "time"] %>%
-   .[, p.value := Pvaluate(estimate, std.error, df, "fdr"), 
+   .[, p.value := Pvaluate(estimate, std.error, df, "none"), 
      by = .(model, experiment)] %>% 
    # cors[., on = c("model", "experiment", "cEOF")] %>% 
    # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
@@ -1963,14 +1967,22 @@ ceof_largo_p %>%
    #           alpha = 0.2,
    #           position = position_dodge(.8)) +
    geom_point(alpha = 0) +
-   geom_boxplot(aes(color = part), width = 0.5,
+   
+   geom_hline(data = ~.x[, mean(estimate), by = .(model, experiment, part)] %>% 
+                 .[, mean(V1), by = .(experiment, part)],
+              aes(yintercept = V1, color = experiment), 
+              linewidth = 2,
+              linetype = 2) +
+   
+   geom_boxplot(aes(color = experiment), width = 0.5,
                 position = position_dodge(.8),
                 fill = NA,
                 data = ~.x[!startsWith(as.character(model), "ERA5")]) +
-   ggforce::geom_sina(aes(color = part, 
-                          shape = p.value < 0.05),
-                      alpha = 1) +
-   scale_color_brewer(NULL, palette = "Set1") +
+   ggforce::geom_sina(aes(color = experiment,
+                          group = interaction(part, model),
+                          shape = p.value < 0.05)) +
+   # scale_color_brewer(NULL, palette = "Set1") +
+   scale_color_experiments(guide = "none") +
    scale_x_discrete(NULL) +
    scale_y_continuous("Tendencia") +
    coord_flip()  +
