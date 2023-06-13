@@ -4,11 +4,10 @@ author: "Elio Campitelli"
 output: 
    bookdown::html_document2:
          base_format: tufte::tufte_html 
-         css: tabset.css
 link-citations: yes 
+params:
+   season: "SON"
 ---
-
-<SCRIPT language="JavaScript" SRC="tabset.js"></SCRIPT>
 
 
 ```{r setup, include=FALSE}
@@ -210,9 +209,11 @@ is.enso34 <- function(lon, lat) {
 ```
 
 
+
 ```{r cmip_available}
 # Tuve que optimizar algunas cosas para poder parsear miles de archivos
 cmip_available <- function(..., root = cmip_root_get()) {
+   
    template <- rcmip6:::cmip6_folder_template %>% 
       gsub("\\%\\(", "{", .) %>% 
       gsub("\\)s", "}", .)
@@ -222,7 +223,6 @@ cmip_available <- function(..., root = cmip_root_get()) {
       gsub("\\}", "", .) %>% 
       strsplit("/") %>% 
       .[[1]]
-   
    
    search_null <- rep("*", length(vars)) %>% 
       setNames(vars) %>% 
@@ -243,11 +243,11 @@ cmip_available <- function(..., root = cmip_root_get()) {
    search <- search_null
    
    search <- lapply(search, globulate)
+   search$root <- root
    
    # Hay que asegurarse de correr en bash
-   command <- paste0("ls -f ", paste0(root, "/", glue::glue_data(search, template), "/model.info"))
    command <- paste0("shopt -s extglob\n ls -f ", 
-                     paste0(root, "/", glue::glue_data(search, template), "/model.info"))
+                     paste0(glue::glue_data(search, template), "/model.info"))
    script_file <- tempfile()
    writeLines(command, script_file)
    
@@ -256,7 +256,7 @@ cmip_available <- function(..., root = cmip_root_get()) {
    info <- normalizePath(info)
    
    data <- unglue::unglue_data(gsub(cmip_root_get(), "", dirname(info)),
-                               template)
+                               gsub("\\{root\\}/", "", template))
    
    
    files <- lapply(info, function(info) {
@@ -271,9 +271,10 @@ cmip_available <- function(..., root = cmip_root_get()) {
 
 ```{r sims}
 cmip_root_set("/shera/datos/CMIP/")
+experiments <- c("hist-GHG", "hist-stratO3", "hist-nat")
 sims <- cmip_available(mip_era = "CMIP6", 
                        activity_drs = "DAMIP",
-                       experiment_id = c("hist-GHG", "hist-stratO3", "hist-nat"),
+                       experiment_id = experiments,
                        # source_id = unique(simulaciones$model),
                        table_id = c("Amon"),
                        variable_id = c("zg")) %>% 
@@ -282,27 +283,14 @@ sims <- cmip_available(mip_era = "CMIP6",
    .[, c("ensemble", "init", "physics", "forcing") := as.list(unglue::unglue_data(member_id, "r{ensemble}i{init}p{physics}f{forcing}", convert = TRUE))] %>% 
    .[order(ensemble)]
 
-# # Algunos modelos tienen distintas parametrizaciones, inicializaciones y demás. 
-# # Me quedo sólo con una combinación para no volverme loque. 
-# sims <- sims[, .SD[physics == physics[1] & init == init[1] & forcing == forcing[1]],
-#              by =  .(source_id, variable_id)] 
-# 
-# # Me quedo con la "mejor grilla". Esto afecta únicamente 
-# # a tos (sst).
-# # El orden de preferencia de las grillas es 
-# # medio aleatorio; gn es el más común.
-# grid_order <- c("gn", "gr", "gr1")
-# 
-# sims <- sims %>% 
-#    copy() %>% 
-#    .[, grid_label := factor(grid_label, levels = grid_order, ordered = TRUE)] %>% 
-#    .[order(grid_label)] %>%
-#    .[, .SD[grid_label == grid_label[1]], by = .(source_id, ensemble, variable_id)] 
+
+# Me quedo con los modelos con todos los experimentos
+sims <- sims[, .SD[all(experiments %in% experiment_id)], by = .(source_id)]
 ```
 
 
 ```{r select_merge}
-future::plan("multisession")
+future::plan("multisession", workers = 10)
 select_merge <- function(file_in) {
    
    unique_items <- file_in %>% 
@@ -316,9 +304,10 @@ select_merge <- function(file_in) {
    browser(expr = unique_items != 1)
    # stopifnot(unique_items == 1)
    
-   file_out <- file.path("damip_son", basename(file_in[1]))
-   
+   file_out <- file.path("damip", params$season, basename(file_in[1]))
+   dir.create(dirname(file_out), showWarnings = FALSE, recursive = TRUE)
    if (file.exists(file_out)) {
+      message(paste0("Skipping existing file ", basename(file_in[1])))
       return(file_out)
    }
    
@@ -407,7 +396,310 @@ simulaciones <- na.omit(files) %>%
 
 ```{r descripcion}
 simulaciones %>% 
-   .[, .(miembros = .N), by = .(model)] %>% 
+   .[, .(miembros = .N), by = .(model, experiment)] %>% 
    .[order(-miembros)] %>% 
-   knitr::kable(caption = "Modelos disponibles.", col.names = c("Modelo", "# de miembros"))
+   dcast(model ~ experiment, value.var = "miembros", fill = 0) %>% 
+   knitr::kable(caption = "Modelos disponibles.")
 ```
+
+
+```{r}
+cmip_ceofs <- readRDS(file.path("cmip", params$season, "cmip6_ceofs.Rds"))
+cmip_ceofs_largo <- readRDS(file.path("cmip", params$season, "cmip6_ceofs_largo_p.Rds"))
+
+```
+
+```{r}
+Detrend2 <- function(x) {
+   y <- seq_along(x)
+   .lm.fit(cbind(1, y, y^2), x)$residuals + mean(x)
+}
+
+grid <- expand.grid(lon = seq(0, 360, by = 2.5),
+                    lat = seq(-90, 0, by = 2.5))
+
+
+interpolate_to_era <- function(data, formula = eof ~ lon + lat) {
+   Interpolate(formula, x.out = unique(grid$lon), y.out = unique(grid$lat), 
+               data = pad_longitudes(data)) 
+}
+
+pad_longitudes <- function(data) {
+   left <- right <- NULL
+   rlon <- ggplot2::resolution(data$lon, zero = FALSE)
+   mlon <- min(data$lon)
+   Mlon <- max(data$lon)
+   
+   if (mlon > 0) {
+      left <- data[lon == Mlon] %>% 
+         DT(, lon := mlon - rlon)
+   }   
+   
+   if (Mlon < 357.5) {
+      right <- data[lon == mlon] %>% 
+         DT(, lon := Mlon + rlon) 
+   }
+   
+   rbind(left, 
+         data, 
+         right) 
+}
+```
+
+```{r rotate_eof}
+weighted_correlation <- function(x, y, w) {
+   cov.wt(cbind(x, y), wt = w, cor = TRUE)$cor[1, 2]
+}
+
+rotate <- function(z, angle = 0) {
+   complex(real = cos(angle), imaginary = sin(angle)) * z
+}
+
+rotate_eof <- function(eof, angle) {
+   eof <- copy(eof)
+   eof$right <- eof$right[angle, on = "cEOF", ][, eof := rotate(eof, angle)][, angle := NULL]
+   eof$left <- eof$left[angle, on = "cEOF", ][, eof := rotate(eof, angle)][, angle := NULL]
+   eof
+}
+```
+
+```{r optimise_rotation}
+
+ref_era5 <- cmip_ceofs %>% 
+   .[model == "ERA5"] %>% 
+   .[, eof[[1]]$right] %>%
+   copy() %>% 
+   setnames("eof", "eof_ref")
+
+optimise_rotation <- function(eof, ref = ref_era5) {
+   angles <- seq(-pi, pi, by = 0.5*pi/180)
+   
+   joined <- eof$right %>% 
+      pad_longitudes() %>% 
+      DT(, Interpolate(eof ~ lon + lat, x.out = unique(ref$lon), y.out = unique(ref$lat)), 
+         by = .(cEOF, lev)) %>% 
+      DT(ref, on = .NATURAL) %>% 
+      na.omit()
+   
+   cors <- lapply(angles, function(a) {
+      joined %>% 
+         DT(, eof2 := rotate(eof, a)) %>% 
+         DT(, .(correlation = weighted_correlation(Re(eof2), Re(eof_ref), cos(lat*pi/180))), 
+            by = .(cEOF)) %>% 
+         DT(, angle := a) 
+   }) %>% 
+      rbindlist()
+   
+   best_cor <- cors[, .SD[which.max(correlation)], by = cEOF]
+   eof <- rotate_eof(eof, best_cor[, .(cEOF, angle)])
+   
+   eof$sdev <- eof$sdev[best_cor[, .(cEOF, correlation, angle)], on = "cEOF"]
+   eof
+}
+```
+
+
+```{r compute_eof}
+compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31"), detrend = FALSE) {
+   message("procesando ", files[1])
+   
+   array <- lapply(files, function(file) {
+      ReadNetCDF(file, vars = c(hgt = "zg"), 
+                 subset = list(lat = c(-85, -20),
+                               time = time),
+                 out = "array")[[1]]
+   })
+   
+   time_lookup <- data.table::data.table(time = dimnames(array[[1]])$time,
+                                         time_date = as.integer(year(attr(array[[1]], "dimvalues")$time)))
+   
+   array <- abind::abind(array, rev.along = 0,
+                         use.dnns = TRUE)
+   
+   dimnames(array)[[5]] <- member
+   names(dimnames(array))[[5]] <- "ensemble"
+   
+   
+   whichdim <- function(array, dims) {
+      which((names(dimnames(array)) %in% dims))
+   }
+   whichdimnot <- function(array, dims) {
+      which(!(names(dimnames(array)) %in% dims))
+   }
+   
+   # Calcular anomalias zonales
+   array <- apply(array, whichdimnot(array, "lon"), Anomaly) %>% 
+      aperm(names(dimnames(array)))
+   
+   if (detrend) {
+      # Detrend
+      ensemble_mean <- rowMeans(array, dims = 4)
+      trend <- apply(ensemble_mean, c("lon", "lat", "plev"), function(x) {
+         time <- seq_along(x)
+         x - .lm.fit(cbind(1, time, time^2), x)$residuals - mean(x)
+      }) %>% 
+         aperm(names(dimnames(array))[-5])
+      
+      array <- sweep(array, 1:4, trend)
+   }
+   
+   
+   # Estandarizar
+   sd <- apply(array, "plev", sd)
+   array <- sweep(array, whichdim(array, "plev"), sd, FUN = "/")
+   
+   # Transfomar de hilbert
+   hilbert <- apply(array, whichdimnot(array, "lon"), spectral::analyticFunction) %>% 
+      aperm(names(dimnames(array)))
+   
+   hilbert <- aperm(hilbert, setNames(seq_along(dimnames(hilbert)), 
+                                      names(dimnames(hilbert)))[c("time", "ensemble", "lon", "lat", "plev")])
+   
+   # Calcular EOF y hacer tidy
+   dim(hilbert) <- list(prod(lengths(dimnames(hilbert))[1:2]),
+                        prod(lengths(dimnames(hilbert))[3:5]))
+   
+   eof <- irlba::irlba(hilbert, 2, 2)
+   
+   dim(eof$u) <-  as.list(c(dimnames(array)[c("time", "ensemble")] %>% lengths(),
+                            eof = 2))
+   dimnames(eof$u) <- with(dimnames(array), 
+                           list(time = time, ensemble = ensemble, cEOF = 1:2))
+   eof$u <- reshape2::melt(eof$u, value.name = "eof") %>% data.table::setDT()
+   eof$u[, time := as.character(time)]
+   
+   eof$u <- time_lookup[eof$u, on = .NATURAL] %>% 
+      DT(, time := NULL) %>% 
+      data.table::setnames("time_date", "time")
+   eof$u[, cEOF := factor(paste0("cEOF", cEOF))]
+   
+   dim(eof$v) <- as.list(c(c(dimnames(array)[c("lon", "lat", "plev")] %>% lengths(),
+                             eof = 2)))
+   dimnames(eof$v) <- with(dimnames(array),
+                           list(lon = lon, lat = lat, lev = plev, cEOF = 1:2))
+   
+   eof$v <- reshape2::melt(eof$v, value.name = "eof") %>%  data.table::setDT()
+   eof$v[, cEOF := factor(paste0("cEOF", cEOF))]
+   eof$v[, lat := as.numeric(lat)]
+   eof$v[, lon := as.numeric(lon)]
+   eof$v[, lev := as.integer(lev/100)]
+   
+   variance <- norm(abs(hilbert), type = "F")
+   
+   eof$d <- data.table(cEOF = factor(paste0("cEOF", 1:2), levels = paste0("cEOF", 1:2),
+                                     ordered = TRUE), 
+                       sd = eof$d, 
+                       r2 = eof$d^2/variance^2)
+   
+   return(structure(
+      list(left = eof$u, 
+           right = eof$v, 
+           sdev = eof$d),
+      call = match.call(), 
+      class = c("eof", "list"), 
+      suffix = "cEOF", 
+      value.var = "eof"))
+}
+
+compute_eof <- memoise::memoise(compute_eof_, cache = cache)
+```
+
+
+```{r}
+cmip_ceofs[, experiment := "hist"]
+```
+
+```{r}
+ceofs <- simulaciones %>% 
+   .[variable == "zg"] %>%
+   .[, .(eof = list(compute_eof(file, member, time = c(NA, NA)) %>%
+                       optimise_rotation())), 
+     by = .(model, experiment)]
+
+ceofs <- rbind(ceofs, cmip_ceofs[model %in% ceofs$model][, experiment := "hist"])
+```
+
+
+```{r plot_ceof} 
+plot_ceof <- function(data, n, which_lev = 200) {
+   data <- data[, .(eof = list(cut(eof[[1]], n))), by = model]
+   
+   which_pc <- paste0("cEOF", n)
+   
+   models <- data %>% 
+      DT(, eof[[1]]$sdev, by = model) %>%
+      DT(cEOF == which_pc) %>% 
+      DT(order(-correlation)) 
+   
+   labels <- models %>%
+      DT(, setNames(paste0(model, "\n(", scales::number(correlation^2, 0.01), ")"),
+                    model))
+   
+   data %>% 
+      DT(, eof[[1]]$right, by = model) %>%
+      # DT(, denormalise(eof[[1]], "right"), by = model) %>%
+      DT(cEOF == which_pc) %>% 
+      # DT(, eof[[1]]$right, by = model) %>%
+      DT(, model := factor(model, levels = models$model)) %>%
+      DT(lev == which_lev) %>% 
+      DT(, eof := eof/max(Mod(eof)), by = model) %>% 
+      DT(, interpolate_to_era(.SD), by = .(model, lev, cEOF)) %>% 
+      # DT(, eof := eof/sd(eof), by = .(model)) %>% 
+      ggperiodic::periodic(lon = c(0, 360)) %>% 
+      ggplot(aes(lon, lat)) +
+      geom_contour_fill(aes(z = Re(eof)), breaks = AnchorBreaks(exclude = 0)) +
+      geom_contour2(aes(z = Im(eof), linetype = factor(-sign(..level..))), 
+                    breaks = AnchorBreaks(exclude = 0)) +
+      scale_linetype(guide = "none") +
+      scale_fill_divergent(guide = "none") +
+      geom_qmap(crop = c(ymax = -20)) +
+      scale_x_longitude() +
+      scale_y_latitude(limits = c(-90, NA)) +
+      coord_polar() +
+      facet_wrap(model ~., labeller = labeller(model = labels))
+   
+}
+```
+
+
+
+```{r cors}
+cors <- ceofs %>% 
+   DT(, eof[[1]]$sdev, by = .(experiment, model)) %>% 
+   # DT(model != "ERA5") %>% 
+   copy() %>% 
+   DT(, r2 := correlation^2) %>% 
+   DT(, label := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")"))
+```
+
+
+```{r}
+cors %>% 
+   DT(model != "ERA5") %>% 
+   DT(, model := reorder(model, r2, fun = mean)) %>% 
+   ggplot(aes(r2, model)) +
+   geom_col(aes(fill = experiment),
+            position = "dodge") +
+   scale_fill_brewer(palette = "Set1") +
+   scale_x_continuous("R^2 espacial", limits = c(0, 1)) +
+   scale_y_discrete(NULL) +
+   labs(caption = "Con tendencia") +
+   facet_wrap(~cEOF)
+```
+
+
+```{r}
+ceofs %>% 
+   .[experiment != "hist"] %>% 
+   .[, eof[[1]]$left, by = .(model, experiment)] %>% 
+   # rbind(copy(cmip_ceofs_largo)[, experiment := "hist"], fill = TRUE) %>%
+   sep_ReIm() %>% 
+   ggplot(aes(time, eof)) +
+   # geom_line(aes(color = experiment, 
+   #               group = interaction(experiment, model, ensemble)), 
+   #           alpha = 0.1) +
+   geom_smooth(aes(color = experiment, group = interaction(experiment, model))) +
+   facet_grid(cEOF~part)
+```
+
+

@@ -69,7 +69,7 @@ library(tidyfast)
 library(rcmip6)
 source("scripts/fftspectrum.R")
 source("scripts/helperfun.R")
-D <- `[`
+DT <- `[`
 
 factor_ReIm <- function(part) {
    factor(part, levels = c("Real", "Imaginary"), ordered = TRUE)
@@ -842,13 +842,13 @@ compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31"), de
                                       names(dimnames(hilbert)))[c("time", "ensemble", "lon", "lat", "plev")])
    
    # Calcular EOF y hacer tidy
-   dim(hilbert) <- list(prod(lengths(dimnames(hilbert))[1:2]),
+   dim(hilbert) <- c(prod(lengths(dimnames(hilbert))[1:2]),
                         prod(lengths(dimnames(hilbert))[3:5]))
    
    eof <- irlba::irlba(hilbert, 2, 2)
    
-   dim(eof$u) <-  as.list(c(dimnames(array)[c("time", "ensemble")] %>% lengths(),
-                            eof = 2))
+   dim(eof$u) <-  c(dimnames(array)[c("time", "ensemble")] %>% lengths(),
+                            eof = 2)
    dimnames(eof$u) <- with(dimnames(array), 
                            list(time = time, ensemble = ensemble, cEOF = 1:2))
    eof$u <- reshape2::melt(eof$u, value.name = "eof") %>% data.table::setDT()
@@ -859,8 +859,8 @@ compute_eof_ <- function(files, member, time = c("1979-10-01", "2014-12-31"), de
       data.table::setnames("time_date", "time")
    eof$u[, cEOF := factor(paste0("cEOF", cEOF))]
    
-   dim(eof$v) <- as.list(c(c(dimnames(array)[c("lon", "lat", "plev")] %>% lengths(),
-                             eof = 2)))
+   dim(eof$v) <- c(dimnames(array)[c("lon", "lat", "plev")] %>% lengths(),
+                             eof = 2)
    dimnames(eof$v) <- with(dimnames(array),
                            list(lon = lon, lat = lat, lev = plev, cEOF = 1:2))
    
@@ -908,7 +908,6 @@ ceofs <- rbind(ceofs, ceof_era5)
 saveRDS(ceofs, file.path("cmip", params$season, "cmip6_ceofs.Rds"))
 ```
 
-
 ```{r ceofs_detrend}
 ceofs_detrend <- simulaciones %>% 
    .[variable == "zg"] %>%
@@ -918,6 +917,10 @@ ceofs_detrend <- simulaciones %>%
 ceofs_detrend <- rbind(ceofs_detrend, ceof_era5_detrend)
 ```
 
+
+```{r save-ceofs-detrend, cache = FALSE}
+saveRDS(ceofs_detrend, file.path("cmip", params$season, "cmip6_ceofs_detrend.Rds"))
+```
 
 ```{r plot_ceof} 
 plot_ceof <- function(data, n, which_lev = 200) {
@@ -1397,7 +1400,7 @@ regress_sst_ <- function(..model) {
                                time = c("1979-10-01", "2014-12-31"))) %>% 
          .[!is.na(sst)] %>% 
          .[, time := year(time)] %>% 
-         .[, ensemble := as.integer(sst_files[i, ]$member)] 
+         .[, ensemble := sst_files[i, ]$member] 
    })
    
    data <- rbindlist(data)
@@ -1597,6 +1600,10 @@ rbind(
    scale_fill_brewer(palette = "Set1") 
 ```
 
+
+Fijarse si esto está bien. Estoy calculando una única tendencia por modelo. 
+Chequear si da lo miso que: 
+   * 
 
 ```{r compute_trend}
 compute_trend_ <- function(file, levs = c(200, 50)) {
@@ -1857,6 +1864,7 @@ scale_eof <- function(eof, baseline) {
 
 ```{r tendencia, fig.width=6, fig.height=4}
 ceof_largo_p %>% 
+
    sep_ReIm() %>% 
    .[experiment == "historical"] %>% 
    .[, eof := scale_eof(eof, time <= 1900), by = .(model, experiment, part, ensemble, cEOF)] %>%
@@ -1869,6 +1877,8 @@ ceof_largo_p %>%
    geom_line(aes(group = model), alpha = 0.1) +
    geom_line(data = ~.x[, .(eof = mean(eof)), by = .(time, cEOF, part)]) +
    geom_smooth(data = ~.x[, .(eof = mean(eof)), by = .(time, part, cEOF)]) +
+   
+   geom_line(data = ceof_era5[, eof[[1]]$left] %>% sep_ReIm() %>% .[, eof := scale_eof(eof), by = .(cEOF, part)]) +
    scale_x_continuous(NULL) +
    scale_y_continuous(NULL) +
    coord_cartesian(ylim = c(-1.5, 1.5)) +
@@ -1942,7 +1952,35 @@ list(
 
 (ref:tendencias-largas-cap) Igual que la Figura \@ref(fig:trends-1) pero para el período 1950 -- 2014. 
 
+```{r fig.height = 12, fig.width=8}
+# ggplot(mapping = aes(estimate, model)) +
+#    geom_rect(data = coef_fixed, aes(xmin = conf.low, xmax = conf.high, ymin = -Inf, ymax = Inf), 
+#              inherit.aes = FALSE, alpha = .5) +
+#    geom_jitter(data = coef_members) +
+#    geom_pointrange(data = coef_models, 
+#               aes(xmin = conf.low, xmax = conf.high)) +
+#    geom_vline(data = coef_fixed, 
+#               aes(xintercept = estimate)) +
+#    facet_grid(experiment ~ part, scales = "free_y") +
+#    coord_cartesian(xlim = 0.02 * c(-1, 1))
+   
+```
+
+
+
 ```{r tendencias-largas, fig.height = 12, fig.width=8}
+trend_era <- ceof_era5[, eof[[1]]$left] %>% 
+   .[cEOF == "cEOF1"] %>%
+   .[, eof := eof/sd(Mod(eof)), by = .(cEOF)] %>% 
+   .[time >= 1950] %>% 
+   sep_ReIm() %>% 
+   .[, FitLm(eof, time = time/10, se = TRUE), 
+     by = .(cEOF, part)] %>% 
+   .[term == "time"] %>% 
+   .[, experiment := "historical"] %>% 
+   .[, experiment := factor(experiment, levels = experiments)]
+
+
 ceof_largo_p %>%
    copy() %>% 
    .[cEOF == "cEOF1"] %>%
@@ -1957,6 +1995,7 @@ ceof_largo_p %>%
    # cors[., on = c("model", "experiment", "cEOF")] %>% 
    # .[, model := paste0(model, "\n(", scales::number(correlation^2, 0.01), ")")] %>% 
    # .[, model := reorder(model, correlation)] %>% 
+   .[] %>% 
    ggplot(aes(model, estimate)) +
    geom_hline(yintercept = 0, color = "gray50") +
    # geom_tile(data = ~.x[, .(m = 2*mean(std.error)), by = .(model, part)],
@@ -1968,6 +2007,7 @@ ceof_largo_p %>%
    #           position = position_dodge(.8)) +
    geom_point(alpha = 0) +
    
+   geom_hline(data = trend_era, aes(yintercept = estimate)) +
    geom_hline(data = ~.x[, mean(estimate), by = .(model, experiment, part)] %>% 
                  .[, mean(V1), by = .(experiment, part)],
               aes(yintercept = V1, color = experiment), 
@@ -2172,4 +2212,6 @@ plot_fft(1)
 plot_fft(2) +
    coord_cartesian(ylim = c(0, 11)) 
 ```
+
+
 
