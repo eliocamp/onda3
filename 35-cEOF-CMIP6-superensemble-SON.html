@@ -60,11 +60,11 @@ if (window.hljs) {
 
 <h1 class="title toc-ignore">35-cEOF Superensamble - SON</h1>
 <h4 class="author">Elio Campitelli</h4>
-<h4 class="date">2023-01-27 12:31:41</h4>
+<h4 class="date">2023-06-25 20:47:02.11455</h4>
 
 
 
-<div id="métodos" class="section level1">
+<div id="métodos" class="section level1" number="1">
 <h1><span class="header-section-number">1</span> Métodos</h1>
 <p>Dada la experiencia anterior, voy a calcular los cEOFs usando todos los miembros concatenados: el superensemble (?).</p>
 <p>Algunos detalles:</p>
@@ -270,7 +270,7 @@ if (window.hljs) {
 <tr class="even">
 <td align="left">MIROC6</td>
 <td align="left">historical</td>
-<td align="right">100</td>
+<td align="right">98</td>
 </tr>
 <tr class="odd">
 <td align="left">ACCESS-ESM1-5</td>
@@ -366,7 +366,7 @@ if (window.hljs) {
 </table>
 <p>Voy a calcular los cEOF multimodelo como los cEOFs promedio.</p>
 </div>
-<div id="resultados" class="section level1">
+<div id="resultados" class="section level1" number="2">
 <h1><span class="header-section-number">2</span> Resultados</h1>
 
 <div class="figure"><span style="display:block;" id="fig:comparacion-r2-1"></span>
@@ -382,7 +382,7 @@ function change_comparacion_r2(newVal){
 </script>
 <p>La Figura <a href="#fig:comparacion-r2"><strong>??</strong></a> muestra el <span class="math inline">\(r^2\)</span> de los modelos para los dos cEOFs.
 Por alguna razón los valores del superensemble tienen menos correlación que los miembros en promedio ¯\_(ツ)_/¯.</p>
-<div id="parte-espacial" class="section level2">
+<div id="parte-espacial" class="section level2" number="2.1">
 <h2><span class="header-section-number">2.1</span> Parte espacial</h2>
 <p>Las Figuras <a href="#fig:ceofs-1-50"><strong>??</strong></a> y <a href="#fig:ceofs-1-200"><strong>??</strong></a> muestan el cEOF1 en 50 hPa y 200 hPa respectivamente.
 En general los patrones son bastante similares, especialmente en la estratósfera, donde e patrón es de mayor escala y entonces hay menos chances de cosas que fallen.
@@ -438,7 +438,7 @@ function change_ceofs_2_200(newVal){
   document.getElementById("ceofs-2-200").src = "fig/35-cEOF-CMIP6-superensembleSON//ceofs-2-200-" + newVal + ".png";
 }
 </script>
-<div id="media-multimodelo" class="section level3">
+<div id="media-multimodelo" class="section level3" number="2.1.1">
 <h3><span class="header-section-number">2.1.1</span> Media multimodelo</h3>
 <p>Finalmente, la Figura <a href="#fig:mmm"><strong>??</strong></a> muestra los patrones promedio multimodelo para cada cEOF y cada parte.</p>
 
@@ -457,7 +457,7 @@ function change_mmm(newVal){
 <p>En base a esto y a la metodología usada en la literatura, propongo que un próximo paso para evaluación de atribución o tendencias futuras use este patrón promedio para obtener las series temporales en vez de los propios de cada modelo.</p>
 </div>
 </div>
-<div id="parte-temporal" class="section level2">
+<div id="parte-temporal" class="section level2" number="2.2">
 <h2><span class="header-section-number">2.2</span> Parte temporal</h2>
 <p>Para analizar las propiedades de los modos de cada modelo uso las series temporales propias de cada modelo.</p>
 <p>Las Figuras <a href="#fig:trends-1">2.7</a> y <a href="#fig:trends-1">2.7</a> muestran las tendencias lineales de cada cEOF.
@@ -505,7 +505,7 @@ Figure 2.11: Espectros de Fourier para los índices ENSO34 de cada modelo. En l�
 <img src="fig/35-cEOF-CMIP6-superensembleSON/ensofft-1.png" alt="Espectros de Fourier para los índices ENSO34 de cada modelo. En línea obscura es el espectro promedio de todos los miembros, que se muestran en líneas translúcidas. En recuadro negro, los mismos modelos recuadrados en la Figura 2.10." width="864" id='ensofft' />
 </div>
 </div>
-<div id="sst" class="section level2">
+<div id="sst" class="section level2" number="2.3">
 <h2><span class="header-section-number">2.3</span> SST</h2>
 <p>Finalmente, queremos evaluar si los modelos capturan correctamente la relación entre los modos y las anomalías de temperatura de la superficie del mar.</p>
 
@@ -549,7 +549,7 @@ Figure 2.14: Promedio multimodelo de las regresiones de las figuras <a href="#fi
 </div>
 </div>
 </div>
-<div id="serie-temporal-larga" class="section level1">
+<div id="serie-temporal-larga" class="section level1" number="3">
 <h1><span class="header-section-number">3</span> Serie temporal larga</h1>
 <p>Hay dos formas de extender los cEOFS para odo el período, puedo recomputar el cEOF usando todos los datos, o puedo proyectar los campos obtenidos.
 La primera es más natural, pero tiene el inconveniente de que la interpretación depende de que los cEOFs obtenidos seaon comparables (los campos sean iguales o similares).</p>
@@ -561,6 +561,9 @@ Figure 3.1: Correlación entre el cEOF espacial computado con el período modero
 </p>
 <img src="fig/35-cEOF-CMIP6-superensembleSON/cors-periodo-1.png" alt="Correlación entre el cEOF espacial computado con el período modero y el computado con el período 1850–1910." width="480" id='cors-periodo' />
 </div>
+<p>Fijarse si esto está bien. Estoy calculando una única tendencia por modelo.
+Chequear si da lo miso que:
+*</p>
 <script>
 function change_tendencias(newVal){
   document.getElementById("tendencias").src = "fig/35-cEOF-CMIP6-superensembleSON/tendencias-" + newVal + ".png";
@@ -575,7 +578,7 @@ Figure 3.2: Correlación entre las series temporales de cada modelo, miembro, cE
 </div>
 <p>Por suerte, no hace falta elegir ya que ambos métodos dan prácticamente el mismo resultado, como se ve en la Figura <a href="#fig:correlacion-metodos">3.2</a>.</p>
 <p>Por las ventajas de interpretación y demás, vamos a seguir con la proyección.</p>
-<div id="series" class="section level2">
+<div id="series" class="section level2" number="3.1">
 <h2><span class="header-section-number">3.1</span> Series</h2>
 
 <div class="figure"><span style="display:block;" id="fig:tendencia"></span>
