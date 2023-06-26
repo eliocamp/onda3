@@ -507,21 +507,20 @@ era5 <- "/datos/reanalysis/ERA5/mon/era5.mon.mean.nc" %>%
    DT(season(time) == toupper(params$season)) %>% 
    DT(, hgt := hgt/9.8) %>% 
    DT(, lev := as.integer(lev)) %>% 
-   setnames("lev", "plev") %>% 
-   DT(, .(hgt = mean(hgt)), by = .(lon, lat, plev, time = as.integer(year(seasonally(time))))) %>% 
+   DT(, .(hgt = mean(hgt)), by = .(lon, lat, lev, time = as.integer(year(seasonally(time))))) %>% 
    DT(, model := "ERA5") %>%
    DT(, experiment := "reanalysis") %>% 
    DT(, member := 1L) %>% 
    DT(is.finite(hgt)) %>% 
-   DT(, hgt_z := hgt - mean(hgt), by = .(time, lat, plev)) 
+   DT(, hgt_z := hgt - mean(hgt), by = .(time, lat, lev)) 
 
 set.seed(42)
 ceof_era5 <- era5 %>% 
-   DT(, hgt_z := hgt_z/sd(hgt_z[time %between% year(climatology)]), by = .(plev)) %>% 
-   DT(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, plev, lat)) %>% 
+   DT(, hgt_z := hgt_z/sd(hgt_z[time %between% year(climatology)]), by = .(lev)) %>% 
+   DT(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, lev, lat)) %>% 
    DT(, eof := hgt_cplx) %>% 
    DT(lat %between% c(-85, -20)) %>%
-   DT(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + plev, n = 1:2, 
+   DT(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + lev, n = 1:2, 
                          data = .SD, 
                          suffix = "cEOF"))), by = .(experiment, model))
 
@@ -533,15 +532,16 @@ ceof_era5$eof[[1]]$sdev %>%
    invisible()
 ```
 
+
 ```{r ceof_era5_detrend}
 ceof_era5_detrend <- era5 %>% 
    copy() %>% 
-   DT(, hgt_z := Detrend2(hgt_z), by = .(lon, lat, plev)) %>% 
-   DT(, hgt_z := hgt_z/sd(hgt_z[time %between% year(climatology)]), by = .(plev)) %>% 
-   DT(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, plev, lat)) %>% 
+   DT(, hgt_z := Detrend2(hgt_z), by = .(lon, lat, lev)) %>% 
+   DT(, hgt_z := hgt_z/sd(hgt_z[time %between% year(climatology)]), by = .(lev)) %>% 
+   DT(, hgt_cplx := spectral::analyticFunction(hgt_z), by = .(time, lev, lat)) %>% 
    DT(, eof := hgt_cplx) %>% 
    DT(lat %between% c(-85, -20)) %>%
-   DT(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + plev, n = 1:2, 
+   DT(, .(eof = list(EOF(formula = eof ~ time + member | lon + lat + lev, n = 1:2, 
                          data = .SD, 
                          suffix = "cEOF"))), by = .(experiment, model))
 
@@ -904,8 +904,10 @@ ceofs <- rbind(ceofs, ceof_era5)
 # rm(ceof_era5)
 ```
 
+
 ```{r save-ceofs, cache = FALSE}
 saveRDS(ceofs, file.path("cmip", params$season, "cmip6_ceofs.Rds"))
+saveRDS(ref_era5, file.path("cmip", params$season, "ref_era5.Rds"))
 ```
 
 ```{r ceofs_detrend}
@@ -1095,7 +1097,6 @@ plot_mmm <- function(trends = TRUE, experiments = "historical") {
    base <- ceof_era[, eof[[1]]$right] %>% 
       copy() %>% 
       setnames("eof", "base") %>%
-      setnames("plev", "lev") %>% 
       DT(, base := base/max(Mod(base)), by = .(cEOF, lev))
    
    cor_mmm <- interpolated %>% 
